@@ -48,7 +48,7 @@ Lebih dari sekadar chatbot, EMORA adalah asisten yang bisa **berpikir**, **meren
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/arthurlucky/Emora-Agent/tree/main.git
+git clone https://github.com/arthurlucky/Emora-Agent.git
 cd emora
 
 # 2. Install dependencies
