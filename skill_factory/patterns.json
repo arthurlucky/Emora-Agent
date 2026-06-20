@@ -242,6 +242,25 @@
       "last_seen": 1781955762349,
       "skill_created": false,
       "skill_name": null
+    },
+    "create_folder>create_folder>write_file>write_file>write_file>write_file>write_file": {
+      "sequence": [
+        "create_folder",
+        "create_folder",
+        "write_file",
+        "write_file",
+        "write_file",
+        "write_file",
+        "write_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "c697d47e-6444-4dfa-b623-eb6e3cb51da0"
+      ],
+      "first_seen": 1781957862726,
+      "last_seen": 1781957862726,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }
