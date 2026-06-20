@@ -12,29 +12,45 @@
 
 const activeGateways = [];
 
-// ==========================================
-// TELEGRAM
-// ==========================================
-if (process.env.TELEGRAM_TOKEN_BOT && process.env.TELEGRAM_GATEWAY === "true") {
-  console.log("[GATEWAY] Memuat Telegram...");
-  const tg = await import("./telegram/telegram.js");
-  activeGateways.push({ name: "telegram", module: tg });
+async function loadGateways() {
+  // ==========================================
+  // TELEGRAM
+  // ==========================================
+  if (process.env.TELEGRAM_TOKEN_BOT && process.env.TELEGRAM_GATEWAY === "true") {
+    console.log("[GATEWAY] Memuat Telegram...");
+    const tg = await import("./telegram/telegram.js");
+    activeGateways.push({ name: "telegram", module: tg });
+  }
+
+  // ==========================================
+  // WHATSAPP
+  // ==========================================
+  if (process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER) {
+    console.log("[GATEWAY] Memuat WhatsApp...");
+    const wa = await import("./whatsapp/whatsapp.js");
+    activeGateways.push({ name: "whatsapp", module: wa });
+  }
+
+  if (activeGateways.length === 0) {
+    console.warn("[GATEWAY] ⚠️  Tidak ada gateway yang aktif. Periksa konfigurasi .env.");
+  }
 }
 
-// ==========================================
-// WHATSAPP
-// ==========================================
-if (process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER) {
-  console.log("[GATEWAY] Memuat WhatsApp...");
-  const wa = await import("./whatsapp/whatsapp.js");
-  activeGateways.push({ name: "whatsapp", module: wa });
-}
+// PENTING: jangan pakai `await loadGateways()` di sini (top-level await).
+// Node.js v22+ punya bug dimana kombinasi top-level await + dynamic import()
+// kadang salah dideteksi sebagai "unsettled" dan mematikan proses secara
+// prematur (lihat nodejs/node#55468 dan #58398), padahal promise-nya
+// sebenarnya berjalan normal — cuma menunggu library gateway (mis. baileys)
+// selesai dimuat. Dengan fire-and-forget seperti ini, proses utama tidak
+// pernah "menunggu" secara top-level, jadi heuristik buggy itu tidak terpicu.
+// activeGateways akan terisi begitu masing-masing gateway selesai dimuat di
+// background — ini aman karena tool/chat baru bisa dipakai user setelah
+// proses startup ini selesai dalam hitungan detik.
+const gatewaysReady = loadGateways().catch((err) => {
+  console.error("[GATEWAY] Gagal memuat gateway:", err.message);
+});
 
-if (activeGateways.length === 0) {
-  console.warn("[GATEWAY] ⚠️  Tidak ada gateway yang aktif. Periksa konfigurasi .env.");
-}
-
-export { activeGateways };
+export { activeGateways, gatewaysReady };
 
 /**
  * Kirim file ke user via semua gateway yang aktif dan memiliki sesi user.

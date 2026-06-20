@@ -6,7 +6,13 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 
 // Import fungsi dari gateway
-import { handleSendFile } from "../gateway/telegram/sendfile.js";
+// PENTING: pakai helper terpusat sendFileToUser() dari gateway/index.js,
+// BUKAN handler per-gateway. Helper ini otomatis mendeteksi apakah session_id
+// milik sesi Telegram atau WhatsApp dan mengirim ke gateway yang benar.
+// (Sebelumnya kode ini hardcode ke gateway/telegram/sendfile.js sehingga
+// sendFile selalu gagal ketika gateway aktif adalah WhatsApp.)
+import { resolveWorkspacePath } from "../utils/workspace.js";
+import { sendFileToUser } from "../gateway/index.js";
 
 const BASE_DIR = path.resolve(process.cwd());
 const DEFAULT_TIMEOUT = 60_000;
@@ -41,7 +47,7 @@ function resolveCwd(cwd) {
 export const shellExecTool = new DynamicStructuredTool({
   name: "shell_exec",
   description:
-    "Jalankan perintah terminal/shell nyata. BISA JUGA untuk kirim file ke telegram menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
+    "Jalankan perintah terminal/shell nyata. BISA JUGA untuk kirim file ke user via Telegram ATAU WhatsApp (otomatis sesuai gateway aktif) menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
   schema: z.object({
     command: z.string(),
     session_id: z.string().optional().describe("WAJIB DIISI dengan Session ID (dari [INFO SYSTEM]) HANYA JIKA menggunakan perintah sendFile!"),
@@ -51,10 +57,27 @@ export const shellExecTool = new DynamicStructuredTool({
   }),
   func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true }) => {
     
-    // [INTERCEPTOR]: Cegat perintah sendFile ke Telegram
+    // [INTERCEPTOR]: Cegat perintah sendFile (bekerja untuk Telegram MAUPUN WhatsApp)
     if (command.trim().startsWith("sendFile")) {
       if (!session_id) return "❌ Gagal: parameter session_id WAJIB diisi untuk sendFile.";
-      return await handleSendFile(command, session_id);
+
+      const pathMatch = command.match(/--pathfile=["']?([^"'\s]+)["']?/);
+      const textMatch = command.match(/--text=["']([^"']*)["']/);
+
+      if (!pathMatch) {
+        return '❌ Format salah. Gunakan: sendFile --pathfile="./namafile.txt" --text="Caption"';
+      }
+
+      const rawPath = pathMatch[1];
+      const caption = textMatch ? textMatch[1] : "";
+      const absolutePath = resolveWorkspacePath(rawPath);
+
+      if (!fs.existsSync(absolutePath)) {
+        return `❌ File tidak ditemukan: '${rawPath}'`;
+      }
+
+      const results = await sendFileToUser(session_id, absolutePath, caption);
+      return results.join("\n");
     }
 
     if (!isSafe(command)) return `🚫 Perintah diblokir: "${command}"`;

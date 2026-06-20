@@ -6,11 +6,12 @@ import { z } from "zod";
 const ROOT_DIR = path.resolve(process.cwd());
 
 // BUGFIX 1: Kasih fallback default URL biar gak crash kalau .env lupa diset
-const BASE_URL = process.env.EMORA_HUB ; 
+// (Sudah ditambahkan fallback ke replit app)
+const BASE_URL = process.env.EMORA_HUB || "https://emora-hub--rellaja1214.replit.app"; 
 
 export const emoraHubTool = new DynamicStructuredTool({
   name: "emora_hub",
-  description: "Akses ke EMORA Community Hub untuk mencari dan mendownload tool/skill (dalam format .zip) ke folder 'download/'.",
+  description: "Akses ke EMORA Community Hub untuk mencari, mendownload tool/skill ke folder 'download/', atau meng-upload tool/skill baru dalam format .zip.",
   
   schema: z.object({
     action: z.enum([
@@ -18,15 +19,21 @@ export const emoraHubTool = new DynamicStructuredTool({
       "get_popular_skills", 
       "search_tools", 
       "search_skills",
-      "download_item"
+      "download_item",
+      "upload_item" // Action baru untuk POST
     ]),
     query: z.string().optional(),
     download_url: z.string().optional(),
     item_type: z.enum(["tool", "skill"]).optional(),
-    item_name: z.string().optional()
+    item_name: z.string().optional(),
+    // Parameter baru khusus untuk upload_item
+    api_key: z.string().optional(),
+    description: z.string().optional(),
+    tags: z.string().optional(),
+    file_path: z.string().optional() // Path file .zip lokal yang mau di-upload
   }),
 
-  func: async ({ action, query, download_url, item_type, item_name }) => {
+  func: async ({ action, query, download_url, item_type, item_name, api_key, description, tags, file_path }) => {
     try {
       let url = "";
       switch (action) {
@@ -62,13 +69,53 @@ export const emoraHubTool = new DynamicStructuredTool({
           if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
           
           // BUGFIX 2: Sanitize nama file biar gak ada spasi (auto content -> auto_content.zip)
-          // Ini mencegah error command line saat AI melakukan ekstrak zip via project_manager
           const safeFileName = item_name.toLowerCase().trim().replace(/[^a-z0-9_]/g, "_");
-          const filePath = path.join(downloadDir, `${safeFileName}.zip`);
+          const dlFilePath = path.join(downloadDir, `${safeFileName}.zip`);
           
-          fs.writeFileSync(filePath, buffer);
+          fs.writeFileSync(dlFilePath, buffer);
           
-          return `✅ File ZIP berhasil didownload ke '${filePath}'. SEKARANG: Kamu WAJIB menggunakan project_manager untuk mengeksekusi proses instalasi (ekstrak, pindah, registrasi) sesuai EMORA HUB INSTALLATION PROTOCOL di AGENT.md. Gunakan nama direktori tujuan '${safeFileName}'.`;
+          return `✅ File ZIP berhasil didownload ke '${dlFilePath}'. SEKARANG: Kamu WAJIB menggunakan project_manager untuk mengeksekusi proses instalasi (ekstrak, pindah, registrasi) sesuai EMORA HUB INSTALLATION PROTOCOL di AGENT.md. Gunakan nama direktori tujuan '${safeFileName}'.`;
+
+        // ==========================================
+        // FITUR BARU: UPLOAD ITEM (POST)
+        // ==========================================
+        case "upload_item":
+          if (!api_key || !item_type || !description || !tags || !file_path) {
+            return "❌ Error: Data upload tidak lengkap. Butuh 'api_key', 'item_type' (tool/skill), 'description', 'tags', dan 'file_path'.";
+          }
+
+          const absoluteFilePath = path.resolve(ROOT_DIR, file_path);
+          if (!fs.existsSync(absoluteFilePath)) {
+            return `❌ Error: File ZIP tidak ditemukan di '${absoluteFilePath}'. Pastikan file sudah terbuat sebelum di-upload.`;
+          }
+
+          // Konversi buffer ke format Blob yang bisa diterima FormData di environment Fetch Node.js
+          const fileBufferUpload = fs.readFileSync(absoluteFilePath);
+          const fileBlob = new Blob([fileBufferUpload]);
+          
+          const formData = new FormData();
+          
+          // Map item_type dari "tool" ke "tools", dan "skill" ke "skills" sesuai expected API
+          const uploadTipe = item_type === "tool" ? "tools" : "skills";
+          
+          formData.append("tipe", uploadTipe);
+          formData.append("description", description);
+          formData.append("tags", tags);
+          formData.append("file", fileBlob, path.basename(absoluteFilePath));
+
+          const postUrl = `${BASE_URL}/post?apikey=${encodeURIComponent(api_key)}`;
+          
+          const uploadRes = await fetch(postUrl, {
+            method: "POST",
+            body: formData
+          });
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text();
+            throw new Error(`Upload error ${uploadRes.status}: ${errText}`);
+          }
+
+          return `✅ File ZIP '${path.basename(absoluteFilePath)}' berhasil dipublikasikan ke EMORA Hub sebagai '${uploadTipe}'!`;
       }
 
       // Untuk aksi get/search

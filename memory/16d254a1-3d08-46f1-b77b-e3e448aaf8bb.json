@@ -1,0 +1,32 @@
+[
+  {
+    "role": "user",
+    "content": "komunitas emora,kamu bisa apa aja",
+    "timestamp": 1781979241148
+  },
+  {
+    "role": "assistant",
+    "content": "Halo bro! 👋 Santai dulu, gue jelasin satu-satu ya.\n\n## 🌐 Soal EMORA Community (EMORA Hub)\n\n**EMORA Community** itu platform buat kamu **berbagi & download tools/skills** buatan user EMORA lain. Jadi kalau ada orang bikin tool keren (misal: scraper Twitter, tool saham, converter file, dll) — bisa di-share ke komunitas, dan kamu bisa install ke EMORA-mu.\n\nLewat **EMORA Hub**, lo bisa:\n- 🔥 **Lihat tool/skill populer** — apa yang lagi rame dipakai orang\n- 🔍 **Search tools/skills** — cari sesuai kebutuhan spesifik\n- 📥 **Download & install** ke EMORA-mu secara otomatis\n- 📤 **Upload** karya lo sendiri ke komunitas\n\n---\n\n## 🛠️ EMORA Bisa Apa Aja Sih?\n\nSecara keseluruhan, EMORA itu **AI agent otonom** yang punya banyak kemampuan:\n\n### 📂 **File & File System**\n- Baca, tulis, edit file di mana aja di komputermu\n- Bikin folder, kompres/ekstrak ZIP\n- Navigasi antar folder (Windows/Linux/Mac/Termux)\n\n### 💻 **Coding & Project**\n- Bikin project dari nol (web app, bot, script, dll) lengkap dengan project management\n- Ngikutin best practices sesuai bahasa (Node.js, Python, React, dll)\n- Self-expansion: bisa bikin **tools baru** untuk dirinya sendiri\n- Git manager: commit, push, branch management\n\n### 🌐 **Internet & Research**\n- Web search buat cari info terkini\n- Fetch & baca isi website secara detail\n- Analisis data dari internet\n\n### 🤖 **Telegram & WhatsApp Gateway**\n- Bisa jadi bot Telegram & WA sekaligus\n- Kirim/terima file (dokumen, gambar, PDF) via chat\n- Masing-masing user punya session ID unik\n\n### ⏰ **Background Tasks (Scheduler)**\n- Monitoring file/folder otomatis setiap beberapa detik\n- Notifikasi ke Telegram/WA kalau ada kondisi tertentu\n- Cron job berbasis AI\n\n### 🧠 **Skill Factory**\n- Auto-detect pola kerja yang sering diulang\n- Auto-generate skill baru biar kerjaan makin cepet\n- Auto-generate tools baru (self-expansion)\n\n### 💰 **Economy System** *(opsional)*\n- Sistem koin internal, charge per penggunaan tool, dll\n\n### 🛡️ **System Monitoring**\n- Cek CPU, RAM, disk space\n\n### 💾 **Backup Manager**\n- Backup/restore project ke ZIP\n\n---\n\n## 🎯 Intinya\n\nEMORA itu kayak **asisten dev pribadi** yang:\n- ✅ Ngerti kode & best practices\n- ✅ Bisa eksplor filesystem sendiri\n- ✅ Punya \"otak\" (LLM) + \"tangan\" (tools/shell)\n- ✅ Bisa auto-learn & bikin tools baru sendiri\n- ✅ Terhubung ke komunitas buat sharing tools\n\nMau cobain yang mana dulu nih bro? Mau install sesuatu dari EMORA Community, atau mau langsung kerjain project? 🚀",
+    "timestamp": 1781979241148
+  },
+  {
+    "role": "user",
+    "content": "bisa upload karya ke komunitas emora ga?",
+    "timestamp": 1781979298862
+  },
+  {
+    "role": "assistant",
+    "content": "Bisa dong bro! 100% bisa. 🚀\n\n## 📤 Upload Karya ke EMORA Community\n\nEMORA punya fitur `upload_item` yang bisa lo pake buat share karya lo ke komunitas. Bisa upload **2 jenis**:\n\n| Jenis | Keterangan |\n|-------|------------|\n| 🛠️ **Tool** | Tools baru buat EMORA (file `.js`) |\n| 📚 **Skill** | Skill/knowledge baru (file `.md`) |\n\nFile yang diupload otomatis dibungkus jadi `.zip` sama sistem.\n\n---\n\n## 📋 Yang Perlu Disiapin\n\nSebelum upload, pastiin lo punya:\n\n1. **File karyamu** udah ready (tool `.js` atau skill `.md`)\n2. **Nama item** yang jelas & deskriptif\n3. **Deskripsi** singkat (1-2 kalimat, jelasin fungsinya)\n4. **Tags** biar gampang dicari orang (opsional tapi recommended)\n5. **API Key** EMORA Community lo (kalau belum punya, biasanya perlu register dulu di platformnya)\n\n---\n\n## 🔑 Cara Upload (Contoh)\n\nMisal lo mau upload tool scrape Twitter:\n\n```\nitem_type   : tool\nitem_name   : twitter_scraper\ndescription : Scrape tweet & profile dari Twitter/X tanpa API official\ntags        : scraper,twitter,social-media\nfile_path   : ./tools/twitter_scraper.js\napi_key     : <API key lo>\n```\n\nNanti tinggal panggil `emora_hub` action `upload_item` dengan param di atas, beres! ✅\n\n---\n\n## 💡 Tips Biar Karya Lo Dilirik\n\n- ✍️ **Nama jelas & spesifik** — bukan `tool1.js`, tapi `youtube_downloader.js`\n- 📝 **Deskripsi to the point** — apa yang dia lakuin, buat siapa, benefit-nya apa\n- 🏷️ **Tags relevan** — biar muncul di search orang lain\n- 📦 **Pastikan file bersih** — ga ada debug code, console.log sisa, atau path absolut lokal\n\n---\n\n## Mau Upload Sekarang? 🛠️\n\nKalau lo udah punya karyanya, kasih tau aja:\n1. **Jenis** (tool/skill)\n2. **Path file** karyanya\n3. **Nama & deskripsi singkat**\n\nNanti gue bantuin upload-nya langsung. Atau kalau mau cari **ide** karya yang lagi dibutuhin komunitas, gue bisa cek dulu `get_popular_tools` / `get_popular_skills` buat liat tren sekarang. Mau yang mana nih? 😎",
+    "timestamp": 1781979298862
+  },
+  {
+    "role": "user",
+    "content": "apikey:e529d9dc-4ac6-4188-bdbe-70a82885ca66\ntype:tool\nnama: backup _manager\ndeskripsi:Manage project backups: create, list, restore, and clean zip backups in the /backups folder.\nfile_path:./tools/backup_manager.js\ntags:backup",
+    "timestamp": 1781979538862
+  },
+  {
+    "role": "assistant",
+    "content": "Berhasil bro! 🎉\n\n## ✅ Upload Berhasil!\n\n```\n📦 File       : backup_manager.zip\n🏷️ Nama      : backup_manager\n📝 Deskripsi : Manage project backups: create, list, restore, and clean\n              zip backups in the /backups folder.\n🏷️ Tags     : backup\n🌐 Status    : Terpublikasi di EMORA Community Hub ✅\n```\n\n## 📝 Yang Terjadi di Balik Layar\n\nAwalnya ada sedikit drama dikit 😅 — server EMORA Hub cuma nerima file `.zip`, jadi gue perlu kompres `backup_manager.js` jadi zip dulu. Alur yang gue jalanin:\n\n1. **Cek file** → `tools/backup_manager.js` ada, 87 baris, format bener\n2. **Bikin ZIP** → pake library `archiver` (yang udah ada di node_modules) via script helper\n3. **Upload** → server ngasih response sukses\n4. **Cleanup** → hapus file ZIP temporary & script helper biar ga numpuk\n\nSekarang karyamu udah live di EMORA Community! Orang lain bisa search & install tool `backup_manager` punya lo. 🌍✨\n\nMau upload karya lain lagi, atau mau cobain download karya orang lain dari hub? 😎",
+    "timestamp": 1781979538862
+  }
+]

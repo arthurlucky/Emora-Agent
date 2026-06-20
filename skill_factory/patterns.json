@@ -276,6 +276,34 @@
       "last_seen": 1781966169367,
       "skill_created": false,
       "skill_name": null
+    },
+    "shell_exec>emora_hub>zip_compress>shell_exec>shell_exec>shell_exec>shell_exec>read_file>shell_exec>shell_exec>shell_exec>shell_exec>shell_exec>shell_exec>emora_hub>shell_exec": {
+      "sequence": [
+        "shell_exec",
+        "emora_hub",
+        "zip_compress",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "emora_hub",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "16d254a1-3d08-46f1-b77b-e3e448aaf8bb"
+      ],
+      "first_seen": 1781979538857,
+      "last_seen": 1781979538857,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }
