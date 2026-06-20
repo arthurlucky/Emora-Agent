@@ -262,6 +262,20 @@
       "last_seen": 1781957862726,
       "skill_created": false,
       "skill_name": null
+    },
+    "read_file>write_file": {
+      "sequence": [
+        "read_file",
+        "write_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "0b51d53b-8f99-40bb-89c5-b36ccb03e347"
+      ],
+      "first_seen": 1781966169367,
+      "last_seen": 1781966169367,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }

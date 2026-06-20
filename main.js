@@ -12,7 +12,7 @@ import tools from "./core/tools.js";
 import { ask } from "./core/chat.js";
 import { handleCommand } from "./core/cmd.js";
 import { eventBus } from "./utils/eventBus.js";
-
+import { activeGateways } from "./gateway/index.js"
 // ==========================================
 // INISIALISASI LLM BERDASARKAN .ENV
 // ==========================================
@@ -64,25 +64,12 @@ eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
   }
 });
 
-// ==========================================
-// AUTO-START TELEGRAM GATEWAY (JIKA TRUE)
-// ==========================================
-if (process.env.TELEGRAM_GATEWAY === "true") {
-  import("./gateway/telegram.js").catch(err => {
-    console.error(chalk.red(`\n[TELEGRAM ERROR] Gagal menjalankan gateway: ${err.message}`));
-  });
-}
-
 
 // ==========================================
 // AUTO-START WEB UI
 // ==========================================
 
-if (process.env.TELEGRAM_GATEWAY === "true") {
-  import("./webui/server.js").catch(err => {
-  console.error(`\n[WEBUI ERROR] Gagal menjalankan Web UI: ${err.message}`);
-});
-}
+
 if (process.env.WEBUI === "true") {
   import("./webui/server.js").catch(err => {
   console.error(`\n[WEBUI ERROR] Gagal menjalankan Web UI: ${err.message}`);

@@ -1,0 +1,22 @@
+[
+  {
+    "role": "user",
+    "content": "halo",
+    "timestamp": 1781976298606
+  },
+  {
+    "role": "assistant",
+    "content": "Halo! 👋 Gue Emora, asisten AI lo. Ada yang bisa gue bantu hari ini, bro? Mau ngapain nih? 🚀",
+    "timestamp": 1781976298606
+  },
+  {
+    "role": "user",
+    "content": "bisa apa aja",
+    "timestamp": 1781976310200
+  },
+  {
+    "role": "assistant",
+    "content": "Banyak banget bro! 😎 Gue bisa bantu lo dari yang simpel sampai yang ribet. Ini dia kemampuan utama gue:\n\n### 💻 **Coding & Development**\n- Bikin project dari nol (web app, API, bot, dll)\n- Debugging & optimasi kode\n- Bikin script automasi\n- Manage Git & version control\n\n### 📁 **File & System Operations**\n- Bikin, baca, edit, hapus file/folder\n- Zip/unzip file\n- Backup project\n- Monitoring CPU, RAM, disk\n\n### 🔍 **Research & Info**\n- Cari info di internet (web search)\n- Baca isi halaman web\n- Jawab pertanyaan faktual\n\n### 🛠️ **Tools & Skills Management**\n- Bikin tool baru buat sistem gue\n- Bikin & manage skill automasi\n- Download tool/skill dari EMORA Community Hub\n- Export/import project\n\n### ⏰ **Task & Productivity**\n- Scheduled task (monitoring berkala)\n- Project management (multi-step task)\n- Date/time calculation\n\n### 💬 **General Stuff**\n- Ngobrol & brainstorming\n- Bantuin analisis & problem solving\n- Jelasin konsep teknis\n\n---\n\nJadi mau mulai dari mana nih? Kasih tau aja mau ngapain, langsung gas! 🚀",
+    "timestamp": 1781976310200
+  }
+]

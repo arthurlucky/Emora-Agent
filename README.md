@@ -62,6 +62,7 @@ Setup wizard akan memandu kamu memilih:
 - **Provider AI** (Groq, OpenAI, Gemini, NVIDIA NIM, OpenRouter, Ollama)
 - **API Key** untuk provider yang dipilih
 - **Telegram Gateway** (opsional)
+- **Whatsapp Gateway** (opsional)
 - **Web UI** (opsional)
 
 ### Konfigurasi Manual
@@ -73,14 +74,18 @@ cp .env.example .env
 ```
 
 ```env
-MODEL_URL=https://api.groq.com/openai/v1
-MODEL_API=your_api_key_here
-MODEL_NAME=llama-3.3-70b-versatile
-TELEGRAM_GATEWAY=false
+MODEL_URL=
+MODEL_API=
+MODEL_NAME=
+TELEGRAM_GATEWAY=
 TELEGRAM_TOKEN_BOT=
+TELEGRAM_ALLOWED_IDS=
+WA_PHONE_NUMBER=
+WA_GATEWAY=
+WA_ALLOWED_NUMBERS=
 WEBUI=false
 NAME=Emora
-TAVILY_API_KEY=your_tavily_key
+TAVILY_API_KEY=
 EMORA_HUB=https://emora-hub--rellaja1214.replit.app
 ```
 

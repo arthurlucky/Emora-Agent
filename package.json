@@ -6,6 +6,7 @@
   "dependencies": {
     "@langchain/core": "^0.3.66",
     "@langchain/openai": "^0.6.11",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "adm-zip": "^0.5.17",
     "archiver": "^8.0.0",
     "axios": "^1.11.0",
@@ -24,7 +25,6 @@
     "zod": "^3.25.0"
   },
   "description": "",
-  "devDependencies": {},
   "scripts": {
     "start": "node main.js"
   },

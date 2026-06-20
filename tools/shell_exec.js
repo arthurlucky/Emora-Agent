@@ -1,11 +1,12 @@
 import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 
 // Import fungsi dari gateway
-import { handleSendFile } from "../gateway/sendfile.js";
+import { handleSendFile } from "../gateway/telegram/sendfile.js";
 
 const BASE_DIR = path.resolve(process.cwd());
 const DEFAULT_TIMEOUT = 60_000;
@@ -40,27 +41,22 @@ function resolveCwd(cwd) {
 export const shellExecTool = new DynamicStructuredTool({
   name: "shell_exec",
   description:
-    "Jalankan perintah terminal/shell nyata (npm install, node, dll). BISA JUGA untuk kirim file ke telegram menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
+    "Jalankan perintah terminal/shell nyata. BISA JUGA untuk kirim file ke telegram menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
   schema: z.object({
     command: z.string(),
     session_id: z.string().optional().describe("WAJIB DIISI dengan Session ID (dari [INFO SYSTEM]) HANYA JIKA menggunakan perintah sendFile!"),
-    cwd: z.string().optional().describe("Working directory relatif terhadap root project. Kosongkan untuk mengeksekusi di root."),
+    cwd: z.string().optional().describe("Working directory. Kosongkan untuk mengeksekusi di root project (Emora-Agent)."),
     timeout: z.number().int().min(1000).max(MAX_TIMEOUT).optional(),
     create_cwd: z.boolean().optional().default(true),
   }),
   func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true }) => {
     
-    // ===============================================
     // [INTERCEPTOR]: Cegat perintah sendFile ke Telegram
-    // ===============================================
     if (command.trim().startsWith("sendFile")) {
-      if (!session_id) return "❌ Gagal: parameter session_id WAJIB diisi ke tool shell_exec untuk menjalankan sendFile.";
+      if (!session_id) return "❌ Gagal: parameter session_id WAJIB diisi untuk sendFile.";
       return await handleSendFile(command, session_id);
     }
 
-    // ===============================================
-    // Eksekusi terminal normal
-    // ===============================================
     if (!isSafe(command)) return `🚫 Perintah diblokir: "${command}"`;
 
     const workDir = resolveCwd(cwd);
@@ -79,7 +75,12 @@ export const shellExecTool = new DynamicStructuredTool({
     ];
 
     try {
-      const result = spawnSync("bash", ["-c", command], {
+      // 🟢 DETEKSI OS OTOMATIS
+      const isWin = os.platform() === "win32";
+      const shellCmd = isWin ? "cmd.exe" : "bash";
+      const shellArgs = isWin ? ["/c", command] : ["-c", command];
+
+      const result = spawnSync(shellCmd, shellArgs, {
         cwd: workDir,
         timeout,
         encoding: "utf-8",
