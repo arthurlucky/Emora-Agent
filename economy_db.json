@@ -1,0 +1,29 @@
+{
+  "balance": 999800,
+  "pricing": {
+    "basic": 100,
+    "advanced": 500,
+    "heavy": 1000
+  },
+  "tool_categories": {
+    "read_file": "basic",
+    "write_file": "basic",
+    "list_files": "basic",
+    "search_text": "basic",
+    "find_folder": "basic",
+    "create_folder": "basic",
+    "delete_folder": "basic",
+    "search_web": "advanced",
+    "fetch_page": "advanced",
+    "datetime": "basic",
+    "project_manager": "heavy",
+    "shell_exec": "heavy",
+    "zip_compress": "heavy",
+    "zip_extract": "heavy",
+    "scheduler": "heavy",
+    "skill_factory": "advanced",
+    "emora_hub": "advanced",
+    "backup_manager": "heavy",
+    "system_monitor": "basic"
+  }
+}

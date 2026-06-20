@@ -24,6 +24,8 @@ import zipExtractTool from "../tools/zip_extract.js";
 import { skillFactoryTool } from "../tools/skill_factory.js";
 import backupManager from "../tools/backup_manager.js";
 import { systemMonitorTool } from "../tools/system_monitor.js";
+import { economyManagerTool } from "../tools/economy_manager.js";
+import { gitManagerTool } from "../tools/git_manager.js";
 
 const tools = [
   SearchWebTool,
@@ -51,7 +53,9 @@ const tools = [
   skillFactoryTool,
   backupManager,
   systemMonitorTool,
-  emoraHubTool
+  emoraHubTool,
+  economyManagerTool,
+  gitManagerTool
 ];
 
 export default tools;

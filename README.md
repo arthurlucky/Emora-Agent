@@ -122,6 +122,7 @@ EMORA akan muncul di terminal dan siap menerima perintah. Jika Telegram Gateway 
 | `zip_compress` | Kompres file ke ZIP |
 | `zip_extract` | Ekstrak file ZIP |
 | `emora_hub` | Akses EMORA Community Hub |
+| `economy_manager` | Tool Have Fun buat kamu |
 
 ---
 

@@ -144,6 +144,104 @@
       "last_seen": 1781940096102,
       "skill_created": false,
       "skill_name": null
+    },
+    "project_manager>project_manager>write_file>read_file>write_file>project_manager>project_manager>project_manager>write_file>project_manager>project_manager>project_manager": {
+      "sequence": [
+        "project_manager",
+        "project_manager",
+        "write_file",
+        "read_file",
+        "write_file",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "write_file",
+        "project_manager",
+        "project_manager",
+        "project_manager"
+      ],
+      "count": 1,
+      "sessions": [
+        "6e065bbe-ad3a-4fa7-8312-c47454f27faa"
+      ],
+      "first_seen": 1781954708886,
+      "last_seen": 1781954708886,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "economy_manager>search_web": {
+      "sequence": [
+        "economy_manager",
+        "search_web"
+      ],
+      "count": 1,
+      "sessions": [
+        "6e065bbe-ad3a-4fa7-8312-c47454f27faa"
+      ],
+      "first_seen": 1781954961065,
+      "last_seen": 1781954961065,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>write_file>write_file": {
+      "sequence": [
+        "read_file",
+        "write_file",
+        "write_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "816169b5-a0fd-4a63-becb-f3aa6147c841"
+      ],
+      "first_seen": 1781955217731,
+      "last_seen": 1781955217731,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "economy_manager>read_file": {
+      "sequence": [
+        "economy_manager",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "6e065bbe-ad3a-4fa7-8312-c47454f27faa"
+      ],
+      "first_seen": 1781955408786,
+      "last_seen": 1781955408786,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "list_files>read_file>economy_manager": {
+      "sequence": [
+        "list_files",
+        "read_file",
+        "economy_manager"
+      ],
+      "count": 1,
+      "sessions": [
+        "6e065bbe-ad3a-4fa7-8312-c47454f27faa"
+      ],
+      "first_seen": 1781955459208,
+      "last_seen": 1781955459208,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>write_file>write_file>write_file": {
+      "sequence": [
+        "read_file",
+        "write_file",
+        "write_file",
+        "write_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "6e065bbe-ad3a-4fa7-8312-c47454f27faa"
+      ],
+      "first_seen": 1781955762349,
+      "last_seen": 1781955762349,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }
