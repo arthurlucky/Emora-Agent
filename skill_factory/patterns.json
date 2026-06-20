@@ -107,12 +107,13 @@
         "emora_hub",
         "emora_hub"
       ],
-      "count": 1,
+      "count": 2,
       "sessions": [
-        "bf5c34a2-6c0a-4869-9497-e9bcedda0b1f"
+        "bf5c34a2-6c0a-4869-9497-e9bcedda0b1f",
+        "06fba46d-8ac8-485a-a29b-8f1e96e778f4"
       ],
       "first_seen": 1781939013459,
-      "last_seen": 1781939013459,
+      "last_seen": 1781961137025,
       "skill_created": false,
       "skill_name": null
     },
