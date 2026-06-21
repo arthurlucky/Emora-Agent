@@ -327,8 +327,7 @@ if (WA_GATEWAY !== "true") {
 
           const isGroup = group.endsWith("@g.us");
 
-          // Abaikan grup
-          if (isGroup) return;
+          
 
           // Hanya nomor yang ada di whitelist
           if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
@@ -404,7 +403,7 @@ if (WA_GATEWAY !== "true") {
             currentSession: sessions[senderId],
           };
 
-          const commandResult = handleCommand(text, localState);
+          const commandResult = await handleCommand(text, localState);
 
           if (commandResult) {
             sessions[senderId] = localState.currentSession;

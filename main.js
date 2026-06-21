@@ -188,7 +188,7 @@ async function runChat() {
     if (!input) continue;
 
     // Cek Command CLI (/new, /sesi, /exit, dll)
-    const commandResult = handleCommand(input, state);
+    const commandResult = await handleCommand(input, state);
     if (commandResult) {
       if (commandResult.action === "exit") {
         console.log("\n" + chalk.yellow(commandResult.message) + "\n");

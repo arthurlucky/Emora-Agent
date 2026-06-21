@@ -221,7 +221,7 @@ if (!token) {
     }
 
     const localState = { currentSession: sessions[chatId] };
-    const commandResult = handleCommand(text, localState);
+    const commandResult = await handleCommand(text, localState);
 
     if (commandResult) {
       sessions[chatId] = localState.currentSession;
