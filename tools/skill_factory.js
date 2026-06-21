@@ -11,9 +11,12 @@ import {
   resetPatternCount,
   SKILL_THRESHOLD,
 } from "../utils/patternTracker.js";
+import { resolveWorkspacePath } from "../utils/workspace.js";
 
 const SKILL_DIR = "./skill";
 const FACTORY_DIR = "./skill_factory";
+// Folder yang sama dipakai oleh project_manager.js untuk menyimpan plan/project
+const PROJECTS_DIR = resolveWorkspacePath(".emora_projects");
 
 // ==========================================
 // HELPERS
@@ -40,6 +43,53 @@ async function readFileSafe(filePath) {
   }
 }
 
+// ── Project helpers (jembatan ke hasil kerja project_manager) ──
+async function listProjectFiles() {
+  try {
+    const entries = await fs.readdir(PROJECTS_DIR);
+    return entries.filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+}
+
+async function readProject(projectName) {
+  try {
+    const raw = await fs.readFile(
+      path.join(PROJECTS_DIR, `${projectName}.json`),
+      "utf8"
+    );
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function writeProject(projectName, data) {
+  await fs.writeFile(
+    path.join(PROJECTS_DIR, `${projectName}.json`),
+    JSON.stringify(data, null, 2),
+    "utf8"
+  );
+}
+
+function summarizeProject(data) {
+  const total = data.tasks?.length || 0;
+  const done = data.tasks?.filter((t) => t.status === "DONE").length || 0;
+  return {
+    project_name: data.project_name,
+    total_tasks: total,
+    completed_tasks: done,
+    is_complete: total > 0 && done === total,
+    skill_generated: !!data.skill_generated,
+    skill_name: data.skill_name || null,
+    skipped: !!data.skill_skipped,
+    skip_reason: data.skill_skip_reason || null,
+    ready_for_evaluation:
+      total > 0 && done === total && !data.skill_generated && !data.skill_skipped,
+  };
+}
+
 // Append skill ke index utama skill/SKILL.md
 async function appendToSkillIndex(safeName, description) {
   const indexPath = path.join(SKILL_DIR, "SKILL.md");
@@ -61,11 +111,14 @@ async function appendToSkillIndex(safeName, description) {
 export const skillFactoryTool = new DynamicStructuredTool({
   name: "skill_factory",
   description:
-    "Mengelola Skill Factory EMORA: lihat pola tool yang terdeteksi, buat skill otomatis dari pola tersebut, kelola skill yang sudah ada. Actions: list_patterns, create_skill, list_skills, read_skill, delete_pattern, reset_pattern.",
+    "Mengelola Skill Factory EMORA: lihat pola tool yang terdeteksi, evaluasi hasil project yang sudah selesai dari project_manager, buat skill otomatis dari pola atau dari project yang hasilnya bagus, dan kelola skill yang sudah ada. Actions: list_patterns, list_projects, read_project, skip_project, create_skill, list_skills, read_skill, delete_pattern, reset_pattern.",
   schema: z.object({
     action: z
       .enum([
         "list_patterns",
+        "list_projects",
+        "read_project",
+        "skip_project",
         "create_skill",
         "list_skills",
         "read_skill",
@@ -80,6 +133,12 @@ export const skillFactoryTool = new DynamicStructuredTool({
       .optional()
       .describe(
         "Key pola dari list_patterns yang akan dijadikan dasar skill (opsional jika membuat skill manual)"
+      ),
+    source_project: z
+      .string()
+      .optional()
+      .describe(
+        "project_name (dari project_manager) yang hasilnya dievaluasi bagus dan dijadikan dasar skill ini. Mengisi field ini akan menandai project tersebut sebagai sudah dikonversi jadi skill."
       ),
     skill_name: z
       .string()
@@ -102,21 +161,38 @@ export const skillFactoryTool = new DynamicStructuredTool({
         "Script shell opsional (.sh) yang bisa dijadikan template otomasi untuk skill ini"
       ),
 
-    // Untuk read/delete
+    // Untuk read/delete skill & pattern
     skill_name_target: z
       .string()
       .optional()
       .describe("Nama skill yang ingin dibaca atau dihapus dari list_skills"),
+
+    // Untuk read_project / skip_project
+    project_name: z
+      .string()
+      .optional()
+      .describe(
+        "project_name dari project_manager yang ingin dibaca detailnya (read_project) atau dilewati (skip_project)"
+      ),
+    skip_reason: z
+      .string()
+      .optional()
+      .describe(
+        "Alasan kenapa project ini tidak layak dijadikan skill (saat action = skip_project)"
+      ),
   }),
 
   async func({
     action,
     pattern_key,
+    source_project,
     skill_name,
     skill_description,
     skill_content,
     skill_script,
     skill_name_target,
+    project_name,
+    skip_reason,
   }) {
     try {
       await ensureDirs();
@@ -172,7 +248,99 @@ export const skillFactoryTool = new DynamicStructuredTool({
         }
 
         // ──────────────────────────────────────────
-        // CREATE SKILL - Buat skill dari pola atau manual
+        // LIST PROJECTS - Tampilkan semua project dari project_manager
+        // beserta status kelayakannya untuk dievaluasi jadi skill
+        // ──────────────────────────────────────────
+        case "list_projects": {
+          const files = await listProjectFiles();
+          if (files.length === 0) {
+            return JSON.stringify({
+              success: true,
+              message:
+                "Belum ada project tersimpan dari project_manager.",
+              projects: [],
+            });
+          }
+
+          const projects = [];
+          for (const file of files) {
+            const raw = await readFileSafe(path.join(PROJECTS_DIR, file));
+            if (!raw) continue;
+            let data;
+            try {
+              data = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+            projects.push(summarizeProject(data));
+          }
+
+          // Sort: yang siap dievaluasi (selesai & belum jadi skill) duluan
+          projects.sort((a, b) => {
+            if (a.ready_for_evaluation && !b.ready_for_evaluation) return -1;
+            if (!a.ready_for_evaluation && b.ready_for_evaluation) return 1;
+            return b.completed_tasks - a.completed_tasks;
+          });
+
+          return JSON.stringify({ success: true, projects });
+        }
+
+        // ──────────────────────────────────────────
+        // READ PROJECT - Baca detail lengkap satu project (semua task +
+        // summary_context-nya) agar bisa dinilai kualitasnya
+        // ──────────────────────────────────────────
+        case "read_project": {
+          if (!project_name) {
+            return JSON.stringify({
+              success: false,
+              error: "project_name wajib diisi",
+            });
+          }
+          const data = await readProject(project_name);
+          if (!data) {
+            return JSON.stringify({
+              success: false,
+              error: `Project '${project_name}' tidak ditemukan`,
+            });
+          }
+
+          return JSON.stringify({
+            success: true,
+            ...summarizeProject(data),
+            tasks: data.tasks,
+          });
+        }
+
+        // ──────────────────────────────────────────
+        // SKIP PROJECT - Tandai project sudah dievaluasi tapi hasilnya
+        // tidak layak/tidak perlu dijadikan skill
+        // ──────────────────────────────────────────
+        case "skip_project": {
+          if (!project_name) {
+            return JSON.stringify({
+              success: false,
+              error: "project_name wajib diisi",
+            });
+          }
+          const data = await readProject(project_name);
+          if (!data) {
+            return JSON.stringify({
+              success: false,
+              error: `Project '${project_name}' tidak ditemukan`,
+            });
+          }
+          data.skill_skipped = true;
+          data.skill_skip_reason = skip_reason || "Tidak dijelaskan";
+          await writeProject(project_name, data);
+
+          return JSON.stringify({
+            success: true,
+            message: `Project '${project_name}' ditandai dilewati (tidak dijadikan skill).`,
+          });
+        }
+
+        // ──────────────────────────────────────────
+        // CREATE SKILL - Buat skill dari pola, dari project, atau manual
         // ──────────────────────────────────────────
         case "create_skill": {
           if (!skill_name || !skill_content) {
@@ -213,6 +381,7 @@ export const skillFactoryTool = new DynamicStructuredTool({
             name: safeName,
             description: skill_description || "(no description)",
             source_pattern: pattern_key || null,
+            source_project: source_project || null,
             created_at: new Date().toISOString(),
             has_script: !!skill_script,
             version: "1.0.0",
@@ -226,6 +395,17 @@ export const skillFactoryTool = new DynamicStructuredTool({
           // Tandai pola sudah jadi skill
           if (pattern_key) {
             await markSkillCreated(pattern_key, safeName);
+          }
+
+          // Tandai project (hasil project_manager) sudah jadi skill,
+          // supaya tidak dievaluasi/dibuatkan skill duplikat lagi
+          if (source_project) {
+            const projectData = await readProject(source_project);
+            if (projectData) {
+              projectData.skill_generated = true;
+              projectData.skill_name = safeName;
+              await writeProject(source_project, projectData);
+            }
           }
 
           // Update index
@@ -244,6 +424,7 @@ export const skillFactoryTool = new DynamicStructuredTool({
               "meta.json",
             ],
             pattern_linked: !!pattern_key,
+            project_linked: !!source_project,
           });
         }
 
