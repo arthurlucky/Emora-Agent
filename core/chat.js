@@ -26,6 +26,13 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 let cachedSystemPrompt = null;
 
+// Dipanggil oleh Web UI setelah AGENT.md / SOUL.md disimpan, supaya
+// system prompt yang sedang di-cache di memori langsung ke-refresh
+// tanpa perlu restart proses EMORA.
+export function invalidateSystemPromptCache() {
+  cachedSystemPrompt = null;
+}
+
 async function getSystemPrompt() {
   if (cachedSystemPrompt) {
     return cachedSystemPrompt;

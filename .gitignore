@@ -5,3 +5,7 @@ node_modules/
 session/
 
 .emora_projects/
+
+# Web UI (Vite)
+webui/node_modules/
+webui/dist/
