@@ -27,7 +27,7 @@ Lebih dari sekadar chatbot, EMORA adalah asisten yang bisa **berpikir**, **meren
 - 💬 **Telegram Gateway** — Gunakan EMORA langsung dari Telegram Bot
 - 🌐 **Web UI** — Panel kontrol di browser (Express + Vite/vanilla JS) buat kelola sesi chat, toggle gateway, dan edit AGENT.md/SOUL.md
 - 📦 **Skill System** — Simpan dan reuse workflow sebagai "skill" yang bisa dipanggil kapan saja
-- 🏭 **Skill Factory** — Otomatis mendeteksi pola penggunaan dan menyarankan pembuatan skill baru
+- 🏭 **Skill Factory** — Otomatis pembuatan skill berdasarkan workflow
 - 🔌 **EMORA Hub** — Marketplace komunitas untuk berbagi dan mengunduh tools & skills custom
 - ⏱️ **Background Scheduler** — Jalankan tugas berkala (monitoring, notifikasi, cron-style) di background
 - 🧩 **Self-Expanding** — EMORA bisa membuat dan mendaftarkan tool barunya sendiri
@@ -83,6 +83,7 @@ TELEGRAM_ALLOWED_IDS=
 WA_PHONE_NUMBER=
 WA_GATEWAY=
 WA_ALLOWED_NUMBERS=
+WEBUI=false
 NAME=Emora
 TAVILY_API_KEY=
 EMORA_HUB=https://emora-hub--rellaja1214.replit.app
@@ -92,18 +93,13 @@ EMORA_HUB=https://emora-hub--rellaja1214.replit.app
 
 ## ▶️ Menjalankan EMORA
 
-Dengan CLI 
 ```bash
 node main.js
 # atau
 npm start
 ```
-Dengan WEB CHAT
-```bash
-npm run install:web
-npm run start:web
-```
 
+EMORA akan muncul di terminal dan siap menerima perintah. Jika Telegram Gateway aktif, bot juga langsung online.
 
 ---
 
@@ -236,42 +232,3 @@ Proyek ini dilisensikan di bawah **MIT License** — bebas digunakan, dimodifika
 <div align="center">
   Made with ❤️ by the EMORA Community · <a href="https://t.me/EMORAGENT">Join Telegram</a>
 </div>
-
----
-
-## 💻 Perintah CLI
-
-Setelah menjalankan `node main.js`, EMORA menyediakan perintah CLI bawaan untuk mengelola sesi chat:
-
-| Perintah | Fungsi |
-|---|---|
-| `/help` | Tampilkan daftar semua perintah |
-| `/new [nama]` | Buat sesi baru (opsional beri nama) |
-| `/sesi` | Lihat sesi aktif saat ini |
-| `/sesi <uuid>` | Pindah ke sesi tertentu |
-| `/sesi <uuid> <nama>` | Rename sesi + pindah ke sesi tersebut |
-| `/sesilist` | Tampilkan tabel semua sesi + total pesan |
-| `/sesiname <uuid> <nm>` | Rename sesi tanpa berpindah |
-| `/sesiinfo <uuid>` | Detail lengkap satu sesi |
-| `/sesidel <uuid>` | Hapus sesi + sub-sesi background task |
-| `/clear` | Hapus semua file memory |
-| `/exit` | Keluar dari EMORA |
-
-**Contoh penggunaan:**
-
-```bash
-node main.js
-> /sesilist
-> /new riset-network
-> /sesi 00ce6283-5060-4d00-a31e-b321207d9a32
-> /sesiname 00ce6283-5060-4d00-a31e-b321207d9a32 "Riset Jaringan"
-> /sesiinfo 00ce6283-5060-4d00-a31e-b321207d9a32
-> /sesidel 00ce6283-5060-4d00-a31e-b321207d9a32
-> /exit
-```
-
-**Catatan teknis:**
-
-- Sesi disimpan di folder `memory/` sebagai `<sessionId>.json`
-- Metadata nama sesi tersimpan di `memory/sessions.meta.json`
-- File dengan format `<uuid>_bg_<job_id>.json` adalah sub-sesi background task — akan otomatis terhapus saat sesi utama dihapus via `/sesidel`

@@ -12,53 +12,32 @@ import tools from "./core/tools.js";
 import { ask } from "./core/chat.js";
 import { handleCommand } from "./core/cmd.js";
 import { eventBus } from "./utils/eventBus.js";
-
-// ==========================================
-// LAZY GATEWAY LOADING (FIX: Prevent crash on startup)
-// ==========================================
-let activeGateways = [];
-let gatewaysReady = Promise.resolve();
-
-async function loadGatewaysSafe() {
-  try {
-    const gateway = await import("./gateway/index.js");
-    activeGateways = gateway.activeGateways || [];
-    gatewaysReady = gateway.gatewaysReady || Promise.resolve();
-    
-    // Wait for gateways with timeout - don't block forever
-    await Promise.race([
-      gatewaysReady,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Gateway timeout")), 15000))
-    ]);
-    
-    console.log(`[MAIN] ${activeGateways.length} gateway(s) loaded successfully`);
-  } catch (err) {
-    console.warn("[MAIN WARNING] Gateway loading failed or timed out, continuing without gateways:", err.message);
-    activeGateways = [];
-  }
-}
-
+import { activeGateways } from "./gateway/index.js"
 // ==========================================
 // INISIALISASI LLM BERDASARKAN .ENV
 // ==========================================
-let llm;
-try {
-  llm = new ChatOpenAI({
-    apiKey: process.env.MODEL_API || "ollama",
-    model: process.env.MODEL_NAME,
-    configuration: { baseURL: process.env.MODEL_URL },
-    temperature: 0.2,
-    maxTokens: 2048,
-  }).bindTools(tools, { toolChoice: "auto" });
-  console.log("[MAIN] LLM initialized successfully");
-} catch (err) {
-  console.error("[MAIN ERROR] Failed to initialize LLM:", err.message);
-  process.exit(1);
-}
+const llm = new ChatOpenAI({
+  apiKey: process.env.MODEL_API || "ollama",
+  model: process.env.MODEL_NAME,
+  configuration: { baseURL: process.env.MODEL_URL },
+  temperature: 0.2,
+  maxTokens: 2048,
+}).bindTools(tools, { toolChoice: "auto" });
 
 const state = {
   currentSession: crypto.randomUUID(),
 };
+
+// ==========================================
+// DETEKSI MODE WEB UI
+// `npm start --web` membuat npm mengeset env npm_config_web="true" secara
+// otomatis (tanpa perlu `--`), jadi itu dicek juga selain WEBUI=true di .env
+// dan flag --web langsung lewat `node main.js --web`.
+// ==========================================
+const WEB_MODE =
+  process.env.WEBUI === "true" ||
+  process.env.npm_config_web === "true" ||
+  process.argv.includes("--web");
 
 // ==========================================
 // BACKGROUND TASK HANDLER (DENGAN LOCK & ISOLASI MEMORI)
@@ -67,47 +46,51 @@ const bgLocks = {};
 
 eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
   // Pengunci: Cegah bentrok jika AI masih memproses tugas interval sebelumnya
-  if (bgLocks[job_id]) return;
+  if (bgLocks[job_id]) return; 
   bgLocks[job_id] = true;
 
   try {
     // Isolasi Memori: Gunakan session_id khusus agar memori obrolan utama tidak tercemar
     const bgSessionId = `${session_id}_bg_${job_id}`;
-
+    
     const result = await ask(llm, tools, bgSessionId, `[BACKGROUND TASK] ${prompt}`);
-
+    
     // Kirim notifikasi HANYA jika AI tidak membisu (SILENT_ABORT)
     if (!result.includes("SILENT_ABORT")) {
-      console.log("\n" + boxen(chalk.yellow(result), {
-        title: "🔔 NOTIFIKASI BACKGROUND",
-        padding: 1,
-        borderColor: "yellow"
+      console.log("\n" + boxen(chalk.yellow(result), { 
+        title: "🔔 NOTIFIKASI BACKGROUND", 
+        padding: 1, 
+        borderColor: "yellow" 
       }) + "\n");
-
+      
       // Kembalikan tampilan prompt
       process.stdout.write(
         chalk.gray("[") + chalk.green(state.currentSession.slice(0, 8)) + chalk.gray("] ") + chalk.bold.white("You") + chalk.gray(" > ")
       );
     }
-  } catch (error) {
-    console.error(`\n[BG TASK ERROR CLI] Job ${job_id} gagal: ${error.message}`);
+  } catch (error) { 
+    console.error(`\n[BG TASK ERROR CLI] Job ${job_id} gagal: ${error.message}`); 
   } finally {
     bgLocks[job_id] = false; // Buka kunci setelah selesai
   }
 });
 
+
 // ==========================================
 // AUTO-START WEB UI
 // ==========================================
-if (process.env.WEBUI === "true") {
-  console.log("[WEBUI] Starting WebUI server...");
-  import("./webui/server.js").then(() => {
-    console.log("[WEBUI] WebUI module loaded");
-  }).catch(err => {
-    console.error("[WEBUI ERROR] Failed to start:", err.message);
-    // Don't crash - just log error
-  });
+
+
+if (WEB_MODE) {
+  import("./webui/server.js").catch(err => {
+  console.error(`\n[WEBUI ERROR] Gagal menjalankan Web UI: ${err.message}`);
+});
 }
+
+
+
+
+
 
 function showBanner() {
   console.clear();
@@ -121,7 +104,7 @@ function showBanner() {
         "",
         "/new",
         "/sesi",
-        "/sesi <id>",
+        "/sesi <uuid>",
         "/help",
         "/exit",
       ].join("\n"),
@@ -131,27 +114,18 @@ function showBanner() {
 
   console.log();
   console.log(chalk.gray("Session:"), chalk.green(state.currentSession));
-
-  // FIX: Safe gateway status display
-  const tgEnabled = process.env.TELEGRAM_GATEWAY === "true" && process.env.TELEGRAM_TOKEN_BOT;
-  const waEnabled = process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER;
   
-  if (tgEnabled) {
+  if (process.env.TELEGRAM_GATEWAY === "true") {
     console.log(chalk.green("📡 Telegram Gateway: AKTIF"));
   } else {
     console.log(chalk.gray("📡 Telegram Gateway: NONAKTIF"));
   }
-  
-  if (waEnabled) {
-    console.log(chalk.green("📱 WhatsApp Gateway: AKTIF"));
+
+  if (WEB_MODE) {
+    const port = process.env.WEBUI_PORT || 5090;
+    console.log(chalk.green(`🌐 Web UI: AKTIF (http://localhost:${port})`));
   } else {
-    console.log(chalk.gray("📱 WhatsApp Gateway: NONAKTIF"));
-  }
-  
-  if (process.env.WEBUI === "true") {
-    console.log(chalk.green("🌐 Web UI: AKTIF (http://localhost:3000)"));
-  } else {
-    console.log(chalk.gray("🌐 Web UI: NONAKTIF"));
+    console.log(chalk.gray("🌐 Web UI: NONAKTIF (jalankan dengan: npm start --web)"));
   }
   console.log();
 }
@@ -179,7 +153,7 @@ async function runChat() {
   showBanner();
 
   while (true) {
-    const promptText =
+    const promptText = 
       chalk.gray("[") + chalk.green(state.currentSession.slice(0, 8)) + chalk.gray("] ") + chalk.bold.white("You") + chalk.gray(" > ");
 
     let input = await rl.question(promptText);
@@ -188,7 +162,7 @@ async function runChat() {
     if (!input) continue;
 
     // Cek Command CLI (/new, /sesi, /exit, dll)
-    const commandResult = await handleCommand(input, state);
+    const commandResult = handleCommand(input, state);
     if (commandResult) {
       if (commandResult.action === "exit") {
         console.log("\n" + chalk.yellow(commandResult.message) + "\n");
@@ -214,11 +188,4 @@ async function runChat() {
   }
 }
 
-// FIX: Load gateways safely before starting chat
-loadGatewaysSafe().then(() => {
-  runChat();
-}).catch(err => {
-  console.error("[MAIN ERROR] Startup failed:", err.message);
-  // Still try to run chat even if gateway fails
-  runChat();
-});
+runChat();
