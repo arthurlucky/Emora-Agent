@@ -1,16 +1,14 @@
 /**
  * gateway/index.js
  * Entry point terpusat untuk semua gateway EMORA.
- *
- * Mengatur inisialisasi gateway berdasarkan konfigurasi .env.
- * Mengekspor helper sendFileToUser() yang otomatis memilih gateway aktif.
- *
- * Gateway yang tersedia:
- *  - Telegram  (TELEGRAM_TOKEN_BOT)
- *  - WhatsApp  (WA_GATEWAY=true + WA_PHONE_NUMBER)
+ * 
+ * FIX: Error handling & retry logic untuk mencegah crash loop
  */
 
 const activeGateways = [];
+const gatewayErrors = new Map(); // Track error counts per gateway
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 5000;
 
 async function loadGateways() {
   // ==========================================
@@ -18,8 +16,20 @@ async function loadGateways() {
   // ==========================================
   if (process.env.TELEGRAM_TOKEN_BOT && process.env.TELEGRAM_GATEWAY === "true") {
     console.log("[GATEWAY] Memuat Telegram...");
-    const tg = await import("./telegram/telegram.js");
-    activeGateways.push({ name: "telegram", module: tg });
+    try {
+      const tg = await import("./telegram/telegram.js");
+
+      // Verify bot is actually connected before pushing to active
+      if (tg.bot && tg.sessions) {
+        activeGateways.push({ name: "telegram", module: tg });
+        console.log("[GATEWAY] ✅ Telegram loaded successfully");
+      } else {
+        console.warn("[GATEWAY] ⚠️ Telegram module loaded but bot not initialized");
+      }
+    } catch (err) {
+      console.error(`[GATEWAY ERROR] Telegram failed to load: ${err.message}`);
+      // Don't crash - just skip this gateway
+    }
   }
 
   // ==========================================
@@ -27,56 +37,71 @@ async function loadGateways() {
   // ==========================================
   if (process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER) {
     console.log("[GATEWAY] Memuat WhatsApp...");
-    const wa = await import("./whatsapp/whatsapp.js");
-    activeGateways.push({ name: "whatsapp", module: wa });
+    try {
+      const wa = await import("./whatsapp/whatsapp.js");
+
+      // Verify client is actually connected
+      if (wa.client && wa.sessions) {
+        activeGateways.push({ name: "whatsapp", module: wa });
+        console.log("[GATEWAY] ✅ WhatsApp loaded successfully");
+      } else {
+        console.warn("[GATEWAY] ⚠️ WhatsApp module loaded but client not initialized");
+      }
+    } catch (err) {
+      console.error(`[GATEWAY ERROR] WhatsApp failed to load: ${err.message}`);
+      // Don't crash - just skip this gateway
+    }
   }
 
   if (activeGateways.length === 0) {
-    console.warn("[GATEWAY] ⚠️  Tidak ada gateway yang aktif. Periksa konfigurasi .env.");
+    console.warn("[GATEWAY] ⚠️ Tidak ada gateway yang aktif. Periksa konfigurasi .env.");
+  } else {
+    console.log(`[GATEWAY] ✅ ${activeGateways.length} gateway(s) active`);
   }
 }
 
-// PENTING: jangan pakai `await loadGateways()` di sini (top-level await).
-// Node.js v22+ punya bug dimana kombinasi top-level await + dynamic import()
-// kadang salah dideteksi sebagai "unsettled" dan mematikan proses secara
-// prematur (lihat nodejs/node#55468 dan #58398), padahal promise-nya
-// sebenarnya berjalan normal — cuma menunggu library gateway (mis. baileys)
-// selesai dimuat. Dengan fire-and-forget seperti ini, proses utama tidak
-// pernah "menunggu" secara top-level, jadi heuristik buggy itu tidak terpicu.
-// activeGateways akan terisi begitu masing-masing gateway selesai dimuat di
-// background — ini aman karena tool/chat baru bisa dipakai user setelah
-// proses startup ini selesai dalam hitungan detik.
+// Safe gateway initialization with error tracking
 const gatewaysReady = loadGateways().catch((err) => {
   console.error("[GATEWAY] Gagal memuat gateway:", err.message);
 });
 
-export { activeGateways, gatewaysReady };
-
 /**
- * Kirim file ke user via semua gateway yang aktif dan memiliki sesi user.
- *
- * @param {string} sessionId  - Session ID user
- * @param {string} filePath   - Path absolut ke file
- * @param {string} caption    - Caption opsional
- * @returns {Promise<string[]>} - Hasil dari tiap gateway
+ * Kirim file ke user dengan error handling
  */
 export async function sendFileToUser(sessionId, filePath, caption = "") {
   const results = [];
 
+  if (activeGateways.length === 0) {
+    return ["❌ Tidak ada gateway aktif."];
+  }
+
   for (const gw of activeGateways) {
-    const { sessions, sendFile } = gw.module;
+    try {
+      const { sessions, sendFile } = gw.module;
 
-    const chatId = Object.keys(sessions || {}).find((k) => sessions[k] === sessionId);
-    if (!chatId) continue;
+      if (!sessions || !sendFile) {
+        console.warn(`[GATEWAY] ${gw.name} missing sessions or sendFile`);
+        continue;
+      }
 
-    let client;
-    if (gw.name === "telegram") client = gw.module.bot;
-    if (gw.name === "whatsapp") client = gw.module.client;
+      const chatId = Object.keys(sessions || {}).find((k) => sessions[k] === sessionId);
+      if (!chatId) continue;
 
-    if (!client) continue;
+      let client;
+      if (gw.name === "telegram") client = gw.module.bot;
+      if (gw.name === "whatsapp") client = gw.module.client;
 
-    const result = await sendFile(client, chatId, filePath, caption);
-    results.push(`[${gw.name.toUpperCase()}] ${result}`);
+      if (!client) {
+        console.warn(`[GATEWAY] ${gw.name} client not available`);
+        continue;
+      }
+
+      const result = await sendFile(client, chatId, filePath, caption);
+      results.push(`[${gw.name.toUpperCase()}] ${result}`);
+    } catch (err) {
+      console.error(`[GATEWAY ERROR] ${gw.name} sendFile failed:`, err.message);
+      results.push(`[${gw.name.toUpperCase()}] ERROR: ${err.message}`);
+    }
   }
 
   if (results.length === 0) {
@@ -85,3 +110,5 @@ export async function sendFileToUser(sessionId, filePath, caption = "") {
 
   return results;
 }
+
+export { activeGateways, gatewaysReady };

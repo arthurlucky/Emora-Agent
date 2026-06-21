@@ -1,16 +1,28 @@
 import "dotenv/config";
 import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from 'url';
+
 import {
   HumanMessage,
   AIMessage,
   SystemMessage,
   ToolMessage,
 } from "@langchain/core/messages";
+
 import {
   loadSession,
   saveSession,
 } from "./memory.js";
+
 import { recordToolSequence, SKILL_THRESHOLD } from "../utils/patternTracker.js";
+
+// ==========================================
+// FIX: Resolve paths relative to this file's location
+// ==========================================
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.resolve(__dirname, '..');
 
 let cachedSystemPrompt = null;
 
@@ -19,23 +31,39 @@ async function getSystemPrompt() {
     return cachedSystemPrompt;
   }
 
-  const name = process.env.NAME
-  const soul = await fs.readFile("./SOUL.md", "utf8");
-  const agent = await fs.readFile("./AGENT.md", "utf8");
-  const Context = `
-  user identity 
-  name: ${name}
-  
-  ${soul}
-  
-  ${agent}
-  `
-  
-  
+  try {
+    const name = process.env.NAME || "Emora";
+    const soulPath = path.join(ROOT_DIR, 'SOUL.md');
+    const agentPath = path.join(ROOT_DIR, 'AGENT.md');
+    
+    const soul = await fs.readFile(soulPath, "utf8");
+    const agent = await fs.readFile(agentPath, "utf8");
+    
+    const Context = `
+ user identity
+ name: ${name}
 
-  cachedSystemPrompt = Context
+ ${soul}
 
-  return cachedSystemPrompt;
+ ${agent}
+ `;
+
+    cachedSystemPrompt = Context;
+    return cachedSystemPrompt;
+  } catch (err) {
+    console.error(`[CHAT ERROR] Failed to load system prompt: ${err.message}`);
+    console.error(`[CHAT ERROR] Looking for SOUL.md and AGENT.md in: ${ROOT_DIR}`);
+    
+    // Fallback prompt if files not found
+    const name = process.env.NAME || "Emora";
+    cachedSystemPrompt = `
+ user identity
+ name: ${name}
+
+ You are ${name}, an AI assistant.
+ `;
+    return cachedSystemPrompt;
+  }
 }
 
 function memoryToMessages(memory) {
@@ -91,13 +119,13 @@ async function invokeWithRetry(llm, messages, maxRetries = 3) {
     } catch (err) {
       attempt++;
       const isToolError = err?.status === 400 || err?.code === 'tool_use_failed';
-      
+
       if (isToolError && attempt < maxRetries) {
         console.warn(`\n[LLM WARNING] Malformed tool call detected. Retrying... (Attempt ${attempt}/${maxRetries})`);
-        continue; // Coba panggil LLM lagi
+        continue;
       }
-      
-      throw err; // Lempar error jika gagal terus atau bukan error tool call
+
+      throw err;
     }
   }
 }
@@ -106,13 +134,11 @@ export async function ask(llm, tools, sessionId, input) {
   const systemPrompt = await getSystemPrompt();
   const memory = await loadSession(sessionId);
 
-
-const messages = [
+  const messages = [
     new SystemMessage(systemPrompt + `\n\n[INFO SYSTEM]\nSession ID aktif user ini adalah: ${sessionId}`),
     ...memoryToMessages(memory),
     new HumanMessage(input),
-];
-
+  ];
 
   let response;
 
@@ -133,7 +159,6 @@ const messages = [
     messages.push(response);
 
     for (const toolCall of response.tool_calls) {
-      // Catat nama tool (kecuali skill_factory itu sendiri)
       if (toolCall.name !== "skill_factory") {
         toolsUsedThisTurn.push(toolCall.name);
       }

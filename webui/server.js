@@ -1,459 +1,515 @@
-import 'dotenv/config';
+/**
+ * webui/server.js
+ * Web UI Server untuk EMORA Agent
+ * Full integration dengan memory.js, cmd.js, chat.js, tools.js
+ * 
+ * FIX: dotenv loading, working directory, path resolution
+ */
+
+import "dotenv/config";
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import net from 'net';
+import fs from 'fs';
 
+// ==========================================
+// PATH RESOLUTION (Tiru pattern WhatsApp/Telegram)
+// ==========================================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.resolve(__dirname, '..');
+
+// FIX: Load dotenv dari root project secara eksplisit
+// (dotenv default cari .env di cwd, tapi kita jalankan dari webui/ folder)
+import { config } from 'dotenv';
+config({ path: path.join(ROOT_DIR, '.env') });
+
+console.log(`[WEBUI] Root directory: ${ROOT_DIR}`);
+console.log(`[WEBUI] MODEL_API: ${process.env.MODEL_API ? '✅ Set' : '❌ Missing'}`);
+console.log(`[WEBUI] MODEL_URL: ${process.env.MODEL_URL ? '✅ Set' : '❌ Missing'}`);
+console.log(`[WEBUI] MODEL_NAME: ${process.env.MODEL_NAME ? '✅ Set' : '❌ Missing'}`);
 
 // ==========================================
-// IMPORT CORE EMORA MODULES (SAMA PERSIS WHATSAPP)
+// Import core modules (setelah dotenv fix)
 // ==========================================
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatOpenAI } from "@langchain/openai";
 import tools from '../core/tools.js';
 import { ask } from '../core/chat.js';
+import { handleCommand } from '../core/cmd.js';
+import { loadSession, saveSession } from '../core/memory.js';
 import { eventBus } from '../utils/eventBus.js';
 
 const app = express();
-const upload = multer({ dest: path.join(__dirname, 'temp/') });
-const PORT = process.env.WEBUI_PORT || 5090;
-
-// Ensure temp directory exists
-await fs.mkdir(path.join(__dirname, 'temp'), { recursive: true });
 
 // ==========================================
-// INITIALIZE LLM (EXACT SAME AS WHATSAPP GATEWAY)
+// PORT CONFIGURATION (Auto-detect if in use)
 // ==========================================
-console.log('[WEBUI] Initializing LLM...');
-console.log('[WEBUI] Model:', process.env.MODEL_NAME || 'default');
-console.log('[WEBUI] URL:', process.env.MODEL_URL || 'default');
+const DEFAULT_PORT = parseInt(process.env.WEBUI_PORT) || 3000;
 
-const llm = new ChatOpenAI({
-  apiKey: process.env.MODEL_API || "ollama",
-  model: process.env.MODEL_NAME,
-  configuration: { baseURL: process.env.MODEL_URL },
-  temperature: 0.2,
-  maxTokens: 2048,
-}).bindTools(tools, { toolChoice: "auto" });
+function findAvailablePort(startPort) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(findAvailablePort(startPort + 1));
+      } else {
+        reject(err);
+      }
+    });
+    server.once('listening', () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+    server.listen(startPort, '0.0.0.0');
+  });
+}
 
-console.log('[WEBUI] LLM initialized successfully');
-console.log('[WEBUI] Tools loaded:', tools.length);
+// ==========================================
+// LLM INITIALIZATION (Tiru pattern WhatsApp.js)
+// ==========================================
+let llm;
+try {
+  const apiKey = process.env.MODEL_API || "ollama";
+  const modelName = process.env.MODEL_NAME;
+  const baseURL = process.env.MODEL_URL;
 
+  if (!modelName) {
+    throw new Error("MODEL_NAME tidak di-set di .env");
+  }
+
+  llm = new ChatOpenAI({
+    apiKey: apiKey,
+    model: modelName,
+    configuration: { baseURL: baseURL },
+    temperature: 0.2,
+    maxTokens: 2048,
+  }).bindTools(tools, { toolChoice: "auto" });
+
+  console.log(`[WEBUI] LLM initialized: ${modelName} @ ${baseURL || 'default'}`);
+} catch (err) {
+  console.error("[WEBUI ERROR] Failed to initialize LLM:", err.message);
+  process.exit(1);
+}
+
+// ==========================================
+// MIDDLEWARE
+// ==========================================
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// ==========================================
-// API CHAT - REAL INTEGRATION WITH core/chat.js
-// ==========================================
-app.post('/api/chat', async (req, res) => {
-  const { sessionId, message } = req.body;
+// Serve static files from dist (Vite build output)
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
-  if (!sessionId || !message) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Data tidak lengkap: sessionId dan message diperlukan' 
-    });
+// Session storage for web users
+const webSessions = new Map();
+
+// ==========================================
+// FILE UPLOAD CONFIGURATION
+// ==========================================
+const UPLOAD_DIR = path.join(ROOT_DIR, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const randomStr = crypto.randomBytes(4).toString('hex');
+    const ext = path.extname(file.originalname);
+    cb(null, `web_${timestamp}_${randomStr}${ext}`);
   }
+});
 
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
+// ==========================================
+// API ROUTES
+// ==========================================
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    port: app.get('port'),
+    rootDir: ROOT_DIR,
+    model: process.env.MODEL_NAME,
+    gateways: {
+      telegram: process.env.TELEGRAM_GATEWAY === 'true',
+      whatsapp: process.env.WA_GATEWAY === 'true'
+    }
+  });
+});
+
+// Get or create session
+app.post('/api/session', async (req, res) => {
   try {
-    console.log(`[WEBUI CHAT] Session: ${sessionId}, Message: ${message.slice(0, 50)}...`);
+    const { sessionId } = req.body;
+    
+    if (sessionId && webSessions.has(sessionId)) {
+      webSessions.get(sessionId).lastActive = Date.now();
+      const history = await loadSession(sessionId);
+      res.json({ 
+        sessionId, 
+        history, 
+        exists: true,
+        message: 'Session resumed'
+      });
+    } else {
+      const newSessionId = crypto.randomUUID();
+      webSessions.set(newSessionId, { 
+        createdAt: Date.now(), 
+        lastActive: Date.now() 
+      });
+      res.json({ 
+        sessionId: newSessionId, 
+        history: [], 
+        exists: false,
+        message: 'New session created'
+      });
+    }
+  } catch (err) {
+    console.error('[WEBUI ERROR] Session error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    // PANGGIL ask() SAMA PERSIS KAYA WHATSAPP GATEWAY
+// Load chat history
+app.get('/api/history/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const history = await loadSession(sessionId);
+    res.json(history);
+  } catch (err) {
+    console.error('[WEBUI ERROR] Load history error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Main chat endpoint
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { sessionId, message } = req.body;
+    
+    if (!sessionId || !message) {
+      return res.status(400).json({ 
+        error: 'sessionId and message are required',
+        code: 'MISSING_PARAMS'
+      });
+    }
+
+    if (webSessions.has(sessionId)) {
+      webSessions.get(sessionId).lastActive = Date.now();
+    }
+
+    const state = { currentSession: sessionId };
+    const commandResult = handleCommand(message, state);
+    
+    if (commandResult) {
+      if (commandResult.action === 'exit') {
+        webSessions.delete(sessionId);
+        const newSessionId = crypto.randomUUID();
+        webSessions.set(newSessionId, { createdAt: Date.now(), lastActive: Date.now() });
+        return res.json({ 
+          type: 'command', 
+          action: 'clear',
+          content: 'Session cleared. Starting fresh...',
+          newSessionId: newSessionId
+        });
+      }
+      
+      if (commandResult.action === 'reply') {
+        if (message.startsWith('/new')) {
+          const newSessionId = commandResult.message.match(/[0-9a-f-]{36}/)?.[0] || crypto.randomUUID();
+          webSessions.set(newSessionId, { createdAt: Date.now(), lastActive: Date.now() });
+          return res.json({
+            type: 'command',
+            action: 'new_session',
+            content: commandResult.message,
+            newSessionId: newSessionId
+          });
+        }
+        
+        if (message.startsWith('/sesi')) {
+          const newSessionId = commandResult.message.match(/[0-9a-f-]{36}/)?.[0];
+          if (newSessionId) {
+            webSessions.set(newSessionId, { createdAt: Date.now(), lastActive: Date.now() });
+            const history = await loadSession(newSessionId);
+            return res.json({
+              type: 'command',
+              action: 'switch_session',
+              content: commandResult.message,
+              newSessionId: newSessionId,
+              history: history
+            });
+          }
+        }
+        
+        if (message.startsWith('/clear')) {
+          const newSessionId = commandResult.message.match(/[0-9a-f-]{36}/)?.[0] || crypto.randomUUID();
+          webSessions.set(newSessionId, { createdAt: Date.now(), lastActive: Date.now() });
+          return res.json({
+            type: 'command',
+            action: 'clear_all',
+            content: commandResult.message,
+            newSessionId: newSessionId
+          });
+        }
+        
+        return res.json({
+          type: 'command',
+          action: 'reply',
+          content: commandResult.message
+        });
+      }
+    }
+
     const result = await ask(llm, tools, sessionId, message);
-
-    console.log(`[WEBUI CHAT] Response: ${result.slice(0, 100)}...`);
-
-    res.json({ 
-      success: true, 
-      reply: result,
-      timestamp: Date.now()
+    
+    res.json({
+      type: 'chat',
+      content: result,
+      sessionId: sessionId
     });
-  } catch (error) {
-    console.error('[WEBUI CHAT ERROR]', error.message);
-    console.error(error.stack);
+    
+  } catch (err) {
+    console.error('[WEBUI ERROR] Chat error:', err.message);
     res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      type: 'error',
+      content: `Error: ${err.message}`,
+      error: err.message,
+      code: 'CHAT_ERROR'
     });
   }
 });
 
-// ==========================================
-// API UPLOAD FILE
-// ==========================================
+// File upload endpoint
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
-    const file = req.file;
-    if (!file) {
-      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    if (!req.file) {
+      return res.status(400).json({ 
+        error: 'No file uploaded',
+        code: 'NO_FILE'
+      });
     }
-
-    let content = '';
-    const isText = /\.(txt|md|js|ts|json|csv|html|css|py|sh|yaml|yml|xml|log)$/i.test(file.originalname);
-
-    if (isText || file.size < 100000) {
-      content = await fs.readFile(file.path, 'utf-8');
-    } else {
-      content = `[Binary file: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB)]`;
-    }
-
-    // Clean up temp file
-    await fs.unlink(file.path).catch(() => {});
-
-    res.json({
-      success: true,
-      filename: file.originalname,
-      content,
-      size: file.size
-    });
-  } catch (error) {
-    console.error('[WEBUI UPLOAD ERROR]', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ==========================================
-// API GATEWAYS
-// ==========================================
-app.get('/api/gateways', async (req, res) => {
-  try {
-    const envPath = path.join(__dirname, '../.env');
-    const envContent = await fs.readFile(envPath, 'utf-8').catch(() => '');
-
-    const env = {};
-    envContent.split('\n').forEach(line => {
-      const [key, ...valueParts] = line.split('=');
-      if (key && valueParts.length > 0) env[key.trim()] = valueParts.join('=').trim();
-    });
-
-    res.json({
-      success: true,
-      gateways: [
-        {
-          id: 'telegram',
-          name: 'Telegram Bot',
-          enabled: env.TELEGRAM_GATEWAY === 'true',
-          config: {
-            token: env.TELEGRAM_TOKEN_BOT || '',
-            allowedIds: env.TELEGRAM_ALLOWED_IDS || ''
-          }
-        },
-        {
-          id: 'whatsapp',
-          name: 'WhatsApp',
-          enabled: env.WA_GATEWAY === 'true',
-          config: {
-            phoneNumber: env.WA_PHONE_NUMBER || '',
-            allowedNumbers: env.WA_ALLOWED_NUMBERS || ''
-          }
-        },
-        {
-          id: 'webui',
-          name: 'Web UI',
-          enabled: env.WEBUI === 'true',
-          config: { port: env.WEBUI_PORT || '5090' }
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/gateways', async (req, res) => {
-  try {
-    const { gateways } = req.body;
-    const envPath = path.join(__dirname, '../.env');
-    const envContent = await fs.readFile(envPath, 'utf-8').catch(() => '');
-
-    const lines = envContent.split('\n');
-    const updatedLines = lines.map(line => {
-      const key = line.split('=')[0]?.trim();
-      if (key === 'TELEGRAM_GATEWAY') {
-        const g = gateways.find(g => g.id === 'telegram');
-        return `TELEGRAM_GATEWAY=${g?.enabled ? 'true' : 'false'}`;
-      }
-      if (key === 'TELEGRAM_TOKEN_BOT') {
-        const g = gateways.find(g => g.id === 'telegram');
-        return `TELEGRAM_TOKEN_BOT=${g?.config?.token || ''}`;
-      }
-      if (key === 'TELEGRAM_ALLOWED_IDS') {
-        const g = gateways.find(g => g.id === 'telegram');
-        return `TELEGRAM_ALLOWED_IDS=${g?.config?.allowedIds || ''}`;
-      }
-      if (key === 'WA_GATEWAY') {
-        const g = gateways.find(g => g.id === 'whatsapp');
-        return `WA_GATEWAY=${g?.enabled ? 'true' : 'false'}`;
-      }
-      if (key === 'WA_PHONE_NUMBER') {
-        const g = gateways.find(g => g.id === 'whatsapp');
-        return `WA_PHONE_NUMBER=${g?.config?.phoneNumber || ''}`;
-      }
-      if (key === 'WEBUI') {
-        const g = gateways.find(g => g.id === 'webui');
-        return `WEBUI=${g?.enabled ? 'true' : 'false'}`;
-      }
-      if (key === 'WEBUI_PORT') {
-        const g = gateways.find(g => g.id === 'webui');
-        return `WEBUI_PORT=${g?.config?.port || '5090'}`;
-      }
-      return line;
-    });
-
-    await fs.writeFile(envPath, updatedLines.join('\n'));
-    res.json({ success: true, message: 'Gateway configuration updated' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ==========================================
-// API MEMORY
-// ==========================================
-app.get('/api/memory', async (req, res) => {
-  try {
-    const memoryDir = path.join(__dirname, '../memory');
-    await fs.mkdir(memoryDir, { recursive: true });
-    const files = await fs.readdir(memoryDir);
-
-    const memories = await Promise.all(
-      files
-        .filter(f => f.endsWith('.json'))
-        .map(async f => {
-          const stat = await fs.stat(path.join(memoryDir, f));
-          return {
-            id: f.replace('.json', ''),
-            name: f.replace('.json', ''),
-            size: stat.size,
-            updated: stat.mtime.getTime()
-          };
-        })
-    );
-
-    res.json({ success: true, memories: memories.sort((a, b) => b.updated - a.updated) });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/memory', async (req, res) => {
-  try {
-    const { action, id, name, content } = req.body;
-    const memoryDir = path.join(__dirname, '../memory');
-    await fs.mkdir(memoryDir, { recursive: true });
-
-    if (action === 'create') {
-      const newId = name || `memory_${Date.now()}`;
-      await fs.writeFile(path.join(memoryDir, `${newId}.json`), JSON.stringify(content || [], null, 2));
-      return res.json({ success: true, id: newId });
-    }
-
-    if (action === 'rename') {
-      await fs.rename(path.join(memoryDir, `${id}.json`), path.join(memoryDir, `${name}.json`));
-      return res.json({ success: true });
-    }
-
-    if (action === 'update') {
-      await fs.writeFile(path.join(memoryDir, `${id}.json`), JSON.stringify(content, null, 2));
-      return res.json({ success: true });
-    }
-
-    res.status(400).json({ success: false, error: 'Unknown action' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.delete('/api/memory/:id', async (req, res) => {
-  try {
-    await fs.unlink(path.join(__dirname, '../memory', `${req.params.id}.json`));
-    res.json({ success: true });
-  } catch (error) {
-    res.status(404).json({ success: false, error: 'Memory not found' });
-  }
-});
-
-// ==========================================
-// API CONFIG (AGENT.md & SOUL.md)
-// ==========================================
-app.get('/api/config', async (req, res) => {
-  try {
-    const [agent, soul] = await Promise.all([
-      fs.readFile(path.join(__dirname, '../AGENT.md'), 'utf-8').catch(() => ''),
-      fs.readFile(path.join(__dirname, '../SOUL.md'), 'utf-8').catch(() => '')
-    ]);
-    res.json({ success: true, agent, soul });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/config', async (req, res) => {
-  try {
-    const { agent, soul } = req.body;
-    await Promise.all([
-      fs.writeFile(path.join(__dirname, '../AGENT.md'), agent || ''),
-      fs.writeFile(path.join(__dirname, '../SOUL.md'), soul || '')
-    ]);
-    res.json({ success: true, message: 'Configuration saved successfully' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ==========================================
-// API PROJECTS
-// ==========================================
-app.get('/api/projects', async (req, res) => {
-  try {
-    const projectDir = path.join(__dirname, '../workspaces/.emora_projects');
-    await fs.mkdir(projectDir, { recursive: true });
-    const files = await fs.readdir(projectDir);
-    const projects = files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''));
-    res.json({ success: true, projects });
-  } catch (error) {
-    res.json({ success: true, projects: [] });
-  }
-});
-
-app.get('/api/projects/:name', async (req, res) => {
-  try {
-    const data = await fs.readFile(path.join(__dirname, '../workspaces/.emora_projects', `${req.params.name}.json`), 'utf-8');
-    res.json({ success: true, plan: JSON.parse(data) });
-  } catch (error) {
-    res.status(404).json({ success: false, error: 'Project not found' });
-  }
-});
-
-app.post('/api/projects', async (req, res) => {
-  try {
-    const { projectName, tasks } = req.body;
-    const projectDir = path.join(__dirname, '../workspaces/.emora_projects');
-    await fs.mkdir(projectDir, { recursive: true });
-
-    const plan = {
-      project_name: projectName,
-      tasks: tasks.map(t => ({ ...t, status: 'PENDING', context: '' }))
+    
+    const fileInfo = {
+      type: 'file',
+      filename: req.file.originalname,
+      storedName: req.file.filename,
+      path: req.file.path,
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      extension: path.extname(req.file.originalname)
     };
+    
+    res.json(fileInfo);
+  } catch (err) {
+    console.error('[WEBUI ERROR] Upload error:', err.message);
+    res.status(500).json({ 
+      error: err.message,
+      code: 'UPLOAD_ERROR'
+    });
+  }
+});
 
-    await fs.writeFile(path.join(projectDir, `${projectName}.json`), JSON.stringify(plan, null, 2));
+// File analysis endpoint
+app.post('/api/analyze-file', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ 
+        error: 'No file uploaded',
+        code: 'NO_FILE'
+      });
+    }
 
-    // Emit debug event
-    eventBus.emit('pm_debug', {
-      type: 'plan_created',
-      projectName,
-      timestamp: Date.now(),
-      message: `Plan "${projectName}" created with ${tasks.length} tasks`
+    const { sessionId, prompt } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({
+        error: 'sessionId required',
+        code: 'MISSING_SESSION'
+      });
+    }
+
+    const filePath = req.file.path;
+    const filename = req.file.originalname;
+    const size = (req.file.size / 1024).toFixed(2);
+    const mimetype = req.file.mimetype;
+    const extension = path.extname(filename).slice(1);
+
+    let analysisPrompt = '';
+    const isImage = mimetype.startsWith('image/');
+    const isVideo = mimetype.startsWith('video/');
+    const isAudio = mimetype.startsWith('audio/');
+    const isPDF = extension === 'pdf' || mimetype === 'application/pdf';
+    const isText = mimetype.startsWith('text/') || ['txt', 'md', 'json', 'csv', 'js', 'html', 'css', 'py'].includes(extension);
+
+    if (isImage) {
+      analysisPrompt = `User mengupload gambar: "${filename}" (${size}KB). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nAnalisis gambar ini. Jika user meminta sesuatu terkait gambar (edit, describe, analyze, extract text/OCR, dll), lakukan sesuai permintaan. Jika tidak ada permintaan spesifik, berikan deskripsi umum gambar tersebut.`;
+    } else if (isVideo) {
+      analysisPrompt = `User mengupload video: "${filename}" (${size}KB). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nAnalisis video ini. Jika user meminta sesuatu terkait video (extract frames, describe, summarize, dll), lakukan sesuai permintaan.`;
+    } else if (isAudio) {
+      analysisPrompt = `User mengupload audio: "${filename}" (${size}KB). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nAnalisis audio ini. Jika user meminta transkripsi, summary, atau analisis audio, lakukan sesuai permintaan.`;
+    } else if (isPDF) {
+      analysisPrompt = `User mengupload PDF: "${filename}" (${size}KB). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nBaca dan analisis konten PDF ini. Jika user meminta summary, extract text, atau analisis spesifik, lakukan sesuai permintaan.`;
+    } else if (isText) {
+      let fileContent = '';
+      try {
+        fileContent = fs.readFileSync(filePath, 'utf8');
+        if (fileContent.length > 15000) {
+          fileContent = fileContent.substring(0, 15000) + '\n... [truncated, file too large]';
+        }
+      } catch (err) {
+        console.error('[WEBUI] Error reading text file:', err.message);
+      }
+      
+      analysisPrompt = `User mengupload file teks: "${filename}" (${size}KB). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nKonten file:\n\`\`\`\n${fileContent}\n\`\`\`\n\nAnalisis file ini. Jika user meminta review, fix, convert, atau manipulasi file, lakukan sesuai permintaan.`;
+    } else {
+      analysisPrompt = `User mengupload file: "${filename}" (${size}KB, type: ${mimetype}). ${prompt ? `Permintaan user: "${prompt}"` : 'Tidak ada permintaan spesifik.'}\n\nFile telah disimpan di: ${filePath}\n\nJika user meminta sesuatu terkait file ini (baca, convert, analyze, dll), lakukan sesuai permintaan.`;
+    }
+
+    if (webSessions.has(sessionId)) {
+      webSessions.get(sessionId).lastActive = Date.now();
+    }
+
+    const result = await ask(llm, tools, sessionId, analysisPrompt);
+
+    res.json({
+      type: 'file_analysis',
+      content: result,
+      fileInfo: {
+        filename: filename,
+        storedName: req.file.filename,
+        size: size + 'KB',
+        mimetype: mimetype,
+        path: filePath
+      },
+      sessionId: sessionId
     });
 
-    res.json({ success: true });
+  } catch (err) {
+    console.error('[WEBUI ERROR] File analysis error:', err.message);
+    res.status(500).json({ 
+      error: err.message,
+      code: 'ANALYSIS_ERROR'
+    });
+  }
+});
+
+// Background task status
+app.get('/api/bg-tasks', (req, res) => {
+  res.json({ active: [] });
+});
+
+// ==========================================
+// BACKGROUND TASK HANDLER
+// ==========================================
+const bgLocks = {};
+
+eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
+  if (bgLocks[job_id]) return;
+  bgLocks[job_id] = true;
+
+  try {
+    const bgSessionId = `${session_id}_bg_${job_id}`;
+    const result = await ask(llm, tools, bgSessionId, `[BACKGROUND TASK] ${prompt}`);
+
+    if (!result.includes("SILENT_ABORT")) {
+      console.log(`[WEBUI BG] Job ${job_id} completed for session ${session_id}`);
+    }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error(`[WEBUI BG ERROR] Job ${job_id} failed:`, error.message);
+  } finally {
+    bgLocks[job_id] = false;
   }
 });
 
 // ==========================================
-// SSE STREAM FOR PROJECT MANAGER DEBUG
+// SPA FALLBACK
 // ==========================================
-app.get('/stream-pm', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-
-  const listener = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  eventBus.on('pm_debug', listener);
-
-  const keepAlive = setInterval(() => {
-    res.write(':keepalive\n\n');
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepAlive);
-    eventBus.off('pm_debug', listener);
-  });
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({
+      error: 'Frontend not built. Run npm run build in webui/ folder.',
+      code: 'FRONTEND_NOT_BUILT'
+    });
+  }
 });
 
 // ==========================================
-// SERVE STATIC FILES - CHECK IF DIST EXISTS
+// ERROR HANDLING
 // ==========================================
-const distPath = path.join(__dirname, 'dist');
-
-// Check if dist folder exists
-let distExists = false;
-try {
-  const stat = await fs.stat(distPath);
-  distExists = stat.isDirectory();
-} catch {
-  distExists = false;
-}
-
-if (distExists) {
-  console.log('[WEBUI] Serving static files from dist/');
-  app.use(express.static(distPath));
-
-  // SPA fallback
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
+app.use((err, req, res, next) => {
+  console.error('[WEBUI ERROR]', err.message);
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ 
+      error: 'File too large. Max 100MB.',
+      code: 'FILE_TOO_LARGE'
+    });
+  }
+  res.status(500).json({ 
+    error: err.message,
+    code: 'INTERNAL_ERROR'
   });
-} else {
-  console.log('[WEBUI] dist/ not found - serving simple HTML');
-  console.log('[WEBUI] Run "npm run build" to build frontend');
-
-  // Simple HTML for development without build
-  app.get('/', (req, res) => {
-    res.send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EMORA Agent</title>
-  <style>
-    body { font-family: system-ui; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
-    .container { text-align: center; }
-    h1 { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #10b981, #059669); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    p { color: #94a3b8; margin-bottom: 2rem; }
-    .btn { display: inline-block; padding: 12px 24px; background: #10b981; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; }
-    .btn:hover { background: #059669; }
-    .info { margin-top: 2rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 0.9rem; color: #64748b; }
-    code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>EMORA</h1>
-    <p>WebUI backend is running. Frontend not built yet.</p>
-    <a href="/api/gateways" class="btn">Test API</a>
-    <div class="info">
-      <p>Run <code>npm run build</code> in webui/ folder to build frontend</p>
-      <p>Or run <code>npm run dev</code> for development mode</p>
-    </div>
-  </div>
-</body>
-</html>
-    `);
-  });
-}
+});
 
 // ==========================================
 // START SERVER
 // ==========================================
-app.listen(PORT, () => {
-  console.log('');
-  console.log('╔══════════════════════════════════════════════════════════╗');
-  console.log('║              EMORA WEBUI SERVER                          ║');
-  console.log('╠══════════════════════════════════════════════════════════╣');
-  console.log(`║  URL: http://localhost:${PORT}                              ║`);
-  console.log('║  Status: ONLINE                                          ║');
-  console.log('║  LLM: ' + (process.env.MODEL_NAME || 'default').padEnd(52) + '║');
-  console.log('╚══════════════════════════════════════════════════════════╝');
-  console.log('');
-});
+async function startServer() {
+  try {
+    const availablePort = await findAvailablePort(DEFAULT_PORT);
+    app.set('port', availablePort);
+    
+    const server = app.listen(availablePort, '0.0.0.0', () => {
+      console.log(`[WEBUI] ✅ Server running on http://localhost:${availablePort}`);
+      console.log(`[WEBUI] Root directory: ${ROOT_DIR}`);
+      console.log(`[WEBUI] API endpoints:`);
+      console.log(`  - POST /api/session`);
+      console.log(`  - GET  /api/history/:sessionId`);
+      console.log(`  - POST /api/chat`);
+      console.log(`  - POST /api/upload`);
+      console.log(`  - POST /api/analyze-file`);
+      console.log(`  - GET  /api/health`);
+    });
+
+    process.on('SIGTERM', () => {
+      console.log('[WEBUI] SIGTERM received, shutting down...');
+      server.close(() => process.exit(0));
+    });
+
+    process.on('SIGINT', () => {
+      console.log('[WEBUI] SIGINT received, shutting down...');
+      server.close(() => process.exit(0));
+    });
+
+    server.on('error', (err) => {
+      console.error('[WEBUI SERVER ERROR]', err.message);
+    });
+
+  } catch (err) {
+    console.error('[WEBUI FATAL ERROR] Could not start server:', err.message);
+    process.exit(1);
+  }
+}
+
+startServer();
+
+export default app;
