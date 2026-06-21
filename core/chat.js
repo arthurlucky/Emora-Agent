@@ -73,8 +73,21 @@ async function getSystemPrompt() {
   }
 }
 
+// ==========================================
+// PERF #2: Context window.
+// Sebelumnya SELURUH riwayat sesi (bisa ratusan pesan) dikirim ulang ke
+// LLM di SETIAP turn. Itu bikin prompt makin gemuk makin lama sesi
+// berjalan -> makin lambat & makin mahal, padahal model jarang butuh
+// detail dari ratusan pesan ke belakang. Memory mentah di disk TETAP
+// utuh (lihat memory.js) — yang dipangkas hanya potongan yang dikirim
+// ke LLM untuk membentuk jawaban saat ini.
+// ==========================================
+const MAX_CONTEXT_MESSAGES = 24; // ~12 pertukaran user/assistant terakhir
+
 function memoryToMessages(memory) {
-  return memory
+  const windowed = memory.slice(-MAX_CONTEXT_MESSAGES);
+
+  return windowed
     .map((msg) => {
       switch (msg.role) {
         case "user":

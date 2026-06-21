@@ -19,9 +19,21 @@
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import { invalidateSessionCache } from "./memory.js";
 
 const MEMORY_DIR = path.resolve("./memory");
 const META_FILE = path.join(MEMORY_DIR, "sessions.meta.json");
+
+// ==========================================
+// PERF #3: listSessions cache.
+// listSessions() dipanggil setiap kali Web UI me-refresh daftar sesi.
+// Sebelumnya itu artinya: readFile + JSON.parse SETIAP file sesi,
+// SETIAP kali daftar dibuka — padahal isi sebagian besar sesi lama tidak
+// pernah berubah. Cache ini menyimpan hasil parse per file selama
+// mtime file tidak berubah, jadi sesi yang tidak aktif tidak perlu
+// dibaca ulang dari disk.
+// ==========================================
+const fileCache = new Map(); // filename -> { mtimeMs, messageCount }
 
 // UUID v4 standar — dipakai untuk memfilter file yang benar-benar sesi utama
 // (bukan file metadata, dan bukan sesi background task yang formatnya
@@ -72,9 +84,16 @@ export async function listSessions() {
     let stat;
     try {
       stat = await fs.stat(filePath);
-      const raw = await fs.readFile(filePath, "utf8");
-      const parsed = JSON.parse(raw || "[]");
-      messageCount = Array.isArray(parsed) ? parsed.length : 0;
+      const cached = fileCache.get(file);
+
+      if (cached && cached.mtimeMs === stat.mtimeMs) {
+        messageCount = cached.messageCount;
+      } else {
+        const raw = await fs.readFile(filePath, "utf8");
+        const parsed = JSON.parse(raw || "[]");
+        messageCount = Array.isArray(parsed) ? parsed.length : 0;
+        fileCache.set(file, { mtimeMs: stat.mtimeMs, messageCount });
+      }
     } catch {
       stat = null;
     }
@@ -160,9 +179,12 @@ export async function deleteSession(id) {
   for (const file of files) {
     if (file === `${id}.json` || file.startsWith(`${id}_bg_`)) {
       await fs.unlink(path.join(MEMORY_DIR, file)).catch(() => {});
+      fileCache.delete(file);
       deletedFiles++;
     }
   }
+
+  invalidateSessionCache(id);
 
   const meta = await loadMeta();
   if (meta[id]) {
