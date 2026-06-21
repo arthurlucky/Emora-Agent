@@ -26,10 +26,8 @@
   },
   "scripts": {
     "start": "node main.js",
-    "start:web": "cd webui && npm run start:web",
-    "dev:web": "cd webui && npm run dev",
-    "build:web": "cd webui && npm run build",
-    "install:web": "cd webui && npm install"
+    "start:web": "cd webui && npm run start",
+    "install:web": "cd webui && npm instal && npm run buildl"
   },
   "keywords": [],
   "author": "",

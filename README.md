@@ -83,7 +83,6 @@ TELEGRAM_ALLOWED_IDS=
 WA_PHONE_NUMBER=
 WA_GATEWAY=
 WA_ALLOWED_NUMBERS=
-WEBUI=false
 NAME=Emora
 TAVILY_API_KEY=
 EMORA_HUB=https://emora-hub--rellaja1214.replit.app
@@ -93,13 +92,18 @@ EMORA_HUB=https://emora-hub--rellaja1214.replit.app
 
 ## ▶️ Menjalankan EMORA
 
+Dengan CLI 
 ```bash
 node main.js
 # atau
 npm start
 ```
+Dengan WEB CHAT
+```bash
+npm run install:web
+npm run start:web
+```
 
-EMORA akan muncul di terminal dan siap menerima perintah. Jika Telegram Gateway aktif, bot juga langsung online.
 
 ---
 

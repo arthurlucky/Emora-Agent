@@ -1,0 +1,10 @@
+Haii bro! 👋
+
+Ini file random dari EMORA buat testing.
+
+isinya cuma angka Fibonacci sederhana:
+1, 1, 2, 3, 5, 8, 13, 21, 34, 55
+
+Kalau lo baca ini, berarti fitur kirim file-nya jalan ya! 🎉
+
+— EMORA

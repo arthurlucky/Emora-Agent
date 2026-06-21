@@ -271,8 +271,7 @@ async function setup() {
     console.log(chalk.bold("Menu Utama:"));
     console.log("  1. Provider AI");
     console.log("  2. Gateway (Telegram / WhatsApp)");
-    console.log("  3. WebUI");
-    console.log("  4. Keluar");
+    console.log("  3. Keluar");
 
     const menuChoice = await promptMenu(
       chalk.white.bold("\nPilih menu (1-4): "),
@@ -287,9 +286,6 @@ async function setup() {
         await setupGateway();
         break;
       case "3":
-        await setupWebUI();
-        break;
-      case "4":
         running = false;
         console.log(chalk.cyan.bold("\nSetup selesai. Jalankan EMORA dengan: node main.js\n"));
         break;

@@ -78,12 +78,13 @@
         "write_file",
         "shell_exec"
       ],
-      "count": 1,
+      "count": 2,
       "sessions": [
-        "4fb3924b-8387-435b-b4b8-2d95c52c3752"
+        "4fb3924b-8387-435b-b4b8-2d95c52c3752",
+        "dd5028c0-28a2-4fd6-b7b6-b26d86643d04"
       ],
       "first_seen": 1781932027489,
-      "last_seen": 1781932027489,
+      "last_seen": 1782021130852,
       "skill_created": false,
       "skill_name": null
     },
@@ -107,13 +108,14 @@
         "emora_hub",
         "emora_hub"
       ],
-      "count": 2,
+      "count": 3,
       "sessions": [
         "bf5c34a2-6c0a-4869-9497-e9bcedda0b1f",
-        "06fba46d-8ac8-485a-a29b-8f1e96e778f4"
+        "06fba46d-8ac8-485a-a29b-8f1e96e778f4",
+        "dd5028c0-28a2-4fd6-b7b6-b26d86643d04"
       ],
       "first_seen": 1781939013459,
-      "last_seen": 1781961137025,
+      "last_seen": 1782020910143,
       "skill_created": false,
       "skill_name": null
     },
