@@ -165,7 +165,6 @@ if (WA_GATEWAY !== "true") {
       client.ev.on("messages.upsert", async (chatUpdate) => {
         try {
           const msg = chatUpdate.messages[0];
-          
           if (!msg.message || msg.key.fromMe) return;
 
           // Ekstrak pesan sebenarnya (menangani tipe ephemeral)
@@ -173,13 +172,14 @@ if (WA_GATEWAY !== "true") {
             ? msg.message.ephemeralMessage.message 
             : msg.message;
 
-          const senderId = msg.key.remoteJidAlt;
+          const senderId = msg.key.remoteJidAlt ?? msg.key.participantAlt;
+          const key = msg.key.remoteJidAlt ?? msg.key.remoteJid;
           const group = msg.key?.remoteJid;
           
           const isGroup = group.endsWith("@g.us");
 
           // Abaikan grup
-          if (isGroup) return;
+          
 
           // Hanya nomor yang ada di whitelist
           if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
@@ -196,7 +196,7 @@ if (WA_GATEWAY !== "true") {
           
           // Helper untuk membalas pesan
           const reply = async (text) => {
-            return await client.sendMessage(senderId, { text }, { quoted: msg });
+            return await client.sendMessage(key, { text }, { quoted: msg });
           };
 
           // ==========================================

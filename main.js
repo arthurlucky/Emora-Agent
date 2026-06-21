@@ -70,10 +70,13 @@ eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
 // ==========================================
 
 
+// ==========================================
+// AUTO-START WEB UI (Nuxt.js)
+// ==========================================
 if (process.env.WEBUI === "true") {
-  import("./webui/server.js").catch(err => {
-  console.error(`\n[WEBUI ERROR] Gagal menjalankan Web UI: ${err.message}`);
-});
+  console.log("[WEBUI] Starting Nuxt.js WebUI...");
+  
+  
 }
 
 

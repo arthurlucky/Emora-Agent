@@ -24,9 +24,12 @@
     "telegraf": "^4.16.3",
     "zod": "^3.25.0"
   },
-  "description": "",
   "scripts": {
-    "start": "node main.js"
+    "start": "node main.js",
+    "start:web": "cd webui && npm run start:web",
+    "dev:web": "cd webui && npm run dev",
+    "build:web": "cd webui && npm run build",
+    "install:web": "cd webui && npm install"
   },
   "keywords": [],
   "author": "",
