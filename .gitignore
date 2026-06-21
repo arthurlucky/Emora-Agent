@@ -9,3 +9,4 @@ session/
 # Web UI (Vite)
 webui/node_modules/
 webui/dist/
+downloads/
