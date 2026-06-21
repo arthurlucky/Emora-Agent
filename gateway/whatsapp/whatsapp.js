@@ -165,6 +165,7 @@ if (WA_GATEWAY !== "true") {
       client.ev.on("messages.upsert", async (chatUpdate) => {
         try {
           const msg = chatUpdate.messages[0];
+          
           if (!msg.message || msg.key.fromMe) return;
 
           // Ekstrak pesan sebenarnya (menangani tipe ephemeral)
@@ -173,8 +174,9 @@ if (WA_GATEWAY !== "true") {
             : msg.message;
 
           const senderId = msg.key.remoteJidAlt;
+          const group = msg.key?.remoteJid;
           
-          const isGroup = senderId.endsWith("@g.us");
+          const isGroup = group.endsWith("@g.us");
 
           // Abaikan grup
           if (isGroup) return;
