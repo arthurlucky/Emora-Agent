@@ -47,12 +47,12 @@ async function promptMenu(question, validOptions) {
 // ==========================================
 async function setupProvider() {
   console.log(chalk.bold("\n--- Pilih Provider AI ---"));
-  console.log(`  1. Groq             [${chalk.green("GRATIS")}] ⚡ ${chalk.yellow("Rekomendasi")}`);
+  console.log(`  1. Groq             [${chalk.green("GRATIS")}]`);
   console.log(`  2. NVIDIA NIM       [${chalk.green("GRATIS")}]`);
   console.log(`  3. OpenRouter       [${chalk.green("GRATIS")}]`);
   console.log(`  4. Google Gemini    [${chalk.green("GRATIS")}]`);
   console.log(`  5. OpenAI           [${chalk.red("BAYAR")}]`);
-  console.log(`  6. Ollama (Local)   [${chalk.green("GRATIS")}]`);
+  console.log(`  6. Ollama (Local)   [${chalk.green("GRATIS")}] ⚡ ${chalk.yellow("Rekomendasi")}`);
 
   const providerChoice = await promptMenu(
     chalk.white.bold("\nMasukkan nomor pilihan Anda (1-6): "),

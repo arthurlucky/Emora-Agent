@@ -23,6 +23,8 @@ import { eventBus } from "../../utils/eventBus.js";
 
 import { formatTelegramMessage } from "./formatter.js";
 import { sendSafeMessage, sendFile } from "./sender.js";
+import { getMemberStatus } from "./groupManager.js";
+import { setContext, buildContextHeader } from "../sessionContext.js";
 
 const ALLOWED_IDS = (process.env.TELEGRAM_ALLOWED_IDS || "")
   .split(",")
@@ -71,6 +73,66 @@ if (!token) {
   bot = new Telegraf(token, {
     handlerTimeout: 90000,
   });
+
+  // ==========================================
+  // CONTEXT AWARENESS (grup/private, platform, status admin)
+  // ==========================================
+  /**
+   * Bangun & simpan konteks pesan saat ini (platform, grup/private, status
+   * admin bot & pengirim) ke sessionContext, lalu balikin objeknya.
+   * Status admin cuma di-cek kalau chat-nya grup (hemat API call buat DM).
+   */
+  async function buildTelegramContext(ctx, sessionId) {
+    const chat = ctx.chat;
+    const chatType = chat.type === "private" ? "private" : "group";
+
+    let senderIsAdmin = null;
+    let botIsAdmin = null;
+    let chatTitle = null;
+
+    if (chatType === "group") {
+      chatTitle = chat.title || null;
+      try {
+        const [senderStatus, botStatus] = await Promise.all([
+          getMemberStatus(ctx.telegram, chat.id, ctx.from.id),
+          getMemberStatus(ctx.telegram, chat.id, ctx.botInfo.id),
+        ]);
+        senderIsAdmin = senderStatus.isAdmin;
+        botIsAdmin = botStatus.isAdmin;
+      } catch (err) {
+        console.warn("[TG CONTEXT] Gagal cek status admin:", err.message);
+      }
+    }
+
+    const senderName = ctx.from?.username
+      ? `@${ctx.from.username}`
+      : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || `id:${ctx.from?.id}`;
+
+    const context = {
+      platform: "telegram",
+      chatId: chat.id,
+      chatType,
+      chatTitle,
+      senderId: ctx.from?.id,
+      senderName,
+      senderIsAdmin,
+      botIsAdmin,
+    };
+
+    setContext(sessionId, context);
+    return context;
+  }
+
+  /**
+   * Sama kayak `ask()` biasa, tapi otomatis nyisipin header konteks
+   * (platform/grup/admin) di depan pesan, biar agent selalu tau lagi
+   * ngobrol di mana & posisinya apa sebelum mikirin balasan/tool call.
+   */
+  async function askWithContext(ctx, sessionId, rawMessage) {
+    const context = await buildTelegramContext(ctx, sessionId);
+    const enriched = buildContextHeader(context) + rawMessage;
+    return ask(llm, tools, sessionId, enriched);
+  }
 
   const bgLocks = {};
 
@@ -221,7 +283,7 @@ if (!token) {
     }
 
     const localState = { currentSession: sessions[chatId] };
-    const commandResult = await handleCommand(text, localState);
+    const commandResult = handleCommand(text, localState);
 
     if (commandResult) {
       sessions[chatId] = localState.currentSession;
@@ -249,7 +311,7 @@ if (!token) {
     const typingInterval = setInterval(sendTyping, 4000);
 
     try {
-      const result = await ask(llm, tools, sessionId, text);
+      const result = await askWithContext(ctx, sessionId, text);
 
       isTyping = false;
       clearInterval(typingInterval);
@@ -310,7 +372,7 @@ if (!token) {
 
       // Analyze with AI
       try {
-        const result = await ask(llm, tools, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt);
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }
@@ -364,7 +426,7 @@ if (!token) {
 
       // Analyze with AI
       try {
-        const result = await ask(llm, tools, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt);
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }
@@ -416,7 +478,7 @@ if (!token) {
 
       // Analyze with AI
       try {
-        const result = await ask(llm, tools, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt);
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }
@@ -468,7 +530,7 @@ if (!token) {
 
       // Analyze with AI
       try {
-        const result = await ask(llm, tools, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt);
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }
@@ -520,7 +582,7 @@ if (!token) {
 
       // Analyze with AI
       try {
-        const result = await ask(llm, tools, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt);
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }

@@ -10,6 +10,8 @@ import projectManagerTool from "../tools/project_manager.js";
 import { schedulerTool } from "../tools/scheduler.js";
 import { FetchPageTool }from "../tools/fetch_page.js";
 
+import groupManagerTool from "../tools/group_manager.js";
+
 import searchTextTool from "../tools/search_text.js";
 import emoraHubTool from "../tools/emora_hub.js";
 
@@ -55,7 +57,9 @@ const tools = [
   systemMonitorTool,
   emoraHubTool,
   economyManagerTool,
-  gitManagerTool
+  gitManagerTool,
+  
+  groupManagerTool
 ];
 
 export default tools;

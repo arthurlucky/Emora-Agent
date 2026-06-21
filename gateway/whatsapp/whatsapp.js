@@ -32,6 +32,8 @@ import { eventBus } from "../../utils/eventBus.js";
 
 import { formatWhatsAppMessage } from "./formatter.js";
 import { sendFile } from "./sender.js";
+import { getBotStatus, getMemberStatus } from "./groupManager.js";
+import { setContext, buildContextHeader } from "../sessionContext.js";
 
 const ALLOWED_NUMBERS = (process.env.WA_ALLOWED_NUMBERS || "")
   .split(",")
@@ -77,6 +79,77 @@ if (WA_GATEWAY !== "true") {
   // BACKGROUND TASK LISTENER
   // ==========================================
   const bgLocks = {};
+
+  // ==========================================
+  // CONTEXT AWARENESS (grup/private, platform, status admin)
+  // ==========================================
+  /**
+   * Bangun & simpan konteks pesan saat ini (platform, grup/private, status
+   * admin EMORA & pengirim) ke sessionContext, lalu balikin objeknya.
+   * Status admin & nama grup cuma di-cek kalau chat-nya grup (hemat round
+   * trip groupMetadata buat chat personal).
+   */
+  async function buildWhatsAppContext(sessionId, { senderId, group, isGroup, senderName, replyToMessage }) {
+    let senderIsAdmin = null;
+    let botIsAdmin = null;
+    let chatTitle = null;
+
+    if (isGroup) {
+      try {
+        const [botStatus, memberStatus] = await Promise.all([
+          getBotStatus(client, group),
+          getMemberStatus(client, group, senderId),
+        ]);
+        chatTitle = botStatus.groupName || null;
+        botIsAdmin = botStatus.isAdmin;
+        senderIsAdmin = memberStatus.isAdmin;
+      } catch (err) {
+        console.warn("[WA CONTEXT] Gagal cek status admin/grup:", err.message);
+      }
+    }
+
+    const context = {
+      platform: "whatsapp",
+      chatId: group,
+      chatType: isGroup ? "group" : "private",
+      chatTitle,
+      senderId,
+      senderName,
+      senderIsAdmin,
+      botIsAdmin,
+      replyToMessage: replyToMessage || null,
+    };
+
+    setContext(sessionId, context);
+    return context;
+  }
+
+  /**
+   * Ambil info pesan yang sedang di-reply user (kalau ada), dipakai buat
+   * fitur groupDeleteMessage. Baileys naruh info ini di `contextInfo` pada
+   * tipe pesan yang membawa reply (paling umum extendedTextMessage).
+   */
+  function extractQuotedInfo(msg) {
+    const messageType = Object.keys(msg.message || {})[0];
+    const content = msg.message?.[messageType];
+    const contextInfo = content?.contextInfo;
+    if (!contextInfo?.stanzaId) return null;
+    return {
+      id: contextInfo.stanzaId,
+      participant: contextInfo.participant || null,
+    };
+  }
+
+  /**
+   * Sama kayak `ask()` biasa, tapi otomatis nyisipin header konteks
+   * (platform/grup/admin) di depan pesan, biar agent selalu tau lagi
+   * ngobrol di mana & posisinya apa sebelum mikirin balasan/tool call.
+   */
+  async function askWithContext(sessionId, contextInput, rawMessage) {
+    const context = await buildWhatsAppContext(sessionId, contextInput);
+    const enriched = buildContextHeader(context) + rawMessage;
+    return ask(llm, tools, sessionId, enriched);
+  }
 
   eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
     const phoneId = Object.keys(sessions).find((k) => sessions[k] === session_id);
@@ -326,9 +399,11 @@ if (WA_GATEWAY !== "true") {
           const group = msg.key?.remoteJid;
 
           const isGroup = group.endsWith("@g.us");
+          const senderName = msg.pushName || senderId;
+          const replyToMessage = extractQuotedInfo(msg);
+          const contextInput = { senderId, group, isGroup, senderName, replyToMessage };
 
           
-
           // Hanya nomor yang ada di whitelist
           if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
             console.log(`[WA BLOCKED] ${senderId}`);
@@ -377,7 +452,7 @@ if (WA_GATEWAY !== "true") {
 
               // Send to AI for analysis
               try {
-                const result = await ask(llm, tools, sessionId, analysisPrompt);
+                const result = await askWithContext(sessionId, contextInput, analysisPrompt);
                 if (result?.trim()) {
                   await reply(formatWhatsAppMessage(result));
                 }
@@ -403,7 +478,7 @@ if (WA_GATEWAY !== "true") {
             currentSession: sessions[senderId],
           };
 
-          const commandResult = await handleCommand(text, localState);
+          const commandResult = handleCommand(text, localState);
 
           if (commandResult) {
             sessions[senderId] = localState.currentSession;
@@ -422,7 +497,7 @@ if (WA_GATEWAY !== "true") {
           await client.sendPresenceUpdate("composing", senderId);
 
           try {
-            const result = await ask(llm, tools, sessionId, text);
+            const result = await askWithContext(sessionId, contextInput, text);
 
             await client.sendPresenceUpdate("paused", senderId);
             await reply(formatWhatsAppMessage(result));

@@ -9,6 +9,27 @@ import fs from "fs";
 import path from "path";
 
 /**
+ * Kirim pesan teks polos (tanpa quote) ke chat WhatsApp tertentu.
+ * Dipakai buat progress update / step broadcasting (lihat
+ * gateway/index.js -> sendProgressUpdate), beda dari `reply()` di
+ * whatsapp.js yang selalu nge-quote pesan user.
+ *
+ * @param {object} waClient
+ * @param {string} chatId
+ * @param {string} text
+ * @returns {Promise<boolean>}
+ */
+export async function sendText(waClient, chatId, text) {
+  try {
+    await waClient.sendMessage(chatId, { text });
+    return true;
+  } catch (err) {
+    console.error("[WA SEND TEXT ERROR]", err.message);
+    return false;
+  }
+}
+
+/**
  * Kirim file ke pengguna WhatsApp.
  *
  * @param {object} waClient    - Instance socket Baileys (makeWASocket)
