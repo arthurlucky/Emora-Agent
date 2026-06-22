@@ -1,0 +1,22 @@
+[
+  {
+    "role": "user",
+    "content": "halo",
+    "timestamp": 1782112269592
+  },
+  {
+    "role": "assistant",
+    "content": "Halo! 👋 Gue Emora, siap bantu lo hari ini. Ada yang bisa gue kerjain?",
+    "timestamp": 1782112269592
+  },
+  {
+    "role": "user",
+    "content": "/sesinfo",
+    "timestamp": 1782112429760
+  },
+  {
+    "role": "assistant",
+    "content": "## 📊 Session Info\n\n| Item | Detail |\n|------|--------|\n| 🆔 **Session ID** | `17baa0e9-f19e-4fca-becf-ace3ef159fe0` |\n| 📅 **Tanggal** | Senin, 22 Juni 2026 |\n| 🕑 **Waktu** | 14.13 WIB |\n| 💬 **Channel** | CLI (active) |\n\n### 🖥️ System Status\n- **CPU**: idle ✅\n- **RAM**: 3.8G / 5.6G (68%) — masih aman\n- **Disk**: **2.7G / 2.7G (100% FULL)** ⚠️\n\nBro, disk lo udah **penuh 100%** nih — ini bahaya, bisa bikin sistem error atau gagal nulis file baru. Mungkin perlu bersihin file sampah/log/cache dulu biar lega. Mau gue bantu cek file apa yang nyedot ruang paling gede? 🔍",
+    "timestamp": 1782112429760
+  }
+]

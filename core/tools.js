@@ -5,7 +5,6 @@ import { readFileTool } from "../tools/read_file.js";
 import { writeFileTool } from "../tools/write_file.js";
 import { datetimeTool } from "../tools/datetime.js";
 import { shellExecTool } from "../tools/shell_exec.js";
-import { skillReaderTool } from "../tools/skill_reader.js";
 import projectManagerTool from "../tools/project_manager.js";
 import { schedulerTool } from "../tools/scheduler.js";
 import { FetchPageTool }from "../tools/fetch_page.js";
@@ -48,7 +47,6 @@ const tools = [
   
   datetimeTool,
   shellExecTool,
-  skillReaderTool,
   projectManagerTool,
   schedulerTool,
 

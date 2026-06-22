@@ -32,7 +32,11 @@ export const gitManagerTool = new DynamicStructuredTool({
           if (!message) {
             return "Error: Please provide a commit message.";
           }
-          command = `git commit -m "${message}"`;
+          // BUGFIX: pesan commit yang mengandung tanda kutip ganda dulu
+          // merusak syntax shell (mis. message berisi `fix: handle "edge case"`
+          // bikin command jadi `git commit -m "fix: handle "edge case""`,
+          // yang dipotong shell jadi argumen acak). Escape setiap `"` dan `\`.
+          command = `git commit -m "${message.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
           break;
         case "push":
           const targetBranch = branch || "main";

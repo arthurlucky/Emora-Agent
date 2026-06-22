@@ -24,11 +24,20 @@ export default new DynamicStructuredTool({
     const root =
       resolveWorkspacePath();
 
+    // BUGFIX (perf): sama seperti search_text.js, cegah noise dari
+    // node_modules/.git/dll yang gak relevan dan bikin lambat.
     const dirs =
       await fg("**", {
         cwd: root,
         onlyDirectories: true,
         absolute: false,
+        ignore: [
+          "**/node_modules/**",
+          "**/.git/**",
+          "**/dist/**",
+          "**/.nuxt/**",
+          "**/.output/**",
+        ],
       });
 
     const found =

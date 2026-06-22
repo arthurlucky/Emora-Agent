@@ -25,11 +25,27 @@ export default new DynamicStructuredTool({
     const root =
       resolveWorkspacePath();
 
+    // BUGFIX (perf): sebelumnya tidak ada ignore sama sekali, jadi kalau
+    // ada node_modules/.git/dll di project root, tool ini bisa membaca
+    // RIBUAN file yang gak relevan (lambat banget, kadang sampai terasa
+    // "macet") sebelum hasil pencarian balik ke LLM.
     const files =
       await fg("**/*", {
         cwd: root,
         absolute: true,
         onlyFiles: true,
+        ignore: [
+          "**/node_modules/**",
+          "**/.git/**",
+          "**/dist/**",
+          "**/.nuxt/**",
+          "**/.output/**",
+          "**/downloads/**",
+          "**/uploads/**",
+          "**/memory/**",
+          "**/backups/**",
+          "**/skill_factory/**",
+        ],
       });
 
     const results = [];

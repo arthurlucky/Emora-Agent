@@ -1,0 +1,12 @@
+[
+  {
+    "role": "user",
+    "content": "kamu bisa apa?",
+    "timestamp": 1782112548809
+  },
+  {
+    "role": "assistant",
+    "content": "Halo bro! 👋 Gua **EMORA**, AI assistant lo yang siap bantu banyak hal. Singkatnya, ini yang bisa gua handle:\n\n## 🛠️ File & Project Management\n- Bikin, baca, edit, rename, hapus file/folder di mana aja di device lo\n- Bikin project baru dari nol (web app, script, dokumen, dll)\n- Setup backup otomatis\n\n## 💻 Coding & Development\n- Bikin tool/system baru untuk diriku sendiri (self-expansion)\n- Review kode, audit keamanan, cek dependency\n- Bantu debugging & optimasi\n\n## 🌐 Web & Internet\n- Cari info terbaru di internet\n- Cek kesehatan website/API (uptime, SSL, response time)\n- Download tool/skill dari EMORA Community Hub\n\n## 📱 Chat Gateway (Telegram & WhatsApp)\n- Kirim file, gambar, PDF ke lo via Telegram/WhatsApp\n- Moderasi grup (kick, promote, demote member)\n- Broadcast pesan ke grup\n\n## ⏰ Automation & Scheduling\n- Jalanin tugas background secara berkala (monitoring, notifikasi)\n- Cron job buat backup, health check, dll\n\n## 📊 Data & Analysis\n- Analisis log, bikin laporan Markdown\n- Riset & rangkum informasi\n- Audit konfigurasi & keamanan\n\n## 🎯 Skill Khusus\nGua punya banyak skill built-in kayak `auto_code_reviewer`, `website_health_check`, `bulk_file_organizer`, `markdown_report_writer`, dll — semuanya otomatis kepake kalau relevan sama request lo.\n\n---\n\n**Bahasanya fleksibel** — bisa casual pake bahasa Jaksel, bisa formal, bisa English. Tinggal ngobrol aja kayak sama temen developer yang pinter 😎\n\nMau coba apa nih? 🚀",
+    "timestamp": 1782112548809
+  }
+]

@@ -1,9 +1,9 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 
-const TAVILY_KEY = () =>
-  process.env.TAVILY_API_KEY ??
-  "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";
+// BUGFIX (security): sama seperti search_web.js — API key bocor dihapus,
+// sekarang wajib dari .env.
+const TAVILY_KEY = () => process.env.TAVILY_API_KEY;
 
 export const FetchPageTool = new DynamicStructuredTool({
   name       : "fetch_page",
@@ -15,6 +15,10 @@ export const FetchPageTool = new DynamicStructuredTool({
   }),
   func: async ({ url }) => {
     try {
+      if (!TAVILY_KEY()) {
+        return "❌ TAVILY_API_KEY belum di-set di .env. Tambahkan dulu API key Tavily yang valid sebelum pakai fetch_page.";
+      }
+
       const response = await fetch("https://api.tavily.com/extract", {
         method : "POST",
         headers: {

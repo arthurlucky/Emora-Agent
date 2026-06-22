@@ -23,15 +23,58 @@ import { recordToolSequence, SKILL_THRESHOLD } from "../utils/patternTracker.js"
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
+const SKILL_DIR = path.join(ROOT_DIR, 'skill');
 
 let cachedSystemPrompt = null;
 
 // Dipanggil oleh Web UI setelah AGENT.md / SOUL.md disimpan, supaya
 // system prompt yang sedang di-cache di memori langsung ke-refresh
-// tanpa perlu restart proses EMORA.
+// tanpa perlu restart proses EMORA. Juga dipanggil skill_factory.js
+// setiap kali skill baru dibuat, supaya katalog skill (lihat
+// buildSkillCatalog di bawah) langsung ke-refresh tanpa restart juga.
 export function invalidateSystemPromptCache() {
   cachedSystemPrompt = null;
 }
+
+/**
+ * Scan folder skill/ dan bangun katalog ringkas (nama + deskripsi tiap
+ * skill) untuk disisipkan ke system prompt. Ini yang bikin agent TAU skill
+ * apa aja yang tersedia di SETIAP turn tanpa harus nebak nama folder atau
+ * nanya ke user dulu — lihat AGENT.md bagian 13 (SKILL ACCESS).
+ */
+async function buildSkillCatalog() {
+  let entries;
+  try {
+    entries = await fs.readdir(SKILL_DIR, { withFileTypes: true });
+  } catch {
+    return "(Belum ada skill tersimpan.)";
+  }
+
+  const lines = [];
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+
+    let description = null;
+    try {
+      const metaRaw = await fs.readFile(path.join(SKILL_DIR, e.name, "meta.json"), "utf8");
+      description = JSON.parse(metaRaw).description || null;
+    } catch {
+      // meta.json gak ada/rusak -> fallback ke baris pertama skill.md
+      try {
+        const mdRaw = await fs.readFile(path.join(SKILL_DIR, e.name, "skill.md"), "utf8");
+        description = mdRaw.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || null;
+      } catch {
+        // skill.md juga gak ada -> skip skill ini dari katalog
+      }
+    }
+
+    if (description) lines.push(`- ${e.name}: ${description}`);
+  }
+
+  return lines.length ? lines.join("\n") : "(Belum ada skill tersimpan.)";
+}
+
+export { buildSkillCatalog as buildSkillCatalogForCLI };
 
 async function getSystemPrompt() {
   if (cachedSystemPrompt) {
@@ -45,6 +88,7 @@ async function getSystemPrompt() {
     
     const soul = await fs.readFile(soulPath, "utf8");
     const agent = await fs.readFile(agentPath, "utf8");
+    const skillCatalog = await buildSkillCatalog();
     
     const Context = `
  user identity
@@ -53,6 +97,11 @@ async function getSystemPrompt() {
  ${soul}
 
  ${agent}
+
+[AVAILABLE SKILLS]
+${skillCatalog}
+
+Use skill_factory (action: read_skill, skill_name_target: "<name>") to load the FULL content of any skill above WHENEVER its description matches what the user is asking — do this silently as part of normal tool use. NEVER ask the user "should I use the <name> skill?" or announce that you are checking for a skill first; just check this catalog and act, the same way you wouldn't ask permission before using read_file. Only mention a skill by name afterward if it's genuinely useful context for the user (e.g., explaining why you followed a particular workflow).
  `;
 
     cachedSystemPrompt = Context;

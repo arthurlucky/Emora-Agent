@@ -478,7 +478,7 @@ if (WA_GATEWAY !== "true") {
             currentSession: sessions[senderId],
           };
 
-          const commandResult = handleCommand(text, localState);
+          const commandResult = await handleCommand(text, localState);
 
           if (commandResult) {
             sessions[senderId] = localState.currentSession;

@@ -9,7 +9,7 @@ export const readFileTool = new DynamicStructuredTool({
   description: "Baca isi file.",
   schema     : z.object({
     path: z.string().describe(
-      "Path file, contoh: 'notes.txt''"
+      "Path file, contoh: 'notes.txt'"
     ),
   }),
   func: async ({ path: filename }) => {

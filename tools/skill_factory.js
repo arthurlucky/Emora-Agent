@@ -12,6 +12,7 @@ import {
   SKILL_THRESHOLD,
 } from "../utils/patternTracker.js";
 import { resolveWorkspacePath } from "../utils/workspace.js";
+import { invalidateSystemPromptCache } from "../core/chat.js";
 
 const SKILL_DIR = "./skill";
 const FACTORY_DIR = "./skill_factory";
@@ -413,6 +414,11 @@ export const skillFactoryTool = new DynamicStructuredTool({
             safeName,
             skill_description || "Auto-generated skill"
           );
+
+          // BUGFIX: tanpa ini, skill yang baru dibuat gak akan muncul di
+          // katalog [AVAILABLE SKILLS] (lihat core/chat.js) sampai proses
+          // EMORA di-restart manual, karena system prompt di-cache.
+          invalidateSystemPromptCache();
 
           return JSON.stringify({
             success: true,

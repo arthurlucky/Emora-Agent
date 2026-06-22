@@ -45,17 +45,23 @@ export async function handleCommand(input, state) {
 
     case "/clear": {
       try {
+        // BUGFIX: Sebelumnya /clear menghapus SEMUA file sesi di memory/
+        // tanpa pandang bulu — di Telegram/WhatsApp itu artinya satu user
+        // mengetik /clear bisa menghapus riwayat chat SEMUA user lain yang
+        // pernah ngobrol dengan bot ini. Sekarang di-scope cuma ke sesi
+        // yang sedang aktif milik state ini sendiri.
+        const currentId = state.currentSession;
         const memoryDir = path.resolve("./memory");
         let deletedCount = 0;
-        
-        // Baca direktori dan hapus semua file JSON
-        if (fs.existsSync(memoryDir)) {
-          const files = fs.readdirSync(memoryDir);
-          for (const file of files) {
-            if (file.endsWith(".json")) {
-              fs.unlinkSync(path.join(memoryDir, file));
-              deletedCount++;
-            }
+
+        if (currentId && fs.existsSync(memoryDir)) {
+          const filesToDelete = fs
+            .readdirSync(memoryDir)
+            .filter((f) => f === `${currentId}.json` || f.startsWith(`${currentId}_bg_`));
+
+          for (const file of filesToDelete) {
+            fs.unlinkSync(path.join(memoryDir, file));
+            deletedCount++;
           }
         }
 
@@ -65,7 +71,7 @@ export async function handleCommand(input, state) {
 
         return { 
           action: "reply", 
-          message: `🗑️ Berhasil menghapus ${deletedCount} riwayat sesi.\n✅ Session baru otomatis dibuat:\n${newSessionId}` 
+          message: `🗑️ Riwayat sesi ini berhasil dihapus (${deletedCount} file).\n✅ Session baru otomatis dibuat:\n${newSessionId}` 
         };
       } catch (err) {
         return { 
@@ -76,20 +82,7 @@ export async function handleCommand(input, state) {
     }
 
     case "/help": {
-      return { 
-        action: "reply", 
-        message: `🤖 EMORA COMMANDS
-
-/new - Buat sesi baru
-/sesi - Lihat sesi aktif
-/sesi <uuid> - Pindah sesi
-/sesilist - Lihat semua sesi
-/sesiinfo <uuid> - Detail sesi
-/sesidel <uuid> - Hapus sesi
-/clear - Hapus semua sesi
-/help - Bantuan
-/exit - Keluar` 
-      };
+      return { action: "help", message: "help" };
     }
     
     case "/sesilist": {

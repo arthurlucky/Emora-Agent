@@ -1,20 +1,30 @@
+/**
+ * tools/group_manager.js
+ *
+ * BUGFIX: Versi sebelumnya mengambil sessionId dari
+ * `config.configurable.sessionId`, padahal core/chat.js (lihat
+ * executeTool()) memanggil `tool.invoke(toolCall.args)` TANPA config
+ * apapun — jadi sessionId itu SELALU undefined dan tool ini SELALU gagal
+ * dengan pesan "sessionId tidak tersedia". Pola yang benar (sama seperti
+ * shell_exec dan scheduler) adalah: terima `session_id` sebagai parameter
+ * schema biasa, dan system prompt sudah memberi tahu LLM nilai session_id
+ * aktifnya lewat blok [INFO SYSTEM] di core/chat.js — LLM yang mengisi
+ * parameter ini sendiri di setiap pemanggilan tool.
+ */
+
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { handleGroupCommand } from "../gateway/index.js";
 
 export const groupManagerTool = tool(
-  async ({ action, userId, messageId }, config) => {
-    // 👉 Sesuaikan baris ini kalau cara nge-thread sessionId ke tool di
-    //    project lo beda (mis. lewat closure per-session, bukan RunnableConfig).
-    const sessionId = config?.configurable?.sessionId;
-
-    if (!sessionId) {
-      return "❌ sessionId tidak tersedia di context tool ini — cek cara core/chat.js manggil tool.";
+  async ({ action, session_id, userId, messageId }) => {
+    if (!session_id) {
+      return "❌ Parameter session_id wajib diisi (ambil dari blok [INFO SYSTEM] di system prompt).";
     }
 
     const args = (userId ? ` --userId="${userId}"` : "") + (messageId ? ` --messageId="${messageId}"` : "");
 
-    return handleGroupCommand(sessionId, `${action}${args}`);
+    return handleGroupCommand(session_id, `${action}${args}`);
   },
   {
     name: "group_manager",
@@ -45,6 +55,7 @@ export const groupManagerTool = tool(
         "groupDeleteMessage",
         "groupInviteLink",
       ]),
+      session_id: z.string().describe("WAJIB. Session ID aktif user ini, dari blok [INFO SYSTEM] di system prompt."),
       userId: z
         .string()
         .optional()
