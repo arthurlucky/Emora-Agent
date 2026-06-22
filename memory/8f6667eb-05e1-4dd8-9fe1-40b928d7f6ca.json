@@ -1,0 +1,12 @@
+[
+  {
+    "role": "user",
+    "content": "halo",
+    "timestamp": 1782124250827
+  },
+  {
+    "role": "assistant",
+    "content": "Halo! 👋\n\nGimana kabarnya hari ini? Ada yang bisa gua bantu? 🚀",
+    "timestamp": 1782124250827
+  }
+]

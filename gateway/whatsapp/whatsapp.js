@@ -406,7 +406,7 @@ if (WA_GATEWAY !== "true") {
           
           // Hanya nomor yang ada di whitelist
           if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
-            console.log(`[WA BLOCKED] ${senderId}`);
+            
             return;
           }
 

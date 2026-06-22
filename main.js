@@ -127,7 +127,9 @@ async function showBanner() {
   // ── tagline + badge ──────────────────────────────────────────────────────
   const tagline = C.secondary("Autonomous AI Agent  ·  self-hosted  ·  multi-platform");
   const badge   = C.green("● ") + C.success("running");
+  const s = C.secondary(`Model:  · ${process.env.MODEL_NAME}   ·  API ${process.env.MODEL_API}`);
   console.log("\n" + " ".repeat(4) + tagline);
+  console.log("\n" + " ".repeat(4) + s);
   console.log(" ".repeat(4) + badge + "\n");
 
   console.log(separator());
