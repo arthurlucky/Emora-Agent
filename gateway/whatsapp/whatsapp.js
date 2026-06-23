@@ -24,7 +24,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 
-import { ChatOpenAI } from "@langchain/openai";
+import { createLLM } from "../../provider/index.js";
 import tools from "../../core/tools.js";
 import { ask } from "../../core/chat.js";
 import { handleCommand } from "../../core/cmd.js";
@@ -67,13 +67,11 @@ if (WA_GATEWAY !== "true") {
 } else if (!WA_PHONE) {
   console.log("\n[WHATSAPP] WA_PHONE_NUMBER tidak ditemukan di .env. Gateway dibatalkan.");
 } else {
-  llm = new ChatOpenAI({
-    apiKey: process.env.MODEL_API || "ollama",
-    model: process.env.MODEL_NAME,
-    configuration: { baseURL: process.env.MODEL_URL },
-    temperature: 0.2,
-    maxTokens: 2048,
-  }).bindTools(tools, { toolChoice: "auto" });
+  try {
+    llm = await createLLM(tools);
+  } catch (err) {
+    console.error(`[WHATSAPP] Gagal init LLM: ${err.message}`);
+  }
 
   // ==========================================
   // BACKGROUND TASK LISTENER
@@ -406,7 +404,7 @@ if (WA_GATEWAY !== "true") {
           
           // Hanya nomor yang ada di whitelist
           if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
-            
+            console.log(`[WA BLOCKED] ${senderId}`);
             return;
           }
 

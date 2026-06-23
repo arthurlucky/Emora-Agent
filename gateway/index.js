@@ -10,7 +10,7 @@ const gatewayErrors = new Map(); // Track error counts per gateway
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
 
-async function loadGateways() {
+export async function loadGateways() {
   // ==========================================
   // TELEGRAM
   // ==========================================
@@ -61,9 +61,15 @@ async function loadGateways() {
 }
 
 // Safe gateway initialization with error tracking
-const gatewaysReady = loadGateways().catch((err) => {
-  console.error("[GATEWAY] Gagal memuat gateway:", err.message);
-});
+// Auto-load gateway saat di-import oleh main.js atau telegram/whatsapp.js.
+// cmd-gateway.js memanggil loadGateways() manual — guard ini mencegah
+// double-load kalau file ini di-import lebih dari sekali dalam satu proses.
+let gatewaysReady;
+if (!process.env._EMORA_GATEWAY_MANUAL) {
+  gatewaysReady = loadGateways().catch((err) => {
+    console.error("[GATEWAY] Gagal memuat gateway:", err.message);
+  });
+}
 
 /**
  * Kirim file ke user dengan error handling

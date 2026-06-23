@@ -9,7 +9,7 @@ import boxen from "boxen";
 import figlet from "figlet";
 import ora from "ora";
 
-import { ChatOpenAI } from "@langchain/openai";
+import { createLLM, getProviderMeta } from "./provider/index.js";
 import tools from "./core/tools.js";
 import { ask, buildSkillCatalogForCLI } from "./core/chat.js";
 import { handleCommand } from "./core/cmd.js";
@@ -17,15 +17,16 @@ import { eventBus } from "./utils/eventBus.js";
 import { activeGateways } from "./gateway/index.js";
 
 // ─────────────────────────────────────────────
-// LLM INIT
+// LLM INIT — via provider registry
 // ─────────────────────────────────────────────
-const llm = new ChatOpenAI({
-  apiKey: process.env.MODEL_API || "ollama",
-  model: process.env.MODEL_NAME,
-  configuration: { baseURL: process.env.MODEL_URL },
-  temperature: 0.2,
-  maxTokens: 2048,
-}).bindTools(tools, { toolChoice: "auto" });
+let llm;
+try {
+  llm = await createLLM(tools);
+} catch (err) {
+  console.error(chalk.red(`\n[EMORA] Gagal init LLM: ${err.message}`));
+  console.error(chalk.yellow("Jalankan `emora setup` atau `emora model` untuk konfigurasi ulang."));
+  process.exit(1);
+}
 
 const state = { currentSession: crypto.randomUUID() };
 
@@ -127,9 +128,7 @@ async function showBanner() {
   // ── tagline + badge ──────────────────────────────────────────────────────
   const tagline = C.secondary("Autonomous AI Agent  ·  self-hosted  ·  multi-platform");
   const badge   = C.green("● ") + C.success("running");
-  const s = C.secondary(`Model:  · ${process.env.MODEL_NAME}   ·  API ${process.env.MODEL_API}`);
   console.log("\n" + " ".repeat(4) + tagline);
-  console.log("\n" + " ".repeat(4) + s);
   console.log(" ".repeat(4) + badge + "\n");
 
   console.log(separator());
@@ -147,7 +146,8 @@ async function showBanner() {
     ? C.green("●") + " " + C.success(`Web UI  `) + C.muted(`http://localhost:${process.env.WEBUI_PORT || 5090}`)
     : C.muted("○") + " " + C.muted("Web UI") + "  " + C.muted("npm start --web");
 
-  const model    = C.muted("Model ") + C.cyan(process.env.MODEL_NAME || "—");
+  const providerMeta = getProviderMeta();
+  const model    = C.muted("Model  ") + C.cyan(`${providerMeta.label}`) + C.muted(" / ") + C.cyan(process.env.MODEL_NAME || "—");
   const sesLabel = C.muted("Session ") + C.green(state.currentSession.slice(0, 8)) + C.muted(`…${state.currentSession.slice(-4)}`);
 
   const statusLines = [tgStatus, waStatus, webStatus, model, sesLabel];

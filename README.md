@@ -1,234 +1,435 @@
 <div align="center">
 
-**EMORA AGENT**
-*Terminal Intelligence for Termux & Linux*
+```
+███████╗███╗   ███╗ ██████╗ ██████╗  █████╗
+██╔════╝████╗ ████║██╔═══██╗██╔══██╗██╔══██╗
+█████╗  ██╔████╔██║██║   ██║██████╔╝███████║
+██╔══╝  ██║╚██╔╝██║██║   ██║██╔══██╗██╔══██║
+███████╗██║ ╚═╝ ██║╚██████╔╝██║  ██║██║  ██║
+╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+```
 
-[![Node.js](https://img.shields.io/badge/Node.js-v16+-green.svg)](https://nodejs.org)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Linux-orange.svg)](https://termux.dev)
-[![Telegram](https://img.shields.io/badge/Telegram-Community-2CA5E0?logo=telegram)](https://t.me/EMORAGENT)
+**Autonomous AI Agent — Self-hosted · Multi-platform · Multi-provider**
+
+[![Node.js](https://img.shields.io/badge/Node.js-≥20-green?style=flat-square&logo=node.js)](https://nodejs.org)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 </div>
 
 ---
 
-## 🤖 Apa itu EMORA?
+## Apa itu EMORA?
 
-**EMORA** adalah AI Agent berbasis terminal yang dirancang untuk berjalan di **Termux** dan **Linux**. Ditenagai oleh LLM pilihan kamu (Groq, OpenAI, Gemini, Ollama, dan lainnya), EMORA bisa menjalankan perintah shell, mengelola file, browsing web, kirim notifikasi Telegram, dan banyak lagi — semua dari terminal.
+EMORA adalah AI agent otonom yang bisa kamu host sendiri (self-hosted). Dia bisa dipakai dari CLI, Telegram, WhatsApp, atau browser (Web UI) — semua dari satu proses Node.js.
 
-Lebih dari sekadar chatbot, EMORA adalah asisten yang bisa **berpikir**, **merencanakan**, dan **mengeksekusi tugas kompleks multi-langkah** secara mandiri.
-
----
-
-## ✨ Fitur Utama
-
-- 🧠 **Agentic AI** — Mampu merencanakan dan mengeksekusi tugas kompleks secara mandiri menggunakan siklus Project Manager
-- 🔧 **20+ Built-in Tools** — Shell executor, file manager, web search, ZIP, scheduler, dan masih banyak lagi
-- 💬 **Telegram Gateway** — Gunakan EMORA langsung dari Telegram Bot
-- 🌐 **Web UI** — Panel kontrol di browser (Express + Vite/vanilla JS) buat kelola sesi chat, toggle gateway, dan edit AGENT.md/SOUL.md
-- 📦 **Skill System** — Simpan dan reuse workflow sebagai "skill" yang bisa dipanggil kapan saja
-- 🏭 **Skill Factory** — Otomatis pembuatan skill berdasarkan workflow
-- 🔌 **EMORA Hub** — Marketplace komunitas untuk berbagi dan mengunduh tools & skills custom
-- ⏱️ **Background Scheduler** — Jalankan tugas berkala (monitoring, notifikasi, cron-style) di background
-- 🧩 **Self-Expanding** — EMORA bisa membuat dan mendaftarkan tool barunya sendiri
-- 🔄 **Multi-Provider** — Dukung Groq, OpenAI, NVIDIA NIM, OpenRouter, Google Gemini, dan Ollama (lokal)
+**Fitur utama:**
+- 🤖 **Agent loop** dengan tool calling (shell, file, git, web search, scheduler, dsb)
+- 📡 **Multi-gateway** — Telegram + WhatsApp berjalan paralel dalam satu proses
+- 🧠 **Skill system** — kemampuan terstruktur yang otomatis dipakai tanpa perlu diperintah
+- 🏭 **Skill Factory** — EMORA bisa membuat skill baru secara otomatis dari pola penggunaan
+- 🔌 **Multi-provider** — Groq, Gemini, Anthropic, OpenRouter, NVIDIA, HuggingFace, Ollama
+- 🌐 **Web UI** — panel kontrol sesi, gateway, dan system prompt di browser
+- 🖥️ **MCP server** — expose semua tools EMORA ke Claude Desktop / Cursor / Windsurf
 
 ---
 
-## 🚀 Instalasi
+## Persyaratan
 
-### Prasyarat
+- **Node.js ≥ 20** (rekomendasi: LTS terbaru)
+- **npm ≥ 9**
+- API key dari provider AI pilihan kamu (lihat bagian Setup)
 
-- Node.js **v16+**
-- npm
-- (Opsional) Telegram Bot Token untuk gateway Telegram
-- (Opsional) Tavily API Key untuk web search
+---
 
-### Langkah Instalasi
+## Instalasi
+
+### Opsi A — Clone langsung (development)
 
 ```bash
-# 1. Clone repository
 git clone https://github.com/arthurlucky/Emora-Agent.git
-cd emora
-
-# 2. Install dependencies
+cd Emora-Agent
 npm install
+```
 
-# 3. Jalankan setup interaktif
+### Opsi B — Global binary (`emora` di mana saja)
+
+```bash
+git clone https://github.com/arthurlucky/Emora-Agent.git
+cd Emora-Agent
+npm install
+npm install -g .
+```
+
+Setelah install global, semua subcommand `emora` bisa dijalankan dari direktori mana pun.
+
+---
+
+## Setup Cepat
+
+```bash
+emora setup
+```
+
+atau kalau belum install global:
+
+```bash
 node setup.js
 ```
 
-Setup wizard akan memandu kamu memilih:
-- **Provider AI** (Groq, OpenAI, Gemini, NVIDIA NIM, OpenRouter, Ollama)
-- **API Key** untuk provider yang dipilih
-- **Telegram Gateway** (opsional)
-- **Whatsapp Gateway** (opsional)
-- **Web UI** (opsional)
+Wizard interaktif akan membimbing kamu melalui:
+1. Pilih provider AI (arrow key ↑↓ + Enter)
+2. Masukkan API key
+3. Pilih model
+4. Setup gateway Telegram / WhatsApp (opsional)
+5. Aktifkan Web UI (opsional)
 
-### Konfigurasi Manual
+---
 
-Salin `.env.example` dan isi sesuai kebutuhan:
+## Konfigurasi Manual (.env)
 
-```bash
-cp .env.example .env
-```
+Kalau mau konfigurasi tanpa wizard, buat file `.env` di root project:
 
 ```env
-MODEL_URL=
-MODEL_API=
-MODEL_NAME=
-TELEGRAM_GATEWAY=
+# ── Provider & Model ─────────────────────────────
+# Pilih salah satu: groq | gemini | openrouter | nvidia | openai | anthropic | huggingface | ollama
+MODEL_PROVIDER=groq
+
+# API key untuk provider yang dipilih
+MODEL_API=gsk_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# Nama model
+MODEL_NAME=llama-3.3-70b-versatile
+
+# URL endpoint (opsional — auto-diisi oleh provider system)
+# MODEL_URL=https://api.groq.com/openai/v1
+
+# ── Khusus Anthropic ─────────────────────────────
+# ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxx
+
+# ── Khusus HuggingFace ───────────────────────────
+# HUGGINGFACE_API_KEY=hf_xxxxxxxxxxxx
+# HUGGINGFACE_ENDPOINT_URL=   # opsional: dedicated HF endpoint
+
+# ── Web Search (opsional) ─────────────────────────
+TAVILY_API_KEY=tvly-xxxxxxxxxx
+
+# ── Gateway Telegram ─────────────────────────────
+TELEGRAM_GATEWAY=false
 TELEGRAM_TOKEN_BOT=
-TELEGRAM_ALLOWED_IDS=
-WA_PHONE_NUMBER=
-WA_GATEWAY=
-WA_ALLOWED_NUMBERS=
-WEBUI=false
+TELEGRAM_ALLOWED_IDS=        # kosong = semua user bisa chat
+
+# ── Gateway WhatsApp ─────────────────────────────
+WA_GATEWAY=false
+WA_PHONE_NUMBER=             # format: 6281234567890
+WA_ALLOWED_NUMBERS=          # kosong = semua nomor bisa chat
+
+# ── Identitas Agent ───────────────────────────────
 NAME=Emora
-TAVILY_API_KEY=
+
+# ── Web UI ────────────────────────────────────────
+WEBUI=false
+WEBUI_PORT=5090
+
+# ── EMORA Hub ─────────────────────────────────────
 EMORA_HUB=https://emora-hub--rellaja1214.replit.app
 ```
 
 ---
 
-## ▶️ Menjalankan EMORA
+## Penggunaan
+
+### CLI Commands
+
+| Command | Deskripsi |
+|---|---|
+| `emora` | Jalankan CLI agent |
+| `emora setup` | Setup wizard interaktif |
+| `emora model` | Ganti model / provider |
+| `emora gateway` | Jalankan gateway saja (tanpa CLI) |
+| `emora send "pesan"` | Kirim pesan one-shot ke Telegram/WhatsApp |
+| `emora status` | Tampilkan status semua komponen |
+| `emora skills` | Browse & kelola skill |
+| `emora mcp` | Manage MCP server |
+| `emora --web` | CLI + Web UI |
+| `emora --version` | Versi EMORA |
+| `emora --help` | Tampilkan bantuan |
+
+### Menjalankan EMORA
 
 ```bash
+# CLI saja
+emora
+
+# CLI + Web UI (buka http://localhost:5090 setelah jalan)
+emora --web
+
+# Gateway saja (tanpa CLI — untuk server/VPS)
+emora gateway
+
+# Jalankan tanpa install global
 node main.js
-# atau
-npm start
+node main.js --web
 ```
 
-EMORA akan muncul di terminal dan siap menerima perintah. Jika Telegram Gateway aktif, bot juga langsung online.
+### Slash Commands di dalam CLI
+
+| Command | Deskripsi |
+|---|---|
+| `/new` | Buat sesi baru |
+| `/sesi` | Tampilkan sesi aktif |
+| `/sesi <uuid>` | Pindah ke sesi tertentu |
+| `/sesilist` | Daftar semua sesi |
+| `/sesiinfo <uuid>` | Detail info satu sesi |
+| `/sesidel <uuid>` | Hapus satu sesi |
+| `/clear` | Hapus sesi aktif + mulai baru |
+| `/help` | Tampilkan panel bantuan |
+| `/exit` | Keluar dari EMORA |
 
 ---
 
-## 🛠️ Tools Bawaan
+## Web UI
 
-| Tool | Deskripsi |
-|------|-----------|
-| `shell_exec` | Eksekusi perintah shell/bash |
-| `read_file` | Baca isi file |
-| `write_file` | Tulis atau buat file |
-| `list_file` | Tampilkan daftar file dalam folder |
-| `find_folder` | Cari folder berdasarkan nama |
-| `create_folder` | Buat folder baru |
-| `delete_folder` | Hapus folder |
-| `search_web` | Cari informasi di internet (via Tavily) |
-| `fetch_page` | Ambil konten dari URL |
-| `search_text` | Cari teks dalam file |
-| `datetime` | Informasi waktu dan tanggal |
-| `system_monitor` | Monitor CPU, RAM, dan disk |
-| `scheduler` | Jalankan tugas terjadwal di background |
-| `project_manager` | Manajemen proyek multi-langkah |
-| `skill_factory` | Buat dan kelola skills |
-| `skill_reader` | Baca konten skill |
-| `backup_manager` | Backup dan restore file |
-| `zip_compress` | Kompres file ke ZIP |
-| `zip_extract` | Ekstrak file ZIP |
-| `emora_hub` | Akses EMORA Community Hub |
-| `economy_manager` | Tool Have Fun buat kamu |
+Bangun dan jalankan panel kontrol berbasis browser:
+
+```bash
+# Install dependency frontend
+npm run webui:install
+
+# Build frontend (wajib dilakukan sekali sebelum pakai)
+npm run webui:build
+
+# Jalankan EMORA dengan Web UI
+emora --web
+# → Buka http://localhost:5090
+```
+
+**Fitur Web UI:**
+- Manajemen sesi chat (buat, rename, hapus)
+- Chat langsung dengan Emora di browser
+- Toggle & konfigurasi gateway Telegram/WhatsApp
+- Editor AGENT.md dan SOUL.md langsung dari browser
 
 ---
 
-## 📚 Sistem Skill
+## Gateway Setup
 
-Skills adalah kumpulan workflow, standar, dan best practice yang tersimpan sebagai file Markdown di folder `skill/`. EMORA menggunakannya untuk menyelesaikan tugas tertentu secara konsisten.
+### Telegram
 
-### Skills Bawaan
+1. Chat ke `@BotFather` di Telegram → `/newbot` → ikuti instruksi
+2. Copy token bot
+3. Jalankan `emora setup` → pilih **Messaging Gateway** → **Telegram**
+4. Paste token, isi allowed user ID (bisa dari `@userinfobot`)
+5. Restart EMORA: `emora` atau `emora gateway`
 
-- **auto_code_reviewer** — Audit kode otomatis (bug, keamanan, best practice)
-- **auto_generate_tools** — Panduan membuat tool baru sesuai standar sistem
-- **random_file_gen** — Generate file random untuk testing
-- **react_uiux** — Standar pembuatan UI/UX dengan React
+### WhatsApp
 
-### Membuat Skill Baru
+1. Jalankan `emora setup` → pilih **Messaging Gateway** → **WhatsApp**
+2. Masukkan nomor WhatsApp kamu (format: `6281234567890`)
+3. Jalankan `emora gateway`
+4. Saat pertama kali, EMORA akan menampilkan **Pairing Code** di terminal
+5. Buka WhatsApp di HP → **Setelan** → **Perangkat Tertaut** → **Tautkan perangkat** → masukkan kode
 
-EMORA bisa **otomatis mendeteksi pola** penggunaan tools yang berulang. Setelah 5 kali pengulangan pola yang sama, EMORA akan menyarankan pembuatan skill baru dari pola tersebut.
+---
 
-Kamu juga bisa meminta EMORA membuat skill secara manual:
+## Provider AI
 
-```
-"Buatkan skill untuk workflow yang baru saja kita lakukan"
+EMORA mendukung banyak provider. Gunakan `emora model` untuk ganti kapan saja.
+
+| Provider | Tier | Tool Calling | Catatan |
+|---|---|---|---|
+| **Groq** | Gratis | ✅ | Paling cepat, highly recommended |
+| **Google Gemini** | Gratis | ✅ | Kuota lumayan, stabil |
+| **OpenRouter** | Gratis/Bayar | ✅ | Banyak pilihan model gratis |
+| **NVIDIA NIM** | Gratis | ✅ | Enterprise models |
+| **HuggingFace** | Gratis/Pro | ⚠️ | Hanya model tertentu support tool |
+| **Anthropic** | Bayar | ✅ | Claude — terbaik untuk agent |
+| **OpenAI** | Bayar | ✅ | GPT-4o |
+| **Ollama** | Gratis (lokal) | ✅ | Jalankan model di device sendiri |
+
+### Anthropic (butuh install tambahan)
+
+```bash
+npm install @langchain/anthropic
+emora model   # pilih Anthropic
 ```
 
 ---
 
-## 🏭 EMORA Hub
+## Skill System
 
-EMORA Hub adalah komunitas resmi untuk berbagi dan mengunduh tools & skills custom. Akses langsung dari dalam EMORA:
+EMORA punya sistem skill — kumpulan panduan terstruktur yang dipakai secara **otomatis** tanpa perlu diperintah. Setiap kali user meminta sesuatu yang cocok dengan deskripsi skill, EMORA akan membacanya dan mengikuti workflownya diam-diam.
 
+Skill tersedia saat ini:
+
+| Skill | Deskripsi |
+|---|---|
+| `auto_code_reviewer` | Audit kode: bug, keamanan, best practice |
+| `auto_generate_tools` | Buat tool baru untuk EMORA otomatis |
+| `api_integration_helper` | Integrasikan API pihak ketiga |
+| `env_config_auditor` | Audit keamanan konfigurasi & .env |
+| `changelog_generator` | Buat CHANGELOG.md dari riwayat git |
+| `scheduled_backup_setup` | Setup backup terjadwal otomatis |
+| `dependency_health_check` | Cek dependency: versi usang, CVE |
+| `log_triage` | Analisis log error & rekomendasi fix |
+| `markdown_report_writer` | Tulis laporan/dokumentasi teknis |
+| `bulk_file_organizer` | Organisir file secara massal |
+| `website_health_check` | Cek uptime, SSL, response time endpoint |
+| `group_broadcast_announcer` | Broadcast pengumuman ke grup WA/TG |
+| `react_uiux` | Panduan UI/UX untuk React.js |
+| `random_file_gen` | Buat file random untuk testing |
+
+### Kelola Skill via CLI
+
+```bash
+emora skills              # menu interaktif
+emora skills list         # daftar semua skill
+emora skills audit        # audit kelengkapan skill
 ```
-"Cari tool untuk integrasi Spotify di EMORA Hub"
-"Download tool spotify_search dari Hub"
-```
-
-EMORA akan otomatis mengunduh, mengekstrak, dan mendaftarkan tool baru ke sistem.
 
 ---
 
-## 📁 Struktur Proyek
+## emora send — One-shot Messaging
+
+Kirim pesan ke Telegram/WhatsApp dari shell script, cron job, atau CI/CD tanpa membuka agent loop:
+
+```bash
+# Kirim ke platform aktif (auto-detect)
+emora send "Deploy berhasil ✅"
+
+# Kirim ke Telegram spesifik
+emora send --to=telegram "Server restart selesai"
+
+# Kirim ke nomor WhatsApp tertentu
+emora send --to=whatsapp --number=6281234567890 "Hei dari bot"
+
+# Pipe stdout/stderr ke Telegram
+df -h | emora send --to=telegram
+cat /var/log/nginx/error.log | tail -20 | emora send --to=telegram
+
+# Dari cron job (contoh di crontab)
+# 0 8 * * * emora send "Selamat pagi! Cek dashboard 👋" --to=telegram
+```
+
+---
+
+## MCP Server (Model Context Protocol)
+
+EMORA bisa berjalan sebagai MCP server, mengekspose semua tools-nya ke Claude Desktop, Cursor, Windsurf, atau MCP client lainnya.
+
+```bash
+# Setup MCP
+emora mcp
+
+# Jalankan sebagai MCP server (stdio)
+emora mcp serve
+```
+
+**Tambahkan ke Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "emora": {
+      "command": "emora",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+---
+
+## Struktur Project
 
 ```
-emora/
-├── main.js              # Entry point utama
-├── setup.js             # Setup wizard interaktif
-├── package.json
-├── .env                 # Konfigurasi (buat dari .env.example)
+Emora-Agent/
+├── bin/
+│   └── emora.js              ← CLI entrypoint binary
+├── cli/
+│   ├── select.js             ← Arrow-key menu utility
+│   ├── cmd-model.js          ← emora model
+│   ├── cmd-gateway.js        ← emora gateway
+│   ├── cmd-send.js           ← emora send
+│   ├── cmd-status.js         ← emora status
+│   ├── cmd-skills.js         ← emora skills
+│   └── cmd-mcp.js            ← emora mcp
 ├── core/
-│   ├── chat.js          # Logika percakapan & tool loop
-│   ├── cmd.js           # Handler perintah khusus
-│   ├── memory.js        # Manajemen memori sesi
-│   └── tools.js         # Registrasi semua tools
-├── tools/               # Semua built-in tools
+│   ├── chat.js               ← Agent loop utama
+│   ├── tools.js              ← Registrasi semua tools
+│   ├── memory.js             ← Manajemen memori sesi
+│   ├── cmd.js                ← Slash command handler
+│   └── sessionStore.js       ← Metadata sesi (nama, timestamp)
 ├── gateway/
-│   ├── telegram.js      # Telegram Bot gateway
-│   └── sendfile.js      # Pengiriman file via Telegram
-├── webui/
-│   ├── server.js        # Web UI backend (Express, REST API /api/*)
-│   └── src/             # Frontend (Vite + vanilla JS) — lihat webui/README.md
-├── skill/               # Skill library
-├── skill_factory/       # Data pola untuk Skill Factory
-├── memory/              # Penyimpanan memori percakapan
-├── utils/
-│   ├── eventBus.js      # Event bus untuk background tasks
-│   ├── patternTracker.js # Pelacak pola penggunaan tools
-│   └── workspace.js     # Manajemen workspace
-└── workspaces/          # Direktori kerja proyek
+│   ├── index.js              ← Gateway orchestrator
+│   ├── sessionContext.js     ← Context platform/grup/admin
+│   ├── telegram/             ← Telegram gateway (Telegraf)
+│   └── whatsapp/             ← WhatsApp gateway (Baileys)
+├── provider/
+│   ├── index.js              ← Provider registry & factory
+│   ├── openai_compat.js      ← Groq, Gemini, OpenRouter, OpenAI, NVIDIA, Ollama
+│   ├── anthropic.js          ← Anthropic Claude
+│   └── huggingface.js        ← HuggingFace Inference API
+├── tools/                    ← Semua tool EMORA (shell, file, git, dsb)
+├── skill/                    ← Skill library (auto-loaded ke system prompt)
+├── memory/                   ← Session memory (JSON per sesi)
+├── webui/                    ← Web UI (Vite + vanilla JS)
+├── utils/                    ← Helper utilities
+├── AGENT.md                  ← Instruksi perilaku agent
+├── SOUL.md                   ← Persona & gaya komunikasi
+├── setup.js                  ← Setup wizard
+└── main.js                   ← CLI agent loop
 ```
 
 ---
 
-## ⚙️ Provider AI yang Didukung
+## Tools yang Tersedia
 
-| Provider | Gratis | Catatan |
-|----------|--------|---------|
-| **Groq** | ✅ | Rekomendasi — cepat & gratis |
-| **NVIDIA NIM** | ✅ | Model-model powerful |
-| **OpenRouter** | ✅ | Akses banyak model |
-| **Google Gemini** | ✅ | Via Google AI Studio |
-| **Ollama** | ✅ | Lokal, tanpa internet |
-| **OpenAI** | ❌ | Berbayar |
+| Tool | Fungsi |
+|---|---|
+| `shell_exec` | Jalankan command shell |
+| `read_file` / `write_file` | Baca & tulis file |
+| `list_files` | Daftar isi folder |
+| `search_text` | Cari teks di semua file project |
+| `find_folder` | Temukan folder berdasarkan nama |
+| `create_folder` / `delete_folder` | Manajemen direktori |
+| `search_web` | Web search via Tavily |
+| `fetch_page` | Ambil konten halaman web |
+| `datetime` | Info waktu & tanggal |
+| `project_manager` | Planning & tracking task multi-langkah |
+| `scheduler` | Jadwalkan task berulang |
+| `git_manager` | Operasi git (add, commit, push, log, dsb) |
+| `zip_compress` / `zip_extract` | Kompresi & ekstraksi file |
+| `backup_manager` | Backup & restore folder/file |
+| `system_monitor` | Info CPU, RAM, disk |
+| `skill_factory` | Buat & kelola skill EMORA |
+| `group_manager` | Manajemen grup Telegram/WhatsApp |
+| `economy_manager` | Sistem ekonomi virtual |
+| `emora_hub` | Sinkronisasi dengan EMORA Hub |
 
 ---
 
-## 🤝 Kontribusi
+## FAQ
 
-Kontribusi sangat welcome! Kamu bisa:
+**Q: EMORA bisa dipakai gratis?**
+Ya. Gunakan Groq atau Google Gemini — keduanya gratis dan support tool calling dengan baik.
 
-- Membuat tool baru dan bagikan ke komunitas via EMORA Hub
-- Membuat skill baru dan share ke komunitas
-- Melaporkan bug atau request fitur via Issues
-- Pull request untuk perbaikan kode
+**Q: Apakah EMORA perlu koneksi internet terus?**
+Hanya untuk API call ke provider AI dan gateway (Telegram/WhatsApp). Kalau pakai Ollama, bisa fully offline kecuali gateway-nya.
+
+**Q: Kenapa slash command `/clear` hanya hapus sesi saya, bukan semua?**
+Ini disengaja (diperbaiki dari bug lama). `/clear` hanya menghapus sesi aktif kamu — tidak akan mengganggu sesi pengguna lain yang chat dari Telegram/WhatsApp.
+
+**Q: Bagaimana cara update skill tanpa restart?**
+Skill baru langsung aktif tanpa restart — katalog skill di-generate ulang di setiap pesan baru. Cukup buat skill via `skill_factory` atau tulis folder skill baru, dan langsung bisa dipakai.
 
 ---
 
-## 📄 Lisensi
+## Lisensi
 
-Proyek ini dilisensikan di bawah **MIT License** — bebas digunakan, dimodifikasi, dan didistribusikan.
+MIT License — lihat [LICENSE](./LICENSE)
 
 ---
 
 <div align="center">
-  Made with ❤️ by the EMORA Community · <a href="https://t.me/EMORAGENT">Join Telegram</a>
+Built with ❤️ by arthurlucky
 </div>

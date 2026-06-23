@@ -1,16 +1,26 @@
+/**
+ * setup.js — EMORA Interactive Setup
+ * Dipanggil via: emora setup
+ *
+ * Arrow key ↑↓ + Enter untuk navigasi semua menu.
+ * Tidak ada ketik nomor sama sekali.
+ */
+
+import "dotenv/config";
 import fs from "fs";
-import readline from "readline/promises";
 import chalk from "chalk";
 import ora from "ora";
+import figlet from "figlet";
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+import {
+  select, confirm, input,
+  sectionHeader, sectionFooter,
+  infoLine, successLine, warnLine, errorLine,
+} from "./cli/select.js";
 
-// ==========================================
-// HELPERS .env
-// ==========================================
+// ─────────────────────────────────────────────
+// .ENV HELPERS
+// ─────────────────────────────────────────────
 const ENV_PATH = "./.env";
 
 function readEnv() {
@@ -18,281 +28,333 @@ function readEnv() {
   return fs.readFileSync(ENV_PATH, "utf8");
 }
 
-function updateEnv(envContent, key, value) {
+function setEnv(key, value) {
+  let content = readEnv();
   const regex = new RegExp(`^${key}=.*$`, "m");
-  if (regex.test(envContent)) {
-    return envContent.replace(regex, `${key}=${value}`);
-  } else {
-    const prefix = envContent.endsWith("\n") || envContent === "" ? "" : "\n";
-    return `${envContent}${prefix}${key}=${value}`;
-  }
+  const line  = `${key}=${value}`;
+  content = regex.test(content)
+    ? content.replace(regex, line)
+    : content + (content.endsWith("\n") || content === "" ? "" : "\n") + line;
+  fs.writeFileSync(ENV_PATH, content.trim() + "\n");
 }
 
-function saveToEnv(key, value) {
-  let envContent = readEnv();
-  envContent = updateEnv(envContent, key, value);
-  fs.writeFileSync(ENV_PATH, envContent.trim() + "\n");
+function getEnv(key) {
+  const match = readEnv().match(new RegExp(`^${key}=(.*)$`, "m"));
+  return match ? match[1].trim() : "";
 }
 
-async function promptMenu(question, validOptions) {
-  while (true) {
-    const answer = (await rl.question(question)).trim();
-    if (validOptions.includes(answer)) return answer;
-    console.log(chalk.red("Pilihan tidak valid, silakan coba lagi.\n"));
-  }
+// ─────────────────────────────────────────────
+// BANNER
+// ─────────────────────────────────────────────
+function showSetupBanner() {
+  console.clear();
+  const logo = figlet.textSync("EMORA", { font: "ANSI Shadow" });
+  logo.split("\n").forEach((l, i) => {
+    const colors = [
+      chalk.hex("#58a6ff"), chalk.hex("#6aabff"),
+      chalk.hex("#7db0f7"), chalk.hex("#9299f7"), chalk.hex("#a371f7"),
+    ];
+    if (l.trim()) console.log(colors[i % colors.length].bold(l));
+  });
+
+  const w = Math.min(process.stdout.columns || 80, 88);
+  console.log();
+  console.log(chalk.hex("#58a6ff")("  ") + chalk.hex("#8b949e")("Interactive Setup Wizard"));
+  console.log(chalk.hex("#30363d")("─".repeat(w)));
+  console.log();
 }
 
-// ==========================================
-// SETUP PROVIDER AI
-// ==========================================
+// ─────────────────────────────────────────────
+// SETUP SECTIONS
+// ─────────────────────────────────────────────
+
 async function setupProvider() {
-  console.log(chalk.bold("\n--- Pilih Provider AI ---"));
-  console.log(`  1. Groq             [${chalk.green("GRATIS")}]`);
-  console.log(`  2. NVIDIA NIM       [${chalk.green("GRATIS")}]`);
-  console.log(`  3. OpenRouter       [${chalk.green("GRATIS")}]`);
-  console.log(`  4. Google Gemini    [${chalk.green("GRATIS")}]`);
-  console.log(`  5. OpenAI           [${chalk.red("BAYAR")}]`);
-  console.log(`  6. Ollama (Local)   [${chalk.green("GRATIS")}] ⚡ ${chalk.yellow("Rekomendasi")}`);
+  sectionHeader("AI PROVIDER", "Pilih provider untuk model bahasa EMORA");
 
-  const providerChoice = await promptMenu(
-    chalk.white.bold("\nMasukkan nomor pilihan Anda (1-6): "),
-    ["1", "2", "3", "4", "5", "6"]
-  );
+  const provider = await select("Pilih provider AI:", [
+    { label: "Groq               — Gratis, cepat, llama/gemma",   value: "groq",        hint: "GRATIS" },
+    { label: "Google Gemini      — Gratis, gemini-2.0-flash",      value: "gemini",      hint: "GRATIS" },
+    { label: "OpenRouter         — Multi-model, ada yg gratis",    value: "openrouter",  hint: "GRATIS" },
+    { label: "NVIDIA NIM         — Gratis, llama enterprise",      value: "nvidia",      hint: "GRATIS" },
+    { label: "HuggingFace        — Custom model, gratis/pro",      value: "huggingface", hint: "GRATIS" },
+    { label: "Anthropic Claude   — Claude 3.5/4, terbaik",         value: "anthropic",   hint: "BAYAR"  },
+    { label: "OpenAI             — GPT-4o, paling populer",        value: "openai",      hint: "BAYAR"  },
+    { label: "Ollama (Lokal)     — Jalankan model di device sendiri", value: "ollama",   hint: "LOKAL"  },
+  ]);
 
-  let modelUrl = "";
-  let modelApi = "";
-  let modelName = "";
+  setEnv("MODEL_PROVIDER", provider);
 
-  if (providerChoice !== "6") {
-    modelApi = await rl.question(chalk.yellow("Masukkan API Key Anda: "));
+  // Config per provider
+  if (provider === "ollama") {
+    const host = await input("Ollama host:", "http://localhost:11434");
+    const hostClean = host.replace(/\/$/, "");
+    setEnv("MODEL_URL", `${hostClean}/v1`);
+    setEnv("MODEL_API", "ollama");
 
-    switch (providerChoice) {
-      case "1":
-        modelUrl = "https://api.groq.com/openai/v1";
-        modelName =
-          (await rl.question(chalk.yellow("Masukkan Model (default: llama-3.3-70b-versatile): "))) ||
-          "llama-3.3-70b-versatile";
-        break;
-      case "2":
-        modelUrl = "https://integrate.api.nvidia.com/v1";
-        modelName =
-          (await rl.question(chalk.yellow("Masukkan Model (default: meta/llama-3.1-70b-instruct): "))) ||
-          "meta/llama-3.1-70b-instruct";
-        break;
-      case "3":
-        modelUrl = "https://openrouter.ai/api/v1";
-        modelName = await rl.question(chalk.yellow("Masukkan Model (contoh: google/gemini-2.5-pro): "));
-        break;
-      case "4":
-        modelUrl = "https://generativelanguage.googleapis.com/v1beta/openai/";
-        modelName =
-          (await rl.question(chalk.yellow("Masukkan Model (default: gemini-1.5-pro): "))) || "gemini-1.5-pro";
-        break;
-      case "5":
-        modelUrl = "https://api.openai.com/v1";
-        modelName = (await rl.question(chalk.yellow("Masukkan Model (default: gpt-4o): "))) || "gpt-4o";
-        break;
-    }
-  } else {
-    modelApi = "ollama";
-    let host = await rl.question(chalk.yellow("Masukkan Ollama Host (default: http://localhost:11434): "));
-    if (!host) host = "http://localhost:11434";
-    host = host.replace(/\/$/, "");
-    modelUrl = `${host}/v1`;
+    // Auto-scan model
+    const doScan = await confirm("Auto scan model dari Ollama?", { default: true });
 
-    const autoScan = await promptMenu(chalk.yellow("Auto scan model dari Ollama? (Y/N): "), ["y", "Y", "n", "N"]);
-
-    if (autoScan.toLowerCase() === "y") {
-      const spinner = ora("Scanning model di Ollama...").start();
+    let modelName = "";
+    if (doScan) {
+      const spinner = ora("  Scanning model di Ollama...").start();
       try {
-        const response = await fetch(`${host}/api/tags`);
-        if (!response.ok) throw new Error("Gagal mengambil data dari Ollama");
+        const res  = await fetch(`${hostClean}/api/tags`);
+        const data = await res.json();
+        const models = (data.models || []).map((m) => m.name);
 
-        const data = await response.json();
-        const models = data.models.map((m) => m.name);
-
-        if (models.length === 0) {
-          spinner.fail("Tidak ada model ditemukan di Ollama Anda.");
-          modelName = await rl.question(chalk.yellow("Masukkan nama Ollama Model manual: "));
+        if (!models.length) {
+          spinner.warn("Tidak ada model ditemukan.");
+          modelName = await input("Nama model Ollama:", "llama3.2:3b");
         } else {
-          spinner.succeed(`Ditemukan ${models.length} model!`);
-          models.forEach((m, i) => console.log(`  ${i + 1}. ${m}`));
-
-          const index = await promptMenu(
-            chalk.white.bold(`Pilih nomor model (1-${models.length}): `),
-            models.map((_, i) => (i + 1).toString())
+          spinner.succeed(`Ditemukan ${models.length} model`);
+          modelName = await select(
+            "Pilih model:",
+            models.map((m) => ({ label: m, value: m }))
           );
-          modelName = models[parseInt(index) - 1];
         }
-      } catch (err) {
-        spinner.fail(chalk.red("Gagal terhubung ke Ollama. Pastikan aplikasi Ollama sedang berjalan."));
-        modelName = await rl.question(chalk.yellow("Masukkan nama Ollama Model secara manual: "));
+      } catch {
+        spinner.fail("Gagal terhubung ke Ollama.");
+        modelName = await input("Nama model Ollama:", "llama3.2:3b");
       }
     } else {
-      modelName = await rl.question(chalk.yellow("Masukkan nama Ollama Model (contoh: llama3:8b): "));
+      modelName = await input("Nama model Ollama:", "llama3.2:3b");
     }
 
-    const spinnerTest = ora(`Mengetes koneksi ke model ${modelName}...`).start();
+    setEnv("MODEL_NAME", modelName);
+
+    // Test koneksi
+    const spin2 = ora(`  Menguji ${modelName}...`).start();
     try {
-      const testRes = await fetch(`${host}/api/show`, {
+      const host2 = (await hostClean) + "";
+      const r = await fetch(`${host2}/api/show`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: modelName }),
       });
-      if (testRes.ok) {
-        spinnerTest.succeed(chalk.green("Ollama berhasil terhubung dan model tersedia!"));
-      } else {
-        spinnerTest.warn(chalk.yellow("Model mungkin tidak ditemukan atau belum didownload."));
-      }
+      r.ok ? spin2.succeed("Model tersedia!") : spin2.warn("Model mungkin belum didownload.");
     } catch {
-      spinnerTest.fail(chalk.red("Gagal terhubung ke Host Ollama saat melakukan test."));
+      spin2.fail("Gagal terhubung ke Ollama saat test.");
     }
-  }
 
-  const spinnerSave = ora("Menyimpan konfigurasi Provider...").start();
-  saveToEnv("MODEL_URL", modelUrl);
-  saveToEnv("MODEL_API", modelApi);
-  saveToEnv("MODEL_NAME", modelName);
+  } else if (provider === "anthropic") {
+    console.log();
+    warnLine("Butuh: npm install @langchain/anthropic");
+    warnLine("Dapatkan API key di: https://console.anthropic.com");
+    console.log(chalk.hex("#58a6ff")("  │"));
 
-  let currentEnv = readEnv();
-  if (!currentEnv.includes("TAVILY_API_KEY")) {
-    saveToEnv("TAVILY_API_KEY", "");
-  }
+    const apiKey = await input("Anthropic API Key:", "", true);
+    setEnv("ANTHROPIC_API_KEY", apiKey);
+    setEnv("MODEL_API", apiKey);
+    setEnv("MODEL_URL", "https://api.anthropic.com/v1");
 
-  spinnerSave.succeed(chalk.green("Konfigurasi Provider AI berhasil disimpan!\n"));
-}
+    const model = await select("Pilih model Claude:", [
+      { label: "claude-sonnet-4-5          [Recommended — balance terbaik]", value: "claude-sonnet-4-5" },
+      { label: "claude-haiku-4-5           [Tercepat & termurah]",           value: "claude-haiku-4-5" },
+      { label: "claude-opus-4-5            [Paling cerdas, paling mahal]",   value: "claude-opus-4-5" },
+      { label: "claude-3-5-sonnet-20241022 [Stable release]",                value: "claude-3-5-sonnet-20241022" },
+    ]);
+    setEnv("MODEL_NAME", model);
 
-// ==========================================
-// SETUP GATEWAY
-// ==========================================
-async function setupGateway() {
-  console.log(chalk.bold("\n--- Setup Gateway ---"));
-  console.log("  1. Telegram");
-  console.log("  2. WhatsApp (via Pairing Code)");
-  console.log("  3. Keduanya (Telegram + WhatsApp)");
-  console.log("  4. Lewati (Nonaktifkan semua gateway)");
+  } else if (provider === "huggingface") {
+    warnLine("Dapatkan token di: https://huggingface.co/settings/tokens");
+    const apiKey = await input("HuggingFace Token:", "", true);
+    setEnv("HUGGINGFACE_API_KEY", apiKey);
+    setEnv("MODEL_API", apiKey);
+    setEnv("MODEL_URL", "https://api-inference.huggingface.co/v1");
 
-  const gatewayChoice = await promptMenu(
-    chalk.white.bold("\nPilih (1/2/3/4): "),
-    ["1", "2", "3", "4"]
-  );
-
-  // ---- Reset semua gateway ----
-  saveToEnv("TELEGRAM_GATEWAY", "false");
-  saveToEnv("TELEGRAM_TOKEN_BOT", "");
-  saveToEnv("WA_GATEWAY", "false");
-  saveToEnv("WA_PHONE_NUMBER", "");
-
-  // ---- Telegram ----
-  if (gatewayChoice === "1" || gatewayChoice === "3") {
-    console.log(chalk.bold("\n  [Telegram]"));
-    const token = await rl.question(chalk.yellow("  Masukkan Token Bot Telegram: "));
-    const allowed = await rl.question(chalk.yellow("Masukan id user kamu izin akses: "));
-    saveToEnv("TELEGRAM_GATEWAY", "true");
-    saveToEnv("TELEGRAM_TOKEN_BOT", token.trim());
-    saveToEnv("TELEGRAM_ALLOWED_IDS", allowed.trim());
-    console.log(chalk.green("  ✔ Konfigurasi Telegram selesai.\n"));
-  }
-
-  // ---- WhatsApp ----
-  if (gatewayChoice === "2" || gatewayChoice === "3") {
-    console.log(chalk.bold("\n  [WhatsApp]"));
-    console.log(chalk.gray("  Koneksi menggunakan Pairing Code (tanpa scan QR)."));
-    console.log(chalk.gray("  Format nomor: kode_negara + nomor tanpa 0 di depan."));
-    console.log(chalk.gray("  Contoh: 6281234567890\n"));
-
-    const phone = await rl.question(chalk.yellow("  Masukkan nomor WhatsApp Anda: "));
-    console.log(chalk.gray("  Contoh: 6285xxxxxxx\n"));
-    const allowed = await rl.question(chalk.yellow("Masukan nomor untuk izin akses: "));
-
-    const phoneClean = phone.trim().replace(/\D/g, "");
-    if (!phoneClean || phoneClean.length < 10) {
-      console.log(chalk.red("  ⚠️  Nomor tidak valid. WhatsApp dinonaktifkan.\n"));
+    const useCustom = await confirm("Punya Dedicated Endpoint (HF Inference Endpoints)?", { default: false });
+    if (useCustom) {
+      const endpoint = await input("URL Dedicated Endpoint:");
+      setEnv("HUGGINGFACE_ENDPOINT_URL", endpoint);
+      setEnv("MODEL_URL", endpoint.endsWith("/v1") ? endpoint : `${endpoint}/v1`);
+      setEnv("MODEL_NAME", "tgi");
     } else {
-      saveToEnv("WA_GATEWAY", "true");
-      saveToEnv("WA_PHONE_NUMBER", phoneClean);
-      saveToEnv("WA_ALLOWED_NUMBERS", allowed);
-      console.log(chalk.green(`  ✔ Nomor WhatsApp disimpan: ${phoneClean}`));
-      console.log(chalk.yellow("  ℹ️  Saat EMORA pertama kali dijalankan, Pairing Code akan muncul di terminal."));
-      console.log(chalk.yellow("  ℹ️  Buka WhatsApp → Perangkat Tertaut → Tautkan Perangkat → Masukkan kode.\n"));
+      const model = await select("Pilih model HuggingFace:", [
+        { label: "Llama 3.1 8B Instruct    [Gratis, paling stabil]",   value: "meta-llama/Meta-Llama-3.1-8B-Instruct" },
+        { label: "Mistral 7B Instruct v0.3 [Gratis, tool calling OK]", value: "mistralai/Mistral-7B-Instruct-v0.3" },
+        { label: "Qwen 2.5 72B Instruct    [Butuh HF Pro]",            value: "Qwen/Qwen2.5-72B-Instruct" },
+        { label: "Llama 3.1 70B Instruct   [Butuh HF Pro]",            value: "meta-llama/Meta-Llama-3.1-70B-Instruct" },
+      ]);
+      setEnv("MODEL_NAME", model);
+    }
+
+  } else {
+    // Semua provider openai-compat lainnya
+    const PROVIDER_DEFAULTS = {
+      groq:       { url: "https://api.groq.com/openai/v1",                              model: "llama-3.3-70b-versatile",        keyUrl: "https://console.groq.com" },
+      gemini:     { url: "https://generativelanguage.googleapis.com/v1beta/openai/",    model: "gemini-2.0-flash",               keyUrl: "https://aistudio.google.com/app/apikey" },
+      openrouter: { url: "https://openrouter.ai/api/v1",                                model: "google/gemini-2.0-flash-exp:free",keyUrl: "https://openrouter.ai/keys" },
+      nvidia:     { url: "https://integrate.api.nvidia.com/v1",                         model: "meta/llama-3.1-70b-instruct",    keyUrl: "https://build.nvidia.com" },
+      openai:     { url: "https://api.openai.com/v1",                                   model: "gpt-4o-mini",                    keyUrl: "https://platform.openai.com/api-keys" },
+    };
+
+    const defaults = PROVIDER_DEFAULTS[provider];
+    console.log();
+    infoLine("Dapatkan API key di:", defaults.keyUrl, "cyan");
+    console.log(chalk.hex("#58a6ff")("  │"));
+
+    const apiKey   = await input("API Key:", "", true);
+    const modelIn  = await input("Nama model:", defaults.model);
+
+    setEnv("MODEL_URL", defaults.url);
+    setEnv("MODEL_API", apiKey);
+    setEnv("MODEL_NAME", modelIn || defaults.model);
+  }
+
+  // Tavily (opsional, untuk web search)
+  if (!getEnv("TAVILY_API_KEY")) {
+    console.log(chalk.hex("#58a6ff")("  │"));
+    const setTavily = await confirm("Setup Tavily API (web search)? Bisa dilewati", { default: false });
+    if (setTavily) {
+      warnLine("Dapatkan di: https://app.tavily.com (gratis hingga 1000 req/bln)");
+      const tavilyKey = await input("Tavily API Key:", "", true);
+      setEnv("TAVILY_API_KEY", tavilyKey);
     }
   }
 
-  if (gatewayChoice === "4") {
-    console.log(chalk.gray("✔ Semua gateway dinonaktifkan.\n"));
-  }
-
-  const spinnerSave = ora("Menyimpan konfigurasi Gateway...").start();
-  spinnerSave.succeed(chalk.green("Konfigurasi Gateway berhasil disimpan!\n"));
+  successLine("Konfigurasi provider berhasil disimpan");
+  sectionFooter();
 }
 
-// ==========================================
-// SETUP WEBUI
-// ==========================================
+async function setupGateway() {
+  sectionHeader("MESSAGING GATEWAY", "Hubungkan EMORA ke WhatsApp / Telegram");
+
+  const gw = await select("Aktifkan gateway:", [
+    { label: "Telegram saja",          value: "telegram"  },
+    { label: "WhatsApp saja",          value: "whatsapp"  },
+    { label: "Keduanya",               value: "both"      },
+    { label: "Nonaktifkan semua",      value: "none"      },
+  ]);
+
+  // Reset dulu
+  setEnv("TELEGRAM_GATEWAY", "false");
+  setEnv("WA_GATEWAY",       "false");
+
+  if (gw === "telegram" || gw === "both") {
+    console.log(chalk.hex("#58a6ff")("  │"));
+    infoLine("Platform", "Telegram Bot API via Telegraf", "cyan");
+    const token   = await input("Bot Token (dari @BotFather):", "", true);
+    const allowed = await input("Allowed User IDs (pisah koma, kosong = semua):");
+    setEnv("TELEGRAM_GATEWAY",     "true");
+    setEnv("TELEGRAM_TOKEN_BOT",   token.trim());
+    setEnv("TELEGRAM_ALLOWED_IDS", allowed.trim());
+    successLine("Telegram dikonfigurasi");
+  }
+
+  if (gw === "whatsapp" || gw === "both") {
+    console.log(chalk.hex("#58a6ff")("  │"));
+    infoLine("Platform",  "WhatsApp via Baileys (Pairing Code)", "cyan");
+    infoLine("Format",    "Kode negara + nomor tanpa 0 depan", "yellow");
+    infoLine("Contoh",    "6281234567890", "yellow");
+
+    const phone   = await input("Nomor WhatsApp:");
+    const allowed = await input("Allowed Numbers (pisah koma, kosong = semua):");
+    const clean   = phone.trim().replace(/\D/g, "");
+
+    if (!clean || clean.length < 10) {
+      errorLine("Nomor tidak valid. WhatsApp dilewati.");
+    } else {
+      setEnv("WA_GATEWAY",       "true");
+      setEnv("WA_PHONE_NUMBER",  clean);
+      setEnv("WA_ALLOWED_NUMBERS", allowed.trim());
+      successLine(`WhatsApp dikonfigurasi: ${clean}`);
+      warnLine("Pairing Code akan muncul di terminal saat pertama kali dijalankan");
+    }
+  }
+
+  if (gw === "none") {
+    successLine("Semua gateway dinonaktifkan");
+  }
+
+  sectionFooter();
+}
+
 async function setupWebUI() {
-  console.log(chalk.bold("\n--- Setup WebUI ---"));
+  sectionHeader("WEB UI", "Panel kontrol berbasis browser untuk EMORA");
 
-  const webuiChoice = await promptMenu(
-    chalk.yellow("WebUI On? (y/n): "),
-    ["y", "Y", "n", "N"]
-  );
+  const enable = await confirm("Aktifkan Web UI?", { default: false });
+  setEnv("WEBUI", enable ? "true" : "false");
 
-  let webuiStatus = "false";
-  if (webuiChoice.toLowerCase() === "y") {
-    webuiStatus = "true";
-    console.log(chalk.green("✔ WebUI diaktifkan.\n"));
+  if (enable) {
+    const port = await input("Port Web UI:", getEnv("WEBUI_PORT") || "5090");
+    setEnv("WEBUI_PORT", port);
+    successLine(`Web UI diaktifkan di port ${port}`);
+    infoLine("Jalankan dengan", "emora --web  atau  npm start --web", "cyan");
   } else {
-    console.log(chalk.gray("✔ WebUI dinonaktifkan.\n"));
+    successLine("Web UI dinonaktifkan");
   }
-
-  const spinnerSave = ora("Menyimpan konfigurasi WebUI...").start();
-  saveToEnv("WEBUI", webuiStatus);
-  spinnerSave.succeed(chalk.green("Konfigurasi WebUI berhasil disimpan!\n"));
+  sectionFooter();
 }
 
-// ==========================================
-// MENU UTAMA
-// ==========================================
-async function setup() {
-  console.clear();
-  console.log(chalk.cyan.bold("╔════════════════════════════════╗"));
-  console.log(chalk.cyan.bold("║    EMORA SETUP CONFIGURATION   ║"));
-  console.log(chalk.cyan.bold("╚════════════════════════════════╝\n"));
+async function setupName() {
+  sectionHeader("IDENTITAS AGENT", "Nama yang dipakai EMORA saat mengobrol");
+  const name = await input("Nama agent:", getEnv("NAME") || "Emora");
+  setEnv("NAME", name);
+  successLine(`Nama agent: ${name}`);
+  sectionFooter();
+}
 
-  // Buat folder uploads/ jika belum ada
-  if (!fs.existsSync("./uploads")) {
-    fs.mkdirSync("./uploads", { recursive: true });
-    console.log(chalk.gray("✔ Folder uploads/ dibuat.\n"));
+// ─────────────────────────────────────────────
+// MAIN MENU
+// ─────────────────────────────────────────────
+async function setup() {
+  showSetupBanner();
+
+  // Buat folder-folder yang diperlukan
+  for (const dir of ["./uploads", "./downloads", "./memory", "./backups"]) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  // Buat .env kalau belum ada
+  if (!fs.existsSync(ENV_PATH)) {
+    fs.writeFileSync(ENV_PATH, "");
+    console.log(chalk.hex("#3fb950")("  ✓ File .env dibuat\n"));
   }
 
   let running = true;
 
   while (running) {
-    console.log(chalk.bold("Menu Utama:"));
-    console.log("  1. Provider AI");
-    console.log("  2. Gateway (Telegram / WhatsApp)");
-    console.log("  3. Keluar");
+    // Refresh banner tiap balik ke menu utama
+    const tgActive = getEnv("TELEGRAM_GATEWAY") === "true";
+    const waActive = getEnv("WA_GATEWAY") === "true";
+    const model    = getEnv("MODEL_NAME") || "—";
+    const provider = getEnv("MODEL_PROVIDER") || "—";
 
-    const menuChoice = await promptMenu(
-      chalk.white.bold("\nPilih menu (1-4): "),
-      ["1", "2", "3", "4"]
-    );
+    sectionHeader("SETUP MENU", `Provider: ${provider}  /  Model: ${model}`);
+    infoLine("Telegram", tgActive ? "✓ Aktif" : "○ Nonaktif", tgActive ? "green" : "yellow");
+    infoLine("WhatsApp",  waActive ? "✓ Aktif" : "○ Nonaktif", waActive ? "green" : "yellow");
+    console.log(chalk.hex("#58a6ff")("  │"));
 
-    switch (menuChoice) {
-      case "1":
-        await setupProvider();
-        break;
-      case "2":
-        await setupGateway();
-        break;
-      case "3":
+    const choice = await select("Apa yang ingin dikonfigurasi?", [
+      { label: "🤖  AI Provider & Model",    value: "provider" },
+      { label: "📡  Messaging Gateway",      value: "gateway"  },
+      { label: "🌐  Web UI",                 value: "webui"    },
+      { label: "✏️   Nama & Identitas Agent", value: "name"     },
+      { label: "🚀  Selesai & Keluar",       value: "exit"     },
+    ]);
+
+    switch (choice) {
+      case "provider": await setupProvider(); break;
+      case "gateway":  await setupGateway();  break;
+      case "webui":    await setupWebUI();    break;
+      case "name":     await setupName();     break;
+      case "exit":
         running = false;
-        console.log(chalk.cyan.bold("\nSetup selesai. Jalankan EMORA dengan: node main.js\n"));
+        console.clear();
+        showSetupBanner();
+        sectionHeader("SETUP SELESAI", "Konfigurasi berhasil disimpan");
+        successLine("Jalankan EMORA dengan perintah:  emora");
+        successLine("Start dengan gateway:            emora gateway");
+        successLine("Cek status:                      emora status");
+        sectionFooter();
         break;
     }
   }
-
-  rl.close();
 }
 
-setup();
+setup().catch((err) => {
+  console.error(chalk.hex("#f85149")(`\n[SETUP ERROR] ${err.message}\n`));
+  process.exit(1);
+});

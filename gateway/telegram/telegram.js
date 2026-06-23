@@ -15,7 +15,7 @@ import { pipeline } from "stream/promises";
 import { Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 
-import { ChatOpenAI } from "@langchain/openai";
+import { createLLM } from "../../provider/index.js";
 import tools from "../../core/tools.js";
 import { ask } from "../../core/chat.js";
 import { handleCommand } from "../../core/cmd.js";
@@ -62,13 +62,11 @@ export let bot = null;
 if (!token) {
   console.log("\n[TELEGRAM] Token tidak ditemukan. Gateway dibatalkan.");
 } else {
-  llm = new ChatOpenAI({
-    apiKey: process.env.MODEL_API || "ollama",
-    model: process.env.MODEL_NAME,
-    configuration: { baseURL: process.env.MODEL_URL },
-    temperature: 0.2,
-    maxTokens: 2048,
-  }).bindTools(tools, { toolChoice: "auto" });
+  try {
+    llm = await createLLM(tools);
+  } catch (err) {
+    console.error(`[TELEGRAM] Gagal init LLM: ${err.message}`);
+  }
 
   bot = new Telegraf(token, {
     handlerTimeout: 90000,

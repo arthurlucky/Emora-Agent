@@ -1,35 +1,45 @@
 {
-  "name": "emora",
+  "name": "emora-agent",
   "version": "1.0.0",
+  "description": "EMORA — Autonomous AI Agent. Self-hosted, multi-platform, multi-provider.",
   "type": "module",
   "main": "main.js",
-  "dependencies": {
-    "@langchain/core": "^0.3.66",
-    "@langchain/openai": "^0.6.11",
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
-    "adm-zip": "^0.5.17",
-    "archiver": "^8.0.0",
-    "axios": "^1.11.0",
-    "boxen": "^8.0.1",
-    "chalk": "^5.6.2",
-    "dotenv": "^17.2.0",
-    "ejs": "^6.0.1",
-    "express": "^5.2.1",
-    "fast-glob": "^3.3.3",
-    "figlet": "^1.11.0",
-    "multer": "^2.2.0",
-    "node-cron": "^4.4.1",
-    "node-html-parser": "^7.0.1",
-    "ora": "^9.4.0",
-    "telegraf": "^4.16.3",
-    "zod": "^3.25.0"
+  "bin": {
+    "emora": "./bin/emora.js"
   },
   "scripts": {
     "start": "node main.js",
-    "start:web": "cd webui && npm run start",
-    "install:web": "cd webui && npm instal && npm run build"
+    "setup": "node setup.js",
+    "status": "node bin/emora.js status",
+    "webui:install": "npm install --prefix webui",
+    "webui:dev": "npm run dev --prefix webui",
+    "webui:build": "npm run build --prefix webui"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "keywords": ["ai", "agent", "telegram", "whatsapp", "langchain", "autonomous"],
+  "author": "arthurlucky",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^0.3.44",
+    "@langchain/openai": "^0.5.6",
+    "@whiskeysockets/baileys": "^6.7.18",
+    "adm-zip": "^0.5.16",
+    "archiver": "^7.0.1",
+    "axios": "^1.9.0",
+    "boxen": "^8.0.1",
+    "chalk": "^5.4.1",
+    "dotenv": "^16.4.7",
+    "ejs": "^3.1.10",
+    "express": "^5.2.1",
+    "fast-glob": "^3.3.3",
+    "figlet": "^1.8.0",
+    "multer": "^2.0.1",
+    "node-cron": "^3.0.3",
+    "node-html-parser": "^7.0.1",
+    "ora": "^8.2.0",
+    "telegraf": "^4.16.3",
+    "zod": "^3.24.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }
