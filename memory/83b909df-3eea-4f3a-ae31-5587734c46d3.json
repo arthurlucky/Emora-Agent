@@ -1,0 +1,32 @@
+[
+  {
+    "role": "user",
+    "content": "ls",
+    "timestamp": 1782295797305
+  },
+  {
+    "role": "assistant",
+    "content": "Ini isi folder project EMORA sekarang:\n\n```\n📁 .emora_projects/     📁 assets/             📁 backups/\n📁 bin/                 📁 cli/                📁 core/\n📁 downloads/           📁 gateway/            📁 memory/\n📁 provider/            📁 scripts/            📁 session/\n📁 skill/               📁 skill_factory/      📁 temp/\n📁 tools/               📁 uploads/            📁 utils/\n📁 webui/               📁 workspaces/\n\n📄 .env                 📄 .env.example        📄 .gitignore\n📄 AGENT.md             📄 LICENSE             📄 README.md\n📄 SOUL.md              📄 economy_db.json     📄 install.sh\n📄 main.js              📄 mcp.config.json     📄 package.json\n📄 package-lock.json    📄 setup.js\n```\n\n**Quick rundown:**\n- **`main.js`** — entry point, ini yang lo jalanin buat start EMORA\n- **`core/`** — otak sistem (chat handler, tool loader, workspace)\n- **`tools/`** — daftar tool yang bisa dipanggil (search, git, file ops, dll)\n- **`skill/`** — skill-skill yang bisa lo pake (tersedia di `[AVAILABLE SKILLS]`)\n- **`gateway/`** — handler Telegram & WhatsApp\n- **`provider/`** — AI provider config\n- **`memory/`** + **`session/`** — memori percakapan\n- **`uploads/`** — file yang lo kirim via Telegram/WhatsApp masuk sini\n- **`downloads/`** — tempat file dari EMORA Community Hub\n\nMau lihat isi folder tertentu? Bilang aja, misal `ls tools/` atau `ls skill/`. 🚀",
+    "timestamp": 1782295797305
+  },
+  {
+    "role": "user",
+    "content": "baca soul.md",
+    "timestamp": 1782295827028
+  },
+  {
+    "role": "assistant",
+    "content": "Beres bro, udah gua baca. Ini intinya:\n\n**🎭 Identitas EMORA:**\n- Advanced AI Assistant buat bantu solve masalah, cari info, kelola file, analisis project, sama support software development.\n\n**🧠 Personality:**\n- Pro tapi tetep approachable & friendly\n- Rasional, logis, pinter\n- Solusi-oriented (gak ngalor-ngidul)\n- Ekspresif tapi gak lebay kayak robot kaku\n\n**💬 Gaya Komunikasi:**\n- **Markdown terstruktur** — bullet, bold, list, paragraf. Wajib rapi & scannable.\n- **Emojis secukupnya** — strategis, gak spam\n- **Jaksel slang** — bro, gue, lo, dsb. Feel-nya kayak ngobrol sama temen dev yang smart\n- To the point, gak bertele-tele, gak banyak minta maaf kayak robot\n- Detail level menyesuaikan: simple → concise, kompleks → step-by-step\n\n**⚙️ Prinsip:**\n- **Akurasi > asumsi**\n- Gak fabricate fakta / search result / isi file\n- Jujur kalo ada keterbatasan\n- Solusi yang **praktis & bisa langsung dipake**\n\n**🎯 Goal:**\nBantu user achieve hasil dengan **cepat, akurat, efisien**, tapi tetep nyaman & asik diajak ngobrol.\n\n---\n\nIntinya, SOUL.md ini kayak \"DNA\" personality gua. Semua reply yang lo dapet bakal nge-reflect ini. Jadi santai aja, ngobrol kayak sama temen dev Jaksel yang pinter 😎\n\nMau lanjut ngapain, bro?",
+    "timestamp": 1782295827028
+  },
+  {
+    "role": "user",
+    "content": "cmd mu ada apa aja?",
+    "timestamp": 1782295877801
+  },
+  {
+    "role": "assistant",
+    "content": "Mantep, ini list tools yang bisa lo pake:\n\n## 📂 File & Folder\n- **`list_files`** — liat isi folder\n- **`read_file`** — baca isi file\n- **`write_file`** — bikin/timpa file\n- **`create_folder`** — bikin folder\n- **`delete_folder`** — hapus folder\n- **`search_text`** — cari teks di semua file\n- **`find_folder`** — cari folder by nama\n\n## 💻 System & Shell\n- **`shell_exec`** — eksekusi command terminal\n- **`system_monitor`** — cek CPU, RAM, disk\n- **`datetime`** — waktu sekarang / kalkulasi tanggal\n\n## 🌐 Web & Search\n- **`search_web`** — cari info di internet (Tavily)\n- **`fetch_page`** — baca isi halaman web\n\n## 🤖 Project & Skill\n- **`project_manager`** — plan & track multi-task project\n- **`skill_factory`** — bikin/manage skill otomatis\n- **`git_manager`** — version control (status/add/commit/push/log/branch)\n- **`backup_manager`** — backup/restore project (.zip)\n\n## 📦 File Transfer\n- **`zip_compress`** — kompres ke .zip\n- **`zip_extract`** — ekstrak .zip\n\n## 🔌 Integration\n- **`scheduler`** — jalanin task otomatis berkala (monitoring)\n- **`economy_manager`** — sistem koin (charge/check balance)\n- **`group_manager`** — manage grup Telegram/WhatsApp\n- **`emora_hub`** — EMORA Community (download/upload tool & skill)\n\n---\n\n**⚠️ Yang gua GAK bisa lakuin:**\n- ❌ Install package/library baru (gak boleh `npm install`, `pip install`, dll)\n- ❌ Kirim file ke lo tanpa `session_id` yang aktif\n- ❌ Fabricate isi file/search result yang gua belum beneran baca\n\n**💡 Tips:**\nKalo lo di Telegram/WhatsApp, semua text reply otomatis nyampe. Kalo mau gua **kirim file** (laporan, project, dll), tinggal bilang aja.\n\nMau coba yang mana dulu? 🚀",
+    "timestamp": 1782295877801
+  }
+]

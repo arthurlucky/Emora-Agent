@@ -19,19 +19,20 @@
 import chalk from "chalk";
 import readline from "readline";
 
-// Warna shared — diselaraskan dengan design token di main.js
+// Design tokens sebagai chalk INSTANCE (bukan arrow function)
+// supaya .bold, .italic, dll bisa di-chain: cyan.bold("teks")
 const C = {
-  cursor:  (t) => chalk.hex("#58a6ff").bold(t),
-  label:   (t) => chalk.hex("#e6edf3")(t),
-  dimLabel:(t) => chalk.hex("#8b949e")(t),
-  hint:    (t) => chalk.hex("#6e7681")(t),
-  green:   (t) => chalk.hex("#3fb950")(t),
-  yellow:  (t) => chalk.hex("#d29922")(t),
-  red:     (t) => chalk.hex("#f85149")(t),
-  purple:  (t) => chalk.hex("#a371f7")(t),
-  cyan:    (t) => chalk.hex("#58a6ff")(t),
-  selected:(t) => chalk.hex("#58a6ff").bold(t),
-  border:  (t) => chalk.hex("#30363d")(t),
+  cursor:   chalk.hex("#58a6ff").bold,
+  label:    chalk.hex("#e6edf3"),
+  dimLabel: chalk.hex("#8b949e"),
+  hint:     chalk.hex("#6e7681"),
+  green:    chalk.hex("#3fb950"),
+  yellow:   chalk.hex("#d29922"),
+  red:      chalk.hex("#f85149"),
+  purple:   chalk.hex("#a371f7"),
+  cyan:     chalk.hex("#58a6ff"),
+  selected: chalk.hex("#58a6ff").bold,
+  border:   chalk.hex("#30363d"),
 };
 
 function hideCursor() { process.stdout.write("\x1B[?25l"); }
@@ -206,37 +207,37 @@ export function input(prompt, defaultVal = "", secret = false) {
 export function sectionHeader(title, subtitle = "") {
   const w = Math.min(process.stdout.columns || 80, 88);
   console.log();
-  console.log(chalk.hex("#58a6ff").bold("  ╭─ " + title + " ") + chalk.hex("#30363d")("─".repeat(Math.max(0, w - title.length - 7))));
-  if (subtitle) console.log(chalk.hex("#58a6ff")("  │  ") + chalk.hex("#8b949e")(subtitle));
-  console.log(chalk.hex("#58a6ff")("  │"));
+  console.log(C.cyan.bold("  ╭─ " + title + " ") + C.border("─".repeat(Math.max(0, w - title.length - 7))));
+  if (subtitle) console.log(C.cyan("  │  ") + C.dimLabel(subtitle));
+  console.log(C.cyan("  │"));
 }
 
 export function sectionFooter() {
   const w = Math.min(process.stdout.columns || 80, 88);
-  console.log(chalk.hex("#58a6ff").bold("  ╰" + "─".repeat(w - 3)));
+  console.log(C.cyan.bold("  ╰" + "─".repeat(w - 3)));
   console.log();
 }
 
 export function infoLine(label, value, color = "cyan") {
-  const colorFn = color === "green" ? chalk.hex("#3fb950")
-    : color === "yellow" ? chalk.hex("#d29922")
-    : color === "red" ? chalk.hex("#f85149")
-    : chalk.hex("#58a6ff");
+  const colorFn = color === "green" ? C.green
+    : color === "yellow" ? C.yellow
+    : color === "red" ? C.red
+    : C.cyan;
   console.log(
-    chalk.hex("#58a6ff")("  │  ") +
-    chalk.hex("#8b949e")(String(label).padEnd(22)) +
+    C.cyan("  │  ") +
+    C.dimLabel(String(label).padEnd(22)) +
     colorFn(value)
   );
 }
 
 export function successLine(msg) {
-  console.log(chalk.hex("#58a6ff")("  │  ") + chalk.hex("#3fb950").bold("✓ ") + chalk.hex("#e6edf3")(msg));
+  console.log(C.cyan("  │  ") + C.green.bold("✓ ") + C.label(msg));
 }
 
 export function warnLine(msg) {
-  console.log(chalk.hex("#58a6ff")("  │  ") + chalk.hex("#d29922").bold("⚠ ") + chalk.hex("#e6edf3")(msg));
+  console.log(C.cyan("  │  ") + C.yellow.bold("⚠ ") + C.label(msg));
 }
 
 export function errorLine(msg) {
-  console.log(chalk.hex("#58a6ff")("  │  ") + chalk.hex("#f85149").bold("✗ ") + chalk.hex("#e6edf3")(msg));
+  console.log(C.cyan("  │  ") + C.red.bold("✗ ") + C.label(msg));
 }

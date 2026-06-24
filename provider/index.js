@@ -1,96 +1,150 @@
 /**
  * provider/index.js
  *
- * Registry provider terpusat. SATU-satunya tempat yang perlu diubah kalau
- * mau nambah provider baru — main.js, gateway, dan webui semua pakai ini.
+ * Registry terpusat. Import dari masing-masing subfolder provider.
+ * Satu-satunya file yang perlu dipakai dari luar (main.js, gateway, webui).
  *
  * Cara pakai:
- *   import { createLLM, getProviderMeta } from "../provider/index.js";
- *   const llm = await createLLM(tools);   // baca dari .env secara otomatis
+ *   import { createLLM, getProviderMeta, PROVIDERS } from "./provider/index.js";
+ *   const llm = await createLLM(tools);   // auto-detect dari .env
  */
 
-import { createOpenAICompatLLM, PROVIDER_CONFIGS } from "./openai_compat.js";
-import { createAnthropicLLM } from "./anthropic.js";
-import { createHuggingFaceLLM } from "./huggingface.js";
+// ── Lazy imports — setiap provider di-import saat dibutuhkan ──────────────────
+// Ini mencegah crash kalau salah satu provider butuh npm install tambahan
+// (mis. anthropic) tapi user pakai provider lain.
 
-// ─── Registry semua provider yang dikenali ────────────────────────────────────
 export const PROVIDERS = {
-  // OpenAI-compatible (pakai @langchain/openai — sudah terinstall)
-  groq:        { label: "Groq",             tier: "free",   type: "openai-compat" },
-  nvidia:      { label: "NVIDIA NIM",       tier: "free",   type: "openai-compat" },
-  openrouter:  { label: "OpenRouter",       tier: "free",   type: "openai-compat" },
-  openai:      { label: "OpenAI",           tier: "paid",   type: "openai-compat" },
-  gemini:      { label: "Google Gemini",    tier: "free",   type: "openai-compat" },
-  ollama:      { label: "Ollama (Local)",   tier: "free",   type: "openai-compat" },
+  groq:           { label: "Groq",              tier: "free",   type: "standard" },
+  gemini:         { label: "Google Gemini",     tier: "free",   type: "standard" },
+  openrouter:     { label: "OpenRouter",        tier: "free",   type: "standard" },
+  nvidia:         { label: "NVIDIA NIM",        tier: "free",   type: "standard" },
+  openai:         { label: "OpenAI",            tier: "paid",   type: "standard" },
+  ollama:         { label: "Ollama (Local)",    tier: "free",   type: "standard" },
+  anthropic:      { label: "Anthropic Claude",  tier: "paid",   type: "async",   installHint: "npm install @langchain/anthropic" },
+  huggingface:    { label: "HuggingFace",       tier: "free",   type: "standard" },
+  custom:         { label: "Custom Endpoint",   tier: "custom", type: "standard" },
+};
 
-  // Native adapters
-  anthropic:   { label: "Anthropic Claude", tier: "paid",   type: "anthropic",    installHint: "npm install @langchain/anthropic" },
-  huggingface: { label: "HuggingFace",      tier: "free",   type: "huggingface"   },
+// ── Provider module paths (relative ke file ini) ─────────────────────────────
+const PROVIDER_PATHS = {
+  groq:       "./groq/index.js",
+  gemini:     "./gemini/index.js",
+  openrouter: "./openrouter/index.js",
+  nvidia:     "./nvidia/index.js",
+  openai:     "./openai/index.js",
+  ollama:     "./ollama/index.js",
+  anthropic:  "./anthropic/index.js",
+  huggingface:"./huggingface/index.js",
+  custom:     "./customEndpoint/index.js",
 };
 
 /**
  * Deteksi provider aktif dari .env.
- * Urutan pengecekan:
- *   1. MODEL_PROVIDER (eksplisit, paling direkomendasikan)
- *   2. MODEL_URL — cocokkan domain ke provider yg dikenal
- *   3. Fallback → "ollama"
+ * Priority: MODEL_PROVIDER > URL pattern matching > fallback ollama
  */
 export function detectProvider() {
   if (process.env.MODEL_PROVIDER) {
-    return process.env.MODEL_PROVIDER.toLowerCase();
+    return process.env.MODEL_PROVIDER.toLowerCase().trim();
   }
 
   const url = (process.env.MODEL_URL || "").toLowerCase();
-  if (url.includes("groq.com"))              return "groq";
-  if (url.includes("nvidia.com"))            return "nvidia";
-  if (url.includes("openrouter.ai"))         return "openrouter";
-  if (url.includes("openai.com"))            return "openai";
-  if (url.includes("googleapis.com"))        return "gemini";
-  if (url.includes("anthropic.com"))         return "anthropic";
-  if (url.includes("huggingface.co"))        return "huggingface";
-  if (url.includes("localhost") || url.includes("127.0.0.1") || url.includes("ollama")) return "ollama";
+  if (!url) return "ollama";
 
-  return "ollama"; // fallback aman — tidak butuh API key
+  if (url.includes("groq.com"))                  return "groq";
+  if (url.includes("googleapis.com"))            return "gemini";
+  if (url.includes("openrouter.ai"))             return "openrouter";
+  if (url.includes("nvidia.com"))                return "nvidia";
+  if (url.includes("openai.com"))                return "openai";
+  if (url.includes("anthropic.com"))             return "anthropic";
+  if (url.includes("huggingface.co"))            return "huggingface";
+  if (url.includes("localhost") ||
+      url.includes("127.0.0.1") ||
+      url.includes(":11434"))                     return "ollama";
+
+  // URL ada tapi tidak cocok dengan yang dikenal → anggap custom
+  return "custom";
 }
 
 /**
- * Factory utama. Buat LLM instance berdasarkan .env + bind tools kalau ada.
- * Semua parameter opsional — kalau tidak diisi, semua dibaca dari .env.
- *
- * @param {Array}  tools      - Array LangChain tools (untuk binding)
- * @param {string} [provider] - Override provider (default: auto-detect dari .env)
- * @param {object} [opts]     - Override tambahan (apiKey, model, dsb)
- * @returns {Promise<import("@langchain/core/language_models/chat_models").BaseChatModel>}
+ * Kembalikan metadata provider. Untuk status display, banner, dll.
  */
-export async function createLLM(tools = [], provider, opts = {}) {
-  const p = (provider || detectProvider()).toLowerCase();
-  const meta = PROVIDERS[p];
+export function getProviderMeta(providerKey) {
+  const key = providerKey || detectProvider();
+  const meta = PROVIDERS[key] || { label: key, tier: "unknown", type: "standard" };
+  return { key, ...meta };
+}
 
-  if (!meta) {
+/**
+ * Import provider module secara dinamis.
+ */
+async function loadProviderModule(key) {
+  const modPath = PROVIDER_PATHS[key];
+  if (!modPath) {
     throw new Error(
-      `[PROVIDER] Provider tidak dikenal: "${p}".\n` +
+      `[provider] Provider tidak dikenal: "${key}"\n` +
       `Provider yang tersedia: ${Object.keys(PROVIDERS).join(", ")}`
     );
   }
-
-  if (meta.type === "anthropic") {
-    return createAnthropicLLM({ tools, ...opts });
-  }
-
-  if (meta.type === "huggingface") {
-    return createHuggingFaceLLM({ tools, ...opts });
-  }
-
-  // Default: openai-compat
-  return createOpenAICompatLLM(p, { tools, ...opts });
+  return import(modPath);
 }
 
 /**
- * Kembalikan metadata provider aktif (untuk status display, setup, dll).
+ * Factory utama — buat LLM instance yang siap dipakai, dengan tools ter-bind.
+ *
+ * @param {Array}   tools       LangChain tools array
+ * @param {string}  [provider]  Override provider key (default: auto-detect)
+ * @param {object}  [opts]      Override tambahan { apiKey, model, url, ... }
+ * @returns {Promise<BaseChatModel>}
  */
-export function getProviderMeta(provider) {
-  const p = provider || detectProvider();
-  return { key: p, ...(PROVIDERS[p] || { label: p, tier: "unknown", type: "unknown" }) };
+export async function createLLM(tools = [], provider, opts = {}) {
+  const key = (provider || detectProvider()).toLowerCase();
+  const mod = await loadProviderModule(key);
+
+  // Anthropic butuh async factory
+  if (typeof mod.createLLM === "function") {
+    const result = mod.createLLM({ tools, ...opts });
+    // Handle both sync and async factories
+    return result instanceof Promise ? await result : result;
+  }
+
+  throw new Error(`[provider:${key}] Tidak ada fungsi createLLM yang diekspor`);
 }
 
-export default { createLLM, detectProvider, getProviderMeta, PROVIDERS };
+/**
+ * Ambil daftar model untuk provider tertentu.
+ * Dipakai oleh `emora model` dan `emora setup`.
+ */
+export async function getProviderModels(providerKey) {
+  try {
+    const mod = await loadProviderModule(providerKey);
+    return mod.MODELS || mod.KNOWN_MODELS || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Ambil default model untuk provider.
+ */
+export async function getDefaultModel(providerKey) {
+  try {
+    const mod = await loadProviderModule(providerKey);
+    return mod.DEFAULT_MODEL || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Ambil URL untuk mendapatkan API key provider.
+ */
+export async function getKeyUrl(providerKey) {
+  try {
+    const mod = await loadProviderModule(providerKey);
+    return mod.KEY_URL || null;
+  } catch {
+    return null;
+  }
+}
+
+export default { createLLM, detectProvider, getProviderMeta, getProviderModels, PROVIDERS };

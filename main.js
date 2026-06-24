@@ -1,454 +1,669 @@
-import "dotenv/config";
-import crypto from "crypto";
-import readline from "readline/promises";
-import fs from "fs";
-import path from "path";
+/**
+ * main.js — EMORA CLI Agent
+ * Desain mengacu screenshot referensi: tool bullets, clean response header,
+ * status bar, autocomplete di bawah prompt.
+ */
 
-import chalk from "chalk";
-import boxen from "boxen";
+import "dotenv/config";
+import crypto   from "crypto";
+import fs       from "fs";
+
+import chalk  from "chalk";
 import figlet from "figlet";
-import ora from "ora";
 
 import { createLLM, getProviderMeta } from "./provider/index.js";
-import tools from "./core/tools.js";
-import { ask, buildSkillCatalogForCLI } from "./core/chat.js";
-import { handleCommand } from "./core/cmd.js";
-import { eventBus } from "./utils/eventBus.js";
-import { activeGateways } from "./gateway/index.js";
+import tools                          from "./core/tools.js";
+import { ask }                        from "./core/chat.js";
+import { handleCommand }              from "./core/cmd.js";
+import { eventBus }                   from "./utils/eventBus.js";
 
-// ─────────────────────────────────────────────
-// LLM INIT — via provider registry
-// ─────────────────────────────────────────────
-let llm;
-try {
-  llm = await createLLM(tools);
-} catch (err) {
-  console.error(chalk.red(`\n[EMORA] Gagal init LLM: ${err.message}`));
-  console.error(chalk.yellow("Jalankan `emora setup` atau `emora model` untuk konfigurasi ulang."));
-  process.exit(1);
+// ═══════════════════════════════════════════════════════════════════════
+// COLOR TOKENS  (sesuai permintaan)
+// ═══════════════════════════════════════════════════════════════════════
+const dim    = chalk.hex("#6e7681");
+const cyan   = chalk.hex("#58a6ff");
+const green  = chalk.hex("#3fb950");
+const yellow = chalk.hex("#d29922");
+const muted  = chalk.hex("#8b949e");
+const bold   = chalk.bold;
+
+// Tambahan yang dibutuhkan
+const red    = chalk.hex("#f85149");
+const purple = chalk.hex("#a371f7");
+const white  = chalk.hex("#e6edf3");
+
+// ═══════════════════════════════════════════════════════════════════════
+// TERMINAL HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+const W          = () => Math.min(process.stdout.columns || 80, 110);
+const SEP        = (c = dim)  => c("─".repeat(W()));
+const stripAnsi  = (s) => String(s).replace(/\x1B\[[0-9;]*m/g, "");
+const clearLines = (n) => { for (let i = 0; i < n; i++) process.stdout.write("\x1B[1A\x1B[2K"); };
+const write      = (s) => process.stdout.write(s);
+
+function pad(str, len) {
+  const raw = stripAnsi(str);
+  return raw.length >= len ? str : str + " ".repeat(len - raw.length);
 }
 
-const state = { currentSession: crypto.randomUUID() };
+// ═══════════════════════════════════════════════════════════════════════
+// SESSION STATE
+// ═══════════════════════════════════════════════════════════════════════
+const sessionStart = Date.now();
+const state        = { currentSession: crypto.randomUUID() };
+
+let lastResponseMs = 0;
+let totalChars     = 0;
+let msgCount       = 0;
 
 const WEB_MODE =
   process.env.WEBUI === "true" ||
   process.env.npm_config_web === "true" ||
   process.argv.includes("--web");
 
-// ─────────────────────────────────────────────
-// DESIGN TOKENS
-// ─────────────────────────────────────────────
-const C = {
-  // backgrounds/borders — pakai chalk.hex
-  bg:      chalk.hex("#0d1117"),
-  border:  chalk.hex("#30363d"),
-
-  // text roles
-  primary:   chalk.hex("#e6edf3"),
-  secondary: chalk.hex("#8b949e"),
-  muted:     chalk.hex("#6e7681"),
-
-  // accents
-  cyan:   chalk.hex("#58a6ff"),
-  green:  chalk.hex("#3fb950"),
-  yellow: chalk.hex("#d29922"),
-  purple: chalk.hex("#a371f7"),
-  pink:   chalk.hex("#f778ba"),
-  red:    chalk.hex("#f85149"),
-
-  // semantic
-  success: chalk.hex("#2ea043"),
-  error:   chalk.hex("#f85149"),
-  warn:    chalk.hex("#d29922"),
-
-  // combos
-  bold:  chalk.bold,
-  dim:   chalk.dim,
-  reset: chalk.reset,
-};
-
-
-// ─────────────────────────────────────────────
-// PRIMITIVES
-// ─────────────────────────────────────────────
-
-/** Satu baris separator penuh lebar terminal */
-function separator(char = "─", color = C.border) {
-  const w = Math.min(process.stdout.columns || 80, 88);
-  return color(char.repeat(w));
+// ═══════════════════════════════════════════════════════════════════════
+// LLM INIT
+// ═══════════════════════════════════════════════════════════════════════
+let llm;
+try {
+  llm = await createLLM(tools);
+} catch (err) {
+  console.error(red(`\n  ✗ Gagal init LLM: ${err.message}`));
+  console.error(yellow("  Jalankan: emora setup  atau  emora model\n"));
+  process.exit(1);
 }
 
-/** Box tanpa dep boxen untuk blok yang butuh warna fleksibel */
-function thinBox(lines, { title = "", color = C.muted } = {}) {
-  const w = Math.min(process.stdout.columns || 80, 88) - 2;
-  const top = color("╭") + (title
-    ? color("─") + C.cyan.bold(` ${title} `) + color("─".repeat(w - title.length - 3)) + color("╮")
-    : color("─".repeat(w)) + color("╮")
+// ═══════════════════════════════════════════════════════════════════════
+// SLASH COMMANDS REGISTRY
+// ═══════════════════════════════════════════════════════════════════════
+const SLASH_COMMANDS = [
+  { cmd: "/new",       desc: "Mulai sesi baru (session ID + history baru)"        },
+  { cmd: "/clear",     desc: "Hapus sesi aktif dan mulai sesi baru"               },
+  { cmd: "/sesi",      desc: "Tampilkan session ID yang sedang aktif"             },
+  { cmd: "/sesilist",  desc: "Lihat semua sesi yang tersimpan"                    },
+  { cmd: "/sesiinfo",  desc: "Detail info sesi — /sesiinfo <uuid>"                },
+  { cmd: "/sesidel",   desc: "Hapus satu sesi  — /sesidel <uuid>"                },
+  { cmd: "/help",      desc: "Tampilkan daftar semua command"                     },
+  { cmd: "/exit",      desc: "Keluar dari EMORA"                                  },
+];
+
+// ═══════════════════════════════════════════════════════════════════════
+// STATUS BAR
+// ═══════════════════════════════════════════════════════════════════════
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60)  return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60)  return `${m}m`;
+  return `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
+function progressBar(pct, w = 8) {
+  const filled = Math.max(0, Math.min(w, Math.round((pct / 100) * w)));
+  return (
+    dim("[") +
+    cyan("█".repeat(filled)) +
+    dim("░".repeat(w - filled)) +
+    dim("]")
   );
-  const bottom = color("╰") + color("─".repeat(w)) + color("╯");
-  const rows = lines.map(
-    (l) => color("│") + " " + l + " ".repeat(Math.max(0, w - stripAnsi(l).length - 1)) + color("│")
-  );
-  return [top, ...rows, bottom].join("\n");
 }
 
-/** Strip ANSI escape codes buat hitung panjang string sebenarnya */
-function stripAnsi(str) {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1B\[[0-9;]*m/g, "");
+function renderStatusBar() {
+  const prov    = getProviderMeta();
+  const model   = `${prov.label.toLowerCase().replace(/\s+/g, "-")}:${process.env.MODEL_NAME || "—"}`;
+  const ctxMax  = 400_000;             // ~100K tokens * 4 chars
+  const pct     = Math.min(100, Math.round((totalChars / ctxMax) * 100));
+  const charsK  = totalChars > 999 ? `${(totalChars / 1000).toFixed(1)}K` : `${totalChars}`;
+  const limitK  = `${Math.round(ctxMax / 1000)}K`;
+  const uptime  = formatTime(Date.now() - sessionStart);
+  const lastR   = lastResponseMs ? `⊙ ${formatTime(lastResponseMs)}` : "⊙ —";
+  const msgs    = `${msgCount} msg`;
+
+  const parts = [
+    yellow.bold(`$ ${model}`),
+    muted(`${charsK}/${limitK}`),
+    progressBar(pct) + " " + dim(`${pct}%`),
+    dim(uptime),
+    muted(lastR),
+    dim(`✓ ${msgs}`),
+  ];
+
+  // Compact: join with dim " | " separator, truncate if terminal too narrow
+  const line = parts.join(dim(" | "));
+  const raw  = stripAnsi(line);
+  if (raw.length <= W()) {
+    console.log(line);
+  } else {
+    // Too long: drop last parts
+    console.log(parts.slice(0, 4).join(dim(" | ")));
+  }
 }
 
-/** Kolom kiri/kanan rata dalam satu baris */
-function cols(left, right, totalWidth = 86) {
-  const lLen = stripAnsi(left);
-  const rLen = stripAnsi(right);
-  const pad = Math.max(0, totalWidth - lLen.length - rLen.length);
-  return left + " ".repeat(pad) + right;
-}
-
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
 // BANNER
-// ─────────────────────────────────────────────
-async function showBanner() {
+// ═══════════════════════════════════════════════════════════════════════
+function showBanner() {
   console.clear();
 
-  // ── ASCII art logo ──────────────────────────────────────────────────────
-  const raw = figlet.textSync("EMORA", { font: "ANSI Shadow" });
-  // gradient cyan→purple lewat per-line coloring (chalk gak support gradient
-  // native, simulasikan dengan alternating hue per baris)
-  const logoLines = raw.split("\n");
   const gradient = [
-    chalk.hex("#58a6ff"), chalk.hex("#6aabff"), chalk.hex("#7db0f7"),
-    chalk.hex("#9299f7"), chalk.hex("#a371f7"),
+    chalk.hex("#58a6ff"), chalk.hex("#6aabff"),
+    chalk.hex("#7db0f7"), chalk.hex("#9299f7"), chalk.hex("#a371f7"),
   ];
-  logoLines.forEach((line, i) => {
-    if (line.trim()) console.log(gradient[i % gradient.length].bold(line));
-  });
+  figlet.textSync("EMORA", { font: "ANSI Shadow" })
+    .split("\n")
+    .forEach((l, i) => { if (l.trim()) console.log(gradient[i % gradient.length].bold(l)); });
 
-  // ── tagline + badge ──────────────────────────────────────────────────────
-  const tagline = C.secondary("Autonomous AI Agent  ·  self-hosted  ·  multi-platform");
-  const badge   = C.green("● ") + C.success("running");
-  console.log("\n" + " ".repeat(4) + tagline);
-  console.log(" ".repeat(4) + badge + "\n");
+  console.log();
+  console.log(SEP());
+  console.log();
 
-  console.log(separator());
+  // Info grid
+  const prov = getProviderMeta();
+  const rows = [
+    [dim("provider  "), yellow.bold(prov.label)],
+    [dim("model     "), cyan(process.env.MODEL_NAME || "—")],
+    [dim("session   "), green(state.currentSession.slice(0, 8)) + dim("…") + green(state.currentSession.slice(-4))],
+    [dim("gateway   "),
+      (process.env.TELEGRAM_GATEWAY === "true" ? green("Telegram") : dim("Telegram")) +
+      dim("  ·  ") +
+      (process.env.WA_GATEWAY === "true" ? green("WhatsApp") : dim("WhatsApp"))
+    ],
+  ];
+  rows.forEach(([k, v]) => console.log("  " + k + v));
 
-  // ── Gateway + session info ────────────────────────────────────────────────
-  const tgStatus = process.env.TELEGRAM_GATEWAY === "true"
-    ? C.green("●") + " " + C.success("Telegram Gateway")
-    : C.muted("○") + " " + C.muted("Telegram Gateway");
-
-  const waStatus = process.env.WA_GATEWAY === "true"
-    ? C.green("●") + " " + C.success("WhatsApp Gateway")
-    : C.muted("○") + " " + C.muted("WhatsApp Gateway");
-
-  const webStatus = WEB_MODE
-    ? C.green("●") + " " + C.success(`Web UI  `) + C.muted(`http://localhost:${process.env.WEBUI_PORT || 5090}`)
-    : C.muted("○") + " " + C.muted("Web UI") + "  " + C.muted("npm start --web");
-
-  const providerMeta = getProviderMeta();
-  const model    = C.muted("Model  ") + C.cyan(`${providerMeta.label}`) + C.muted(" / ") + C.cyan(process.env.MODEL_NAME || "—");
-  const sesLabel = C.muted("Session ") + C.green(state.currentSession.slice(0, 8)) + C.muted(`…${state.currentSession.slice(-4)}`);
-
-  const statusLines = [tgStatus, waStatus, webStatus, model, sesLabel];
-  statusLines.forEach((l) => console.log("  " + l));
-
-  console.log("\n" + separator());
-
-  // ── Skill catalog (baca dari disk, ringkas) ──────────────────────────────
-  let skillLines = [];
+  // Skills inline
   try {
-    const skillDir = path.resolve("./skill");
-    if (fs.existsSync(skillDir)) {
-      const dirs = fs.readdirSync(skillDir, { withFileTypes: true })
-        .filter((e) => e.isDirectory());
-
-      if (dirs.length) {
-        skillLines.push(C.cyan.bold("  AVAILABLE SKILLS") + C.muted(`  (${dirs.length} loaded)`));
-        const cols3 = Math.floor(dirs.length / 3) + 1;
-        for (let i = 0; i < dirs.length; i += 3) {
-          const row = [dirs[i], dirs[i + 1], dirs[i + 2]]
-            .filter(Boolean)
-            .map((d) => C.green("  ▸ ") + C.primary(d.name.padEnd(28)))
-            .join("");
-          skillLines.push(row);
-        }
+    const skills = fs.readdirSync("./skill", { withFileTypes: true }).filter(d => d.isDirectory());
+    if (skills.length) {
+      console.log();
+      write("  " + dim("skills    "));
+      const names = skills.map(s => muted(s.name));
+      // Fit into terminal width
+      let line = "", count = 0;
+      for (const n of names) {
+        const sep   = count > 0 ? dim("  ·  ") : "";
+        const try1  = stripAnsi(line + stripAnsi(sep) + stripAnsi(n));
+        if (try1.length > W() - 12) { console.log(line); write("  " + " ".repeat(10)); line = n; }
+        else { line += sep + n; }
+        count++;
       }
+      if (line) console.log(line);
     }
-  } catch { /* skill dir belum ada */ }
+  } catch {}
 
-  if (skillLines.length) {
-    console.log();
-    skillLines.forEach((l) => console.log(l));
-  }
-
-  // ── Help cheat-sheet ─────────────────────────────────────────────────────
-  console.log("\n" + separator());
   console.log();
-
-  const cmds = [
-    ["/new",               "Buat sesi baru",                  "session"],
-    ["/sesi",              "Lihat sesi aktif",                "session"],
-    ["/sesi <uuid>",       "Pindah ke sesi tertentu",         "session"],
-    ["/sesilist",          "Daftar semua sesi",               "session"],
-    ["/sesiinfo <uuid>",   "Detail info satu sesi",           "session"],
-    ["/sesidel <uuid>",    "Hapus satu sesi",                 "session"],
-    ["/clear",             "Hapus sesi aktif + mulai baru",   "danger" ],
-    ["/help",              "Tampilkan bantuan ini lagi",       "info"   ],
-    ["/exit",              "Keluar dari EMORA",               "danger" ],
-  ];
-
-  const catColor = { session: C.cyan, danger: C.red, info: C.yellow };
-
-  console.log("  " + C.secondary.bold("COMMAND") + " ".repeat(22) + C.secondary.bold("DESCRIPTION") + " ".repeat(20) + C.secondary.bold("TAG"));
-  console.log("  " + C.border("─".repeat(64)));
-
-  for (const [cmd, desc, tag] of cmds) {
-    const cmdStr  = C.green.bold(cmd.padEnd(26));
-    const descStr = C.primary(desc.padEnd(34));
-    const tagStr  = (catColor[tag] || C.muted)(tag);
-    console.log("  " + cmdStr + descStr + tagStr);
-  }
-
-  console.log("\n" + separator() + "\n");
+  console.log(SEP());
+  console.log();
+  console.log(dim("  Ketik pesan untuk mulai · ketik ") + cyan("/") + dim(" untuk melihat semua command"));
+  console.log();
 }
 
-// ─────────────────────────────────────────────
-// PRINT AI REPLY
-// ─────────────────────────────────────────────
-function printAI(text) {
+// ═══════════════════════════════════════════════════════════════════════
+// THINKING DISPLAY  — spinner ringan, Termux-safe
+// ═══════════════════════════════════════════════════════════════════════
+const THINKING = [
+  "memikirkan jawaban",
+  "sedang analisa",
+  "meramu respons",
+  "menghubungkan titik-titik",
+  "memproses konteks",
+  "memformulasikan jawaban",
+  "nyusun pemikiran",
+  "menelaah permintaan",
+];
+
+function startThinking() {
+  const t0      = Date.now();
+  let   phraseI = Math.floor(Math.random() * THINKING.length);
+  let   active  = true;
+  const events  = [];
+
+  // Initial line
+  write(dim("  ◆ ") + muted(THINKING[phraseI] + "...") + "  " + dim("0.0s") + "\n");
+
+  const tick = setInterval(() => {
+    if (!active) return;
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    // Phrase rotates every 3s
+    const newPhrase = THINKING[Math.floor((Date.now() - t0) / 3000) % THINKING.length];
+    // Rewrite same line
+    write("\x1B[1A\x1B[2K");
+    write(dim("  ◆ ") + muted(newPhrase + "...") + "  " + dim(elapsed + "s") + "\n");
+  }, 200);
+
+  function logEvent(formatted) {
+    // Remove thinking line, print event, restore thinking line
+    write("\x1B[1A\x1B[2K");
+    console.log(formatted);
+    write(dim("  ◆ ") + muted(THINKING[phraseI] + "...") + "\n");
+  }
+
+  function stop() {
+    active = false;
+    clearInterval(tick);
+    write("\x1B[1A\x1B[2K"); // erase thinking line
+    return Date.now() - t0;
+  }
+
+  return { logEvent, stop };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TOOL / SKILL EVENT FORMATTER
+// ═══════════════════════════════════════════════════════════════════════
+const TOOL_LABELS = {
+  shell_exec:      "shell",
+  read_file:       "read",
+  write_file:      "write",
+  list_files:      "ls",
+  search_web:      "search",
+  fetch_page:      "fetch",
+  git_manager:     "git",
+  backup_manager:  "backup",
+  scheduler:       "scheduler",
+  project_manager: "project",
+  system_monitor:  "sysmon",
+  group_manager:   "group",
+  skill_factory:   "skill factory",
+  zip_compress:    "zip",
+  zip_extract:     "unzip",
+  create_folder:   "mkdir",
+  delete_folder:   "rmdir",
+  search_text:     "grep",
+  find_folder:     "find",
+  economy_manager: "economy",
+  emora_hub:       "hub",
+  datetime:        "datetime",
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRINT AI RESPONSE  — matches screenshot style
+// ═══════════════════════════════════════════════════════════════════════
+function printResponse(text, durationMs) {
+  const agentName = process.env.NAME || "Emora";
+  totalChars += text.length;
+  msgCount++;
+  lastResponseMs = durationMs;
+
+  // Header: — AgentName ────────────────────────
+  const headerMid  = `  ${dim("—")} ${green(agentName)} `;
+  const headerFill = dim("─".repeat(Math.max(0, W() - stripAnsi(headerMid).length)));
+  console.log(headerMid + headerFill);
   console.log();
-  // Header baris
-  console.log(
-    C.cyan.bold("  ╭─ ") + C.purple.bold("EMORA") + C.cyan.bold(" ─────────────────────────────────────────────")
-  );
-  // Konten — tiap baris diindentasi & wrap sederhana
-  const maxW = Math.min(process.stdout.columns || 80, 84) - 6;
-  const lines = [];
+
+  const maxW = W() - 4;
+
   for (const rawLine of text.split("\n")) {
-    if (stripAnsi(rawLine).length <= maxW) {
-      lines.push(rawLine);
-    } else {
-      // soft-wrap baris panjang
-      const words = rawLine.split(" ");
-      let cur = "";
-      for (const w of words) {
-        if ((cur + " " + w).trim().length > maxW) {
-          lines.push(cur.trim());
-          cur = w;
-        } else {
-          cur += (cur ? " " : "") + w;
-        }
+    if (!rawLine.trim()) { console.log(); continue; }
+
+    // Detect markdown
+    const isH = /^#{1,3} /.test(rawLine);
+    const isBullet = /^\s*[-•*▸]\s/.test(rawLine);
+    const isCode = rawLine.startsWith("    ") || rawLine.startsWith("\t");
+
+    // Word-wrap (based on plain text width)
+    const words = rawLine.split(" ");
+    const wrapped = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + " " + w : w;
+      if (test.length > maxW) { if (cur) wrapped.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) wrapped.push(cur);
+
+    for (const line of wrapped) {
+      let out = line;
+      if (isH)     { out = cyan.bold(line); }
+      else if (isCode) { out = dim(line); }
+      else {
+        out = out.replace(/`([^`]+)`/g,    (_, c) => cyan("`" + c + "`"));
+        out = out.replace(/\*\*([^*]+)\*\*/g, (_, c) => bold(white(c)));
+        if (isBullet) out = dim("  ") + out;
       }
-      if (cur) lines.push(cur.trim());
+      console.log("  " + out);
     }
   }
-  lines.forEach((l) => {
-    const plain = stripAnsi(l);
-    // Sintaks highlight sederhana:
-    // - code inline `...` → cyan
-    // - **bold** → bold white
-    // - #heading → cyan bold
-    let out = l;
-    if (plain.startsWith("#")) out = C.cyan.bold(l);
-    out = out.replace(/`([^`]+)`/g, (_, c) => C.cyan("`" + c + "`"));
-    out = out.replace(/\*\*([^*]+)\*\*/g, (_, c) => chalk.bold.white(c));
-    console.log(C.cyan("  │ ") + out);
-  });
-  console.log(C.cyan.bold("  ╰────────────────────────────────────────────────────────────"));
+
+  console.log();
+  // Footer timing
+  if (durationMs) {
+    const durStr = (durationMs / 1000).toFixed(1) + "s";
+    console.log(dim(`  ✓ ${durStr}`));
+  }
   console.log();
 }
 
-// ─────────────────────────────────────────────
-// PRINT COMMAND REPLY (system info dari /help, /sesilist, dll)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// PRINT SYSTEM MESSAGE  (commands, errors)
+// ═══════════════════════════════════════════════════════════════════════
 function printSystem(text, { isError = false, isExit = false } = {}) {
-  const accentFn = isError ? C.red : isExit ? C.yellow : C.cyan;
-  const label    = isError ? "ERROR" : isExit ? "EXIT" : "SYSTEM";
-
+  const icon  = isError ? red("  ✗ ") : isExit ? yellow("  → ") : dim("  ℹ ");
+  const color = isError ? red : isExit ? yellow : muted;
   console.log();
-  console.log(
-    accentFn.bold(`  ╭─ ${label} `) + accentFn("─".repeat(Math.max(0, 60 - label.length - 4)))
-  );
-  text.split("\n").forEach((l) => {
-    console.log(accentFn("  │ ") + (isError ? C.error(l) : C.primary(l)));
-  });
-  console.log(accentFn.bold("  ╰" + "─".repeat(64)));
+  text.split("\n").forEach(l => console.log(icon + color(l)));
   console.log();
 }
 
-// ─────────────────────────────────────────────
-// PRINT HELP PANEL  (desain diselaraskan dengan cli.html help-box)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// PRINT HELP TABLE
+// ═══════════════════════════════════════════════════════════════════════
 function printHelp() {
   console.log();
-  const w = Math.min(process.stdout.columns || 80, 88);
-  const line = C.border("─".repeat(w));
-
-  // Header
-  console.log(C.cyan.bold("  ╭─ EMORA COMMANDS ") + C.cyan("─".repeat(w - 21)) );
-
-  // Sections
-  const sections = [
-    {
-      title: "SESSION MANAGEMENT",
-      items: [
-        ["/new",             "Buat sesi baru",                   "session"],
-        ["/sesi",           "Tampilkan sesi aktif saat ini",     "session"],
-        ["/sesi <uuid>",    "Pindah ke sesi berdasarkan UUID",   "session"],
-        ["/sesilist",       "Daftar semua sesi tersimpan",       "session"],
-        ["/sesiinfo <uuid>","Detail info satu sesi",             "session"],
-        ["/sesidel <uuid>", "Hapus satu sesi beserta memorinya", "danger" ],
-        ["/clear",          "Hapus sesi aktif + mulai baru",     "danger" ],
-      ],
-    },
-    {
-      title: "GENERAL",
-      items: [
-        ["/help",  "Tampilkan panel bantuan ini",  "info"  ],
-        ["/exit",  "Keluar dari EMORA",            "danger"],
-      ],
-    },
-  ];
-
-  const tagColor = { session: C.cyan, danger: C.red, info: C.yellow };
-
-  for (const sec of sections) {
-    console.log(C.cyan("  │"));
-    console.log(C.cyan("  │  ") + C.purple.bold(sec.title));
-    console.log(C.cyan("  │  ") + C.border("─".repeat(60)));
-    for (const [cmd, desc, tag] of sec.items) {
-      const cmdStr  = C.green.bold(cmd.padEnd(24));
-      const descStr = C.secondary(desc.padEnd(36));
-      const tagStr  = (tagColor[tag] || C.muted)(tag);
-      console.log(C.cyan("  │  ") + cmdStr + descStr + tagStr);
-    }
-  }
-
-  console.log(C.cyan("  │"));
-  console.log(C.cyan("  │  ") + C.muted("Tip: Ketik pesan biasa untuk ngobrol dengan Emora."));
-  console.log(C.cyan("  │  ") + C.muted("     Tool call, skill execution, dan memory berjalan otomatis."));
-  console.log(C.cyan.bold("  ╰" + "─".repeat(w - 3)));
+  console.log(SEP());
+  SLASH_COMMANDS.forEach(({ cmd, desc }) => {
+    console.log(
+      cyan(pad(cmd, 14)) +
+      dim("  ") +
+      muted(desc)
+    );
+  });
+  console.log(SEP());
   console.log();
 }
 
-// ─────────────────────────────────────────────
-// BACKGROUND TASK HANDLER
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// INPUT ENGINE — raw mode + "/" autocomplete below prompt
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Render prompt + optional autocomplete list.
+ * Returns number of lines printed (for clearing on next key).
+ */
+function renderInputArea(buf, completions = null) {
+  let lines = 0;
+
+  // Status bar
+  renderStatusBar();
+  lines++;
+
+  // Prompt line
+  write(dim("> ") + (buf ? yellow(buf) : "") + "\n");
+  lines++;
+
+  // Autocomplete list (if "/" mode)
+  if (completions !== null) {
+    write(SEP() + "\n");
+    lines++;
+    for (const { cmd, desc, selected } of completions) {
+      const cmdStr  = selected ? cyan.bold(pad(cmd, 16)) : white(pad(cmd, 16));
+      const descStr = selected ? white(desc) : dim(desc);
+      write(cmdStr + "  " + descStr + "\n");
+      lines++;
+    }
+  }
+
+  return lines;
+}
+
+function readInput() {
+  return new Promise((resolve) => {
+    let buf      = "";
+    let slashMode = false;
+    let selIdx   = -1;      // -1 = no selection (typing)
+    let renderedLines = 0;
+
+    function filtered() {
+      const q = buf.slice(1).toLowerCase();   // after "/"
+      return SLASH_COMMANDS.filter(c =>
+        !q || c.cmd.slice(1).startsWith(q) || c.desc.toLowerCase().includes(q)
+      );
+    }
+
+    function buildCompletions(idx) {
+      if (!slashMode) return null;
+      return filtered().map((c, i) => ({ ...c, selected: i === idx }));
+    }
+
+    function render() {
+      // Clear previous render
+      clearLines(renderedLines);
+      const comps = buildCompletions(selIdx);
+      renderedLines = renderInputArea(buf, comps);
+    }
+
+    // Initial render
+    render();
+
+    // Raw mode
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.setEncoding("utf8");
+
+    function cleanup() {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      process.stdin.removeListener("data", onKey);
+    }
+
+    async function onKey(key) {
+      // Ctrl+C
+      if (key === "\x03") {
+        cleanup();
+        clearLines(renderedLines);
+        resolve(null); // null = cancelled, will ask again
+        return;
+      }
+
+      // Ctrl+D
+      if (key === "\x04") {
+        cleanup();
+        clearLines(renderedLines);
+        printSystem("Sampai jumpa! 👋", { isExit: true });
+        process.exit(0);
+      }
+
+      // Enter
+      if (key === "\r" || key === "\n") {
+        // If selection active, use it
+        if (slashMode && selIdx >= 0) {
+          const chosen = filtered()[selIdx];
+          if (chosen) {
+            cleanup();
+            clearLines(renderedLines);
+            // If no-arg command, submit directly
+            const noArg = ["/new","/sesilist","/help","/exit","/clear","/sesi"];
+            if (noArg.includes(chosen.cmd)) {
+              resolve(chosen.cmd);
+            } else {
+              buf = chosen.cmd + " ";
+              slashMode = false; selIdx = -1;
+              renderedLines = 0;
+              render();
+              // Continue typing
+            }
+            return;
+          }
+        }
+        cleanup();
+        clearLines(renderedLines);
+        resolve(buf.trim());
+        return;
+      }
+
+      // Backspace
+      if (key === "\x7F" || key === "\b") {
+        buf = buf.slice(0, -1);
+        slashMode = buf.startsWith("/");
+        if (!slashMode) selIdx = -1;
+        render();
+        return;
+      }
+
+      // Escape → clear
+      if (key === "\x1B" && !key.startsWith("\x1B[")) {
+        buf = ""; slashMode = false; selIdx = -1;
+        render();
+        return;
+      }
+
+      // Arrow keys
+      if (key === "\x1B[A") {  // Up
+        if (slashMode) {
+          const f = filtered();
+          if (selIdx <= 0) selIdx = f.length - 1;
+          else selIdx--;
+          render();
+        }
+        return;
+      }
+      if (key === "\x1B[B") {  // Down
+        if (slashMode) {
+          const f = filtered();
+          selIdx = (selIdx + 1) % f.length;
+          render();
+        }
+        return;
+      }
+      if (key === "\x1B[C" || key === "\x1B[D") return; // Left/Right: ignore
+
+      // Tab → autocomplete first match
+      if (key === "\t") {
+        if (slashMode) {
+          const f = filtered();
+          if (f.length === 1) {
+            buf = f[0].cmd + " ";
+            slashMode = false; selIdx = -1;
+          } else if (selIdx >= 0 && f[selIdx]) {
+            buf = f[selIdx].cmd + " ";
+            slashMode = false; selIdx = -1;
+          }
+          render();
+        }
+        return;
+      }
+
+      // Ignore other escape sequences
+      if (key.startsWith("\x1B")) return;
+
+      // Normal char
+      buf += key;
+      if (buf === "/") { slashMode = true; selIdx = -1; }
+      else if (!buf.startsWith("/")) slashMode = false;
+      else slashMode = true;
+
+      render();
+    }
+
+    process.stdin.on("data", onKey);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// BACKGROUND TASK
+// ═══════════════════════════════════════════════════════════════════════
 const bgLocks = {};
 
 eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
   if (bgLocks[job_id]) return;
   bgLocks[job_id] = true;
-
   try {
-    const bgSessionId = `${session_id}_bg_${job_id}`;
-    const result = await ask(llm, tools, bgSessionId, `[BACKGROUND TASK] ${prompt}`);
-
+    const bgSess = `${session_id}_bg_${job_id}`;
+    const result = await ask(llm, tools, bgSess, `[BACKGROUND TASK] ${prompt}`);
     if (!result.includes("SILENT_ABORT")) {
-      // Tulis notif di baris baru, jangan ganggu input readline yang sedang aktif
-      process.stdout.write("\r\x1B[K"); // hapus baris prompt saat ini
       console.log();
-      console.log(
-        C.yellow.bold("  ╭─ 🔔 NOTIFIKASI BACKGROUND ") + C.yellow("─".repeat(33))
-      );
-      result.split("\n").forEach((l) => console.log(C.yellow("  │ ") + C.primary(l)));
-      console.log(C.yellow.bold("  ╰" + "─".repeat(62)));
+      console.log(SEP(yellow));
+      console.log(yellow("  🔔 Background Task: ") + dim(job_id));
+      result.split("\n").forEach(l => console.log(dim("  ") + white(l)));
+      console.log(SEP(yellow));
       console.log();
-
-      // Kembalikan prompt
-      process.stdout.write(buildPrompt());
     }
   } catch (err) {
-    process.stdout.write("\r\x1B[K");
-    console.log(C.error(`\n  [BG ERROR] Job ${job_id}: ${err.message}\n`));
-    process.stdout.write(buildPrompt());
+    console.log(red(`\n  ✗ [BG ${job_id}] ${err.message}\n`));
   } finally {
     bgLocks[job_id] = false;
   }
 });
 
-// ─────────────────────────────────────────────
-// PROMPT STRING
-// ─────────────────────────────────────────────
-function buildPrompt() {
-  return (
-    C.muted("[") +
-    C.green(state.currentSession.slice(0, 8)) +
-    C.muted("] ") +
-    C.cyan.bold("You") +
-    C.muted(" ❯ ")
+// ═══════════════════════════════════════════════════════════════════════
+// WEB UI
+// ═══════════════════════════════════════════════════════════════════════
+if (WEB_MODE) {
+  import("./webui/server.js").catch(err =>
+    console.error(red(`\n  ✗ Web UI gagal: ${err.message}\n`))
   );
 }
 
-// ─────────────────────────────────────────────
-// WEB UI
-// ─────────────────────────────────────────────
-if (WEB_MODE) {
-  import("./webui/server.js").catch((err) => {
-    console.error(C.error(`\n  [WEBUI ERROR] Gagal menjalankan Web UI: ${err.message}\n`));
-  });
-}
-
-// ─────────────────────────────────────────────
-// MAIN CHAT LOOP
-// ─────────────────────────────────────────────
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
+// ═══════════════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════
 async function runChat() {
-  await showBanner();
+  showBanner();
 
   while (true) {
-    let input;
-    try {
-      input = await rl.question(buildPrompt());
-    } catch {
-      // Ctrl+D → EOF
-      printSystem("Terima kasih telah menggunakan EMORA. Sampai jumpa! 👋", { isExit: true });
-      process.exit(0);
-    }
+    // Read user input (blocking, raw mode)
+    const input = await readInput();
 
-    input = input.trim();
-    if (!input) continue;
+    // null = Ctrl+C, just loop again
+    if (input === null) continue;
+    if (!input)         continue;
 
-    // ── Slash commands ────────────────────────────────────────────────────
-    const commandResult = await handleCommand(input, state);
-
-    if (commandResult) {
-      if (commandResult.action === "exit") {
-        printSystem(commandResult.message, { isExit: true });
-        rl.close();
+    // ── Slash commands ──────────────────────────────────────────────
+    const cmdResult = await handleCommand(input, state);
+    if (cmdResult) {
+      if (cmdResult.action === "exit") {
+        printSystem(cmdResult.message, { isExit: true });
         process.exit(0);
       }
-      if (commandResult.action === "help") {
-        printHelp();
-        continue;
-      }
-      if (commandResult.action === "reply") {
-        printSystem(commandResult.message);
-      }
+      if (cmdResult.action === "help") { printHelp(); continue; }
+      if (cmdResult.action === "reply") { printSystem(cmdResult.message); continue; }
       continue;
     }
 
-    // ── AI turn ───────────────────────────────────────────────────────────
-    const spinner = ora({
-      text: C.muted("  Emora sedang berpikir…"),
-      spinner: "dots",
-      color: "cyan",
-      prefixText: C.cyan("  →"),
-    }).start();
+    // ── AI turn ─────────────────────────────────────────────────────
+    msgCount++;
+    totalChars += input.length;
+
+    // Separator before response
+    console.log();
+    console.log(SEP());
+
+    const thinking = startThinking();
+    const toolCallTimers = new Map(); // name -> startMs
 
     try {
-      const result = await ask(llm, tools, state.currentSession, input);
-      spinner.stop();
-      printAI(result);
+      const result = await ask(llm, tools, state.currentSession, input, {
+        onEvent(ev) {
+          let formatted = "";
+
+          if (ev.type === "tool_use") {
+            toolCallTimers.set(ev.name, Date.now());
+            const label = TOOL_LABELS[ev.name] || ev.name;
+            let detail = "";
+            if (ev.args) {
+              if (ev.args.command)      detail = dim("  " + String(ev.args.command).slice(0, 52));
+              else if (ev.args.path)    detail = dim("  " + ev.args.path);
+              else if (ev.args.query)   detail = dim(`  "${String(ev.args.query).slice(0, 40)}"`);
+              else if (ev.args.action)  detail = dim("  " + ev.args.action);
+              else if (ev.args.url)     detail = dim("  " + String(ev.args.url).slice(0, 50));
+            }
+            formatted = green("  ● ") + white(label) + detail;
+            thinking.logEvent(formatted);
+
+          } else if (ev.type === "tool_result") {
+            const startMs = toolCallTimers.get(ev.name);
+            const dur     = startMs ? dim(`  ${((Date.now() - startMs) / 1000).toFixed(1)}s`) : "";
+            toolCallTimers.delete(ev.name);
+            const preview = ev.result ? String(ev.result).trim().split("\n")[0].slice(0, 64) : "";
+            if (preview) {
+              formatted = dim("  │ ") + dim("$ ") + muted(preview) + dur;
+              thinking.logEvent(formatted);
+            }
+
+          } else if (ev.type === "skill_read") {
+            formatted = purple("  ◈ ") + dim("reading skill ") + cyan.bold(ev.name);
+            thinking.logEvent(formatted);
+          }
+        },
+      });
+
+      const durationMs = thinking.stop();
+      printResponse(result, durationMs);
+
     } catch (err) {
-      spinner.fail(C.error("  Terjadi kesalahan."));
-      const msg = err?.message || err?.error?.message || "Kesalahan tidak diketahui.";
-      printSystem(msg, { isError: true });
+      thinking.stop();
+      printSystem(
+        err?.message || "Terjadi kesalahan yang tidak diketahui.",
+        { isError: true }
+      );
     }
   }
 }

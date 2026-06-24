@@ -11,6 +11,7 @@
     "start": "node main.js",
     "setup": "node setup.js",
     "status": "node bin/emora.js status",
+    "postinstall": "chmod +x bin/emora.js 2>/dev/null || true",
     "webui:install": "npm install --prefix webui",
     "webui:dev": "npm run dev --prefix webui",
     "webui:build": "npm run build --prefix webui"

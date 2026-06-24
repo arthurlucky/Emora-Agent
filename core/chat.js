@@ -199,7 +199,7 @@ async function invokeWithRetry(llm, messages, maxRetries = 3) {
   }
 }
 
-export async function ask(llm, tools, sessionId, input) {
+export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
   const systemPrompt = await getSystemPrompt();
   const memory = await loadSession(sessionId);
 
@@ -232,7 +232,27 @@ export async function ask(llm, tools, sessionId, input) {
         toolsUsedThisTurn.push(toolCall.name);
       }
 
+      // ── Real-time event callback ──────────────────────────────────────
+      if (onEvent) {
+        if (toolCall.name === "skill_factory" && toolCall.args?.action === "read_skill") {
+          onEvent({ type: "skill_read", name: toolCall.args.skill_name_target || "?" });
+        } else {
+          onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
+        }
+      }
+
       const toolResult = await executeTool(toolCall, tools);
+
+      // Emit result event so CLI can show output preview + timing
+      if (onEvent && toolCall.name !== "skill_factory") {
+        const resultContent = toolResult?.content
+          ? (Array.isArray(toolResult.content)
+              ? toolResult.content.map(c => c.text || "").join("")
+              : String(toolResult.content))
+          : "";
+        onEvent({ type: "tool_result", name: toolCall.name, result: resultContent });
+      }
+
       messages.push(toolResult);
     }
 
