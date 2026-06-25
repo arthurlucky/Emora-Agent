@@ -40,11 +40,12 @@ const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, "package.json"), "utf
 const VERSION = pkg.version || "1.0.0";
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
-const dim    = (t) => chalk.hex("#6e7681")(t);
-const cyan   = (t) => chalk.hex("#58a6ff")(t);
-const green  = (t) => chalk.hex("#3fb950")(t);
-const yellow = (t) => chalk.hex("#d29922")(t);
-const muted  = (t) => chalk.hex("#8b949e")(t);
+// ── Color helpers ─────────────────────────────────────────────────────────────
+const dim    = chalk.hex("#6e7681");
+const cyan   = chalk.hex("#58a6ff");
+const green  = chalk.hex("#3fb950");
+const yellow = chalk.hex("#d29922");
+const muted  = chalk.hex("#8b949e");
 const bold   = chalk.bold;
 
 // ── Help text ─────────────────────────────────────────────────────────────────
