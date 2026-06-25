@@ -142,7 +142,7 @@ function renderStatusBar() {
 // ═══════════════════════════════════════════════════════════════════════
 // BANNER
 // ═══════════════════════════════════════════════════════════════════════
-function showBanner() {
+async function showBanner() {
   console.clear();
 
   const gradient = [
@@ -178,7 +178,6 @@ function showBanner() {
       console.log();
       write("  " + dim("skills    "));
       const names = skills.map(s => muted(s.name));
-      // Fit into terminal width
       let line = "", count = 0;
       for (const n of names) {
         const sep   = count > 0 ? dim("  ·  ") : "";
@@ -188,6 +187,23 @@ function showBanner() {
         count++;
       }
       if (line) console.log(line);
+    }
+  } catch {}
+
+  // Library summary (import dilakukan di luar try agar tidak error di node --check)
+  try {
+    const libMod  = await import("./library/index.js");
+    const topics   = libMod.listTopics();
+    const catalog  = libMod.loadIndex();
+    const tkeys    = Object.keys(topics);
+    if (tkeys.length) {
+      write(
+        "  " + dim("library   ") +
+        muted(`${catalog.count} docs`) +
+        dim("  ·  ") +
+        tkeys.map(t => muted(t)).join(dim("  ·  "))
+      );
+      console.log();
     }
   } catch {}
 
@@ -586,7 +602,7 @@ if (WEB_MODE) {
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════════════
 async function runChat() {
-  showBanner();
+  await showBanner();
 
   while (true) {
     // Read user input (blocking, raw mode)

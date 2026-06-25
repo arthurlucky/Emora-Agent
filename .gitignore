@@ -3,6 +3,7 @@ node_modules/
 
 # Memory
 session/
+mcp.config.json
 
 .emora_projects/
 

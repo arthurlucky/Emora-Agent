@@ -371,6 +371,10 @@ Emora-Agent/
 │   └── huggingface.js        ← HuggingFace Inference API
 ├── tools/                    ← Semua tool EMORA (shell, file, git, dsb)
 ├── skill/                    ← Skill library (auto-loaded ke system prompt)
+├── library/                  ← Knowledge Library (factual knowledge, terorganisir per tanggal)
+│   ├── .index/               ← Flat search index (catalog.json, auto-generated)
+│   ├── index.js              ← Library engine (search, read, write, indexing)
+│   └── validator.js          ← Non-LLM validation (web search + token overlap)
 ├── memory/                   ← Session memory (JSON per sesi)
 ├── webui/                    ← Web UI (Vite + vanilla JS)
 ├── utils/                    ← Helper utilities
@@ -402,6 +406,7 @@ Emora-Agent/
 | `backup_manager` | Backup & restore folder/file |
 | `system_monitor` | Info CPU, RAM, disk |
 | `skill_factory` | Buat & kelola skill EMORA |
+| `knowledge_library` | Knowledge Library — check/read/collect/write factual knowledge |
 | `group_manager` | Manajemen grup Telegram/WhatsApp |
 | `economy_manager` | Sistem ekonomi virtual |
 | `emora_hub` | Sinkronisasi dengan EMORA Hub |
@@ -424,7 +429,76 @@ Skill baru langsung aktif tanpa restart — katalog skill di-generate ulang di s
 
 ---
 
-## Lisensi
+## Knowledge Library
+
+EMORA memiliki sistem **Knowledge Library** (`library/`) — pusat pengetahuan faktual berbasis file yang terorganisir per topik, subtopik, dan tanggal. Berbeda dengan skill (yang berisi *workflow*), library berisi *pengetahuan faktual* yang bisa diakses agent kapan saja.
+
+### Struktur Folder
+
+```
+library/
+├── pertanian/
+│   └── pengolahan/
+│       ├── 05_01_2026/
+│       │   └── tata_cara_pengolahan_1.txt
+│       └── 06_02_2026/
+│           └── tata_cara_pengolahan_organik.txt
+├── medis/
+│   └── obat_dasar/
+│       └── 06_01_2026/
+│           └── obat_dasar_umum.txt
+└── astronomi/
+    └── pemetaan_bintang/
+        └── ...
+```
+
+### Cara Kerja
+
+Agent secara **otomatis** memeriksa library sebelum menjawab pertanyaan faktual:
+
+1. **Check** — cari entri relevan (tanpa membaca isi file)
+2. **Read** — baca hanya file yang paling relevan
+3. **Collect** — kumpulkan info baru dari web jika tidak ditemukan
+4. **Write** — simpan ke library setelah divalidasi dan dikonfirmasi user
+
+### Validasi Non-LLM
+
+Sebelum knowledge disimpan, sistem menjalankan validasi berbasis kode (tanpa LLM):
+- Cari topik di web (Tavily)
+- Bandingkan token overlap antar sumber
+- Hitung **confidence score** (0–100%)
+- Level: `high` (≥60%) / `medium` (≥35%) / `low` (≥15%) / `unverified`
+
+Knowledge hanya disimpan jika confidence cukup, atau user eksplisit mengkonfirmasi (`skip_validation=true`).
+
+### Tambah Knowledge Manual
+
+Kontributor bisa langsung menambah file ke folder `library/` tanpa kode:
+```
+library/topik_baru/subtopik/DD_MM_YYYY/nama_file.txt
+```
+Setelah itu minta agent untuk: *"rebuild index library"* atau jalankan `emora` — index otomatis diperbarui.
+
+### Optimasi untuk Model Kecil (7B)
+
+- **Lazy loading** — hanya file yang relevan yang dibaca, bukan seluruh library
+- **Flat index** (`library/.index/catalog.json`) — pencarian cepat tanpa scan disk
+- **Max 5 file per turn** — mencegah context overflow
+- Untuk analisis multi-dokumen, agent menggunakan `project_manager` untuk memecah task
+
+### Tool Reference
+
+| Action | Deskripsi |
+|---|---|
+| `check` | Cari entri relevan (tanpa baca isi) |
+| `read` | Baca satu file spesifik |
+| `read_latest` | Baca file terbaru untuk topik/subtopik |
+| `collect` | Kumpulkan info baru dari web |
+| `write` | Simpan ke library (dengan validasi) |
+| `list_topics` | Lihat semua topik yang ada |
+| `rebuild_index` | Paksa rebuild index setelah penambahan manual |
+
+---
 
 MIT License — lihat [LICENSE](./LICENSE)
 

@@ -452,6 +452,20 @@
       "last_seen": 1782033702153,
       "skill_created": false,
       "skill_name": null
+    },
+    "knowledge_library>knowledge_library": {
+      "sequence": [
+        "knowledge_library",
+        "knowledge_library"
+      ],
+      "count": 1,
+      "sessions": [
+        "f0212863-34f1-4363-826f-363bb966d2fe"
+      ],
+      "first_seen": 1782371984532,
+      "last_seen": 1782371984532,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }

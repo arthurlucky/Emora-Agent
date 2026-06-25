@@ -181,6 +181,41 @@ export async function cmdStatus() {
     }
   } catch { row("Memory", "Gagal membaca", "error"); }
 
+  // ── Knowledge Library ────────────────────────────────────────────────
+  divider("KNOWLEDGE LIBRARY");
+  try {
+    const libIdx = path.join(".", "library", ".index", "catalog.json");
+    if (fs.existsSync(path.join(".", "library"))) {
+      if (fs.existsSync(libIdx)) {
+        const catalog = JSON.parse(fs.readFileSync(libIdx, "utf8"));
+        const topics  = {};
+        for (const e of catalog.entries || []) {
+          if (!topics[e.topic]) topics[e.topic] = new Set();
+          topics[e.topic].add(e.subtopic);
+        }
+        const topicCount = Object.keys(topics).length;
+        row("Status",       C.green("Aktif"), "ok");
+        row("Total docs",   String(catalog.count || 0), "ok");
+        row("Topik",        String(topicCount), topicCount > 0 ? "ok" : "warn");
+        if (topicCount > 0) {
+          Object.entries(topics).slice(0, 5).forEach(([t, subs]) => {
+            row(`  ${t}`, [...subs].join(", "), "ok");
+          });
+          if (topicCount > 5) row("", `… dan ${topicCount - 5} topik lagi`, "ok");
+        }
+        const builtAt = catalog.builtAt ? new Date(catalog.builtAt).toLocaleString("id-ID") : "—";
+        row("Index dibangun", builtAt, "ok");
+      } else {
+        row("Status", "Folder ada tapi index belum dibuat", "warn");
+        row("Fix",    "Jalankan: emora, lalu minta agent 'rebuild index library'", "warn");
+      }
+    } else {
+      row("Status", "Folder library/ belum ada (akan dibuat otomatis saat pertama dipakai)", "off");
+    }
+  } catch (err) {
+    row("Library", `Error: ${err.message}`, "error");
+  }
+
   // ── Web UI ────────────────────────────────────────────────────────────────
   divider("WEB UI");
   const webuiEnabled = getEnv("WEBUI") === "true";

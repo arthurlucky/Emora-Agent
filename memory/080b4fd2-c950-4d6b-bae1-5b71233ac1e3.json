@@ -1,0 +1,32 @@
+[
+  {
+    "role": "user",
+    "content": "hai",
+    "timestamp": 1782298760167
+  },
+  {
+    "role": "assistant",
+    "content": "Yo, Rell! 👋 Apa kabar, bro? Emora di sini siap membantu lu dengan apapun — dari coding, file management, research, automation, sampai project planning. \n\nGua bisa bantu lu dengan:\n- **Develop & debug** code di berbagai bahasa\n- **Manage files & folder** — organize, search, compress, backup\n- **Research & fetch** informasi terbaru dari internet\n- **Version control** — git commit, push, history\n- **Automated task** — scheduling, monitoring, background jobs\n- **Project planning** — struktur file, workflow, progress tracking\n- **Community tools** — cari & install tools/skills dari EMORA Hub\n\n**Ada yang bisa gua bantu hari ini?** Cerita aja request-nya, and I'll get it done! 💪",
+    "timestamp": 1782298760167
+  },
+  {
+    "role": "user",
+    "content": "untuk bagian penanganan model emora di folder mana?",
+    "timestamp": 1782298937613
+  },
+  {
+    "role": "assistant",
+    "content": "Gua cek dulu struktur folder project bro, biar tau file model Emora-nya di mana.",
+    "timestamp": 1782298937613
+  },
+  {
+    "role": "user",
+    "content": "\u001f/exit",
+    "timestamp": 1782298984256
+  },
+  {
+    "role": "assistant",
+    "content": "Oke, bro. Session ditutup. Kalau butuh bantuan lagi, tinggal chat aja. Peace! ✌️",
+    "timestamp": 1782298984256
+  }
+]

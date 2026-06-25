@@ -76,6 +76,31 @@ async function buildSkillCatalog() {
 
 export { buildSkillCatalog as buildSkillCatalogForCLI };
 
+/**
+ * Bangun ringkasan singkat library untuk disisipkan ke system prompt.
+ * Hanya daftar topik+subtopik+jumlah file — TIDAK membaca isi file sama sekali.
+ * Model kecil sekalipun bisa memproses ringkasan ini tanpa context overflow.
+ */
+async function buildLibrarySummary() {
+  try {
+    const { listTopics, loadIndex } = await import("../library/index.js");
+    const topics  = listTopics();
+    const catalog = loadIndex();
+
+    if (!Object.keys(topics).length) {
+      return "(Library kosong. Gunakan knowledge_library action:write untuk menambah knowledge pertama.)";
+    }
+
+    const lines = [`Total ${catalog.count} dokumen di ${Object.keys(topics).length} topik:`];
+    for (const [topic, subs] of Object.entries(topics)) {
+      lines.push(`• ${topic}: ${subs.join(", ")}`);
+    }
+    return lines.join("\n");
+  } catch {
+    return "(Library tidak tersedia atau belum diinisialisasi.)";
+  }
+}
+
 async function getSystemPrompt() {
   if (cachedSystemPrompt) {
     return cachedSystemPrompt;
@@ -89,6 +114,7 @@ async function getSystemPrompt() {
     const soul = await fs.readFile(soulPath, "utf8");
     const agent = await fs.readFile(agentPath, "utf8");
     const skillCatalog = await buildSkillCatalog();
+    const librarySummary = await buildLibrarySummary();
     
     const Context = `
  user identity
@@ -102,6 +128,11 @@ async function getSystemPrompt() {
 ${skillCatalog}
 
 Use skill_factory (action: read_skill, skill_name_target: "<name>") to load the FULL content of any skill above WHENEVER its description matches what the user is asking — do this silently as part of normal tool use. NEVER ask the user "should I use the <name> skill?" or announce that you are checking for a skill first; just check this catalog and act, the same way you wouldn't ask permission before using read_file. Only mention a skill by name afterward if it's genuinely useful context for the user (e.g., explaining why you followed a particular workflow).
+
+[KNOWLEDGE LIBRARY]
+${librarySummary}
+
+MANDATORY LIBRARY WORKFLOW: Before answering any factual question about topics that could exist in the library, SILENTLY call knowledge_library (action: check) first. If relevant knowledge exists → read it and use it to answer. If not found → answer from your own knowledge, but mention the library doesn't have this topic yet and offer to collect+save it. Never load the entire library at once — only read specific files that are relevant.
  `;
 
     cachedSystemPrompt = Context;

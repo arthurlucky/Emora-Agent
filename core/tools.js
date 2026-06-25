@@ -27,6 +27,7 @@ import backupManager from "../tools/backup_manager.js";
 import { systemMonitorTool } from "../tools/system_monitor.js";
 import { economyManagerTool } from "../tools/economy_manager.js";
 import { gitManagerTool } from "../tools/git_manager.js";
+import knowledgeLibraryTool from "../tools/knowledge_library.js";
 
 const tools = [
   SearchWebTool,
@@ -57,7 +58,8 @@ const tools = [
   economyManagerTool,
   gitManagerTool,
   
-  groupManagerTool
+  groupManagerTool,
+  knowledgeLibraryTool,
 ];
 
 export default tools;

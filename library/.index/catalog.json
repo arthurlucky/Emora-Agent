@@ -1,0 +1,16 @@
+{
+  "builtAt": "2026-06-25T07:18:51.620Z",
+  "count": 1,
+  "entries": [
+    {
+      "topic": "astronomi",
+      "subtopic": "sejarah",
+      "date": "25_06_2026",
+      "dateObj": "2026-06-25T00:00:00.000Z",
+      "filename": "sejarah_1.txt",
+      "relPath": "library/astronomi/sejarah/25_06_2026/sejarah_1.txt",
+      "absPath": "/data/data/com.termux/files/home/EMORA/library/astronomi/sejarah/25_06_2026/sejarah_1.txt",
+      "sizeBytes": 2916
+    }
+  ]
+}
