@@ -1,9 +1,11 @@
 /**
  * gateway/whatsapp/whatsapp.js
  *
- * Gateway WhatsApp EMORA — dibangun ulang mengacu pola amane (socketon).
- * Perbaikan utama vs versi lama:
- *  - LID resolution (WhatsApp multi-device JID baru)
+ * Gateway WhatsApp EMORA — dibangun ulang mengacu pola amane.
+ * Menggunakan @whiskeysockets/baileys sesuai dokumentasi resmi.
+ * 
+ * Perbaikan & tambahan berdasarkan README.md Baileys:
+ *  - LID resolution dengan fallback store.contacts & lid-mapping.json
  *  - Group metadata caching yang proper (cachedGroupMetadata + store)
  *  - Pairing Code flow yang stabil
  *  - normalizeMessageIds sebelum processing
@@ -11,13 +13,16 @@
  *  - m object yang kaya (isGroup, sender, quoted, body, mtype, dll)
  *  - Reconnect logic lengkap per DisconnectReason
  *  - makeInMemoryStore untuk group metadata cache
+ *  - getMessage untuk retry system & decrypt poll votes [reference:2]
+ *  - messages.update untuk menangani poll votes [reference:3]
+ *  - browser: Browsers.macOS('Desktop') + syncFullHistory: true [reference:4]
+ *  - markOnlineOnConnect: false agar notifikasi tetap muncul di HP [reference:5]
  */
 
 import "dotenv/config";
 import crypto    from "crypto";
 import fs        from "fs";
 import path      from "path";
-import readline  from "readline";
 
 import makeWASocket, {
   useMultiFileAuthState,
@@ -29,7 +34,8 @@ import makeWASocket, {
   downloadContentFromMessage,
   jidDecode,
   delay,
-  proto,
+  Browsers,                       // untuk setting browser desktop [reference:6]
+  getAggregateVotesInPollMessage, // untuk decrypt poll votes [reference:7]
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import { Boom } from "@hapi/boom";
@@ -94,25 +100,77 @@ function decodeJid(jid) {
 }
 
 const lidCache = new Map();
+// Map untuk menyimpan mapping lid → jid dari file auth (akan dimuat saat startup)
+let lidMapping = new Map();
 
-async function resolveLidToJid(sock, id) {
+// ─── Improved LID resolution dengan fallback ke store.contacts ──────────────
+async function resolveLidToJid(sock, id, store) {
   if (!id) return id;
   if (!id.endsWith("@lid")) return decodeJid(id);
+  
+  // 1. Cek cache memory
   if (lidCache.has(id)) return lidCache.get(id);
+  
+  // 2. Cek store.contacts (jika ada)
+  if (store?.contacts) {
+    const contact = Object.values(store.contacts).find(c => c.id === id);
+    if (contact?.phoneNumber) {
+      const jid = `${contact.phoneNumber}@s.whatsapp.net`;
+      lidCache.set(id, jid);
+      return jid;
+    }
+  }
+  
+  // 3. Cek lid-mapping dari file auth (load di bawah)
+  if (lidMapping.has(id)) {
+    const jid = lidMapping.get(id);
+    lidCache.set(id, jid);
+    return jid;
+  }
+  
+  // 4. Fallback: onWhatsApp API
   try {
-    const res    = await sock.onWhatsApp(id);
-    const wjid   = res?.[0]?.jid || id;
-    const final  = decodeJid(wjid);
+    const res = await sock.onWhatsApp(id);
+    const wjid = res?.[0]?.jid || id;
+    const final = decodeJid(wjid);
     lidCache.set(id, final);
+    // Simpan ke lidMapping untuk persistensi
+    lidMapping.set(id, final);
     return final;
   } catch {
     return id;
   }
 }
 
-async function normalizeMessageIds(sock, msg) {
-  if (msg?.key?.participant)        msg.key.participant = await resolveLidToJid(sock, msg.key.participant);
-  if (msg?.participant)             msg.participant     = await resolveLidToJid(sock, msg.participant);
+// ─── Memuat lid-mapping dari file auth (jika ada) ────────────────────────────
+function loadLidMapping() {
+  const mappingFile = path.join(SESSION_DIR, 'lid-mapping.json');
+  if (fs.existsSync(mappingFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
+      lidMapping = new Map(Object.entries(data));
+    } catch (e) {
+      console.warn('[WA] Gagal muat lid-mapping:', e.message);
+    }
+  }
+}
+loadLidMapping();
+
+// ─── Menyimpan lid-mapping secara periodik atau saat creds.update ────────────
+function saveLidMapping() {
+  const mappingFile = path.join(SESSION_DIR, 'lid-mapping.json');
+  try {
+    const obj = Object.fromEntries(lidMapping);
+    fs.writeFileSync(mappingFile, JSON.stringify(obj, null, 2));
+  } catch (e) {
+    console.warn('[WA] Gagal simpan lid-mapping:', e.message);
+  }
+}
+
+// Perbarui resolveLidToJid agar menerima store
+async function normalizeMessageIds(sock, msg, store) {
+  if (msg?.key?.participant)        msg.key.participant = await resolveLidToJid(sock, msg.key.participant, store);
+  if (msg?.participant)             msg.participant     = await resolveLidToJid(sock, msg.participant, store);
   if (msg?.key?.remoteJid)         msg.key.remoteJid   = decodeJid(msg.key.remoteJid);
 
   // Unwrap ephemeral/viewOnce wrappers
@@ -128,9 +186,9 @@ async function normalizeMessageIds(sock, msg) {
   const node      = type ? realMsg[type] : null;
   const ctx       = node?.contextInfo;
 
-  if (ctx?.participant) ctx.participant = await resolveLidToJid(sock, ctx.participant);
+  if (ctx?.participant) ctx.participant = await resolveLidToJid(sock, ctx.participant, store);
   if (Array.isArray(ctx?.mentionedJid) && ctx.mentionedJid.length) {
-    ctx.mentionedJid = await Promise.all(ctx.mentionedJid.map(j => resolveLidToJid(sock, j)));
+    ctx.mentionedJid = await Promise.all(ctx.mentionedJid.map(j => resolveLidToJid(sock, j, store)));
   }
   return msg;
 }
@@ -324,16 +382,27 @@ async function connect(retryCount = 0) {
         pino({ level: "silent" }).child({ level: "silent" })
       ),
     },
-    browser:              ["Android", "Chrome", "114.0.5735.196"],
+    // ─── Rekomendasi dari README.md Baileys ──────────────────────────────
+    // 1. Browser desktop untuk history lebih lengkap [reference:8]
+    browser: Browsers.macOS('Desktop'),
+    // 2. Sync full history [reference:9]
+    syncFullHistory: true,
+    // 3. Notifikasi tetap muncul di HP [reference:10]
+    markOnlineOnConnect: false,
+    // ──────────────────────────────────────────────────────────────────────
     connectTimeoutMs:     60_000,
     defaultQueryTimeoutMs:20_000,
     keepAliveIntervalMs:  10_000,
     emitOwnEvents:        true,
     generateHighQualityLinkPreview: true,
-    markOnlineOnConnect:  true,
-    syncFullHistory:      false,
     shouldSyncHistoryMessage: () => false,
-    getMessage: async () => null,
+    // 4. getMessage untuk retry system & decrypt poll votes [reference:11]
+    getMessage: async (key) => {
+      if (!store) return null;
+      const msg = await store.loadMessage(key.remoteJid, key.id);
+      return msg?.message || null;
+    },
+    // 5. cachedGroupMetadata untuk optimasi grup [reference:12]
     cachedGroupMetadata: async (jid) => {
       if (!jid.endsWith("@g.us")) return;
       let gm = store.groupMetadata?.[jid];
@@ -403,17 +472,16 @@ async function connect(retryCount = 0) {
       console.log(`[WA] Koneksi terputus (reason: ${reason})`);
       client = null;
 
-      // Reconnect berdasarkan reason
+      // Reconnect berdasarkan reason (sesuai contoh di README) [reference:13]
       if (reason === DisconnectReason.loggedOut) {
         console.log("[WA] Sesi logout. Hapus folder session dan jalankan ulang untuk pairing ulang.");
-        return; // jangan reconnect otomatis — butuh pairing ulang
+        return;
       }
       if (reason === DisconnectReason.connectionReplaced) {
         console.log("[WA] Koneksi digantikan sesi lain. Hentikan proses lain yang memakai nomor yang sama.");
         return;
       }
 
-      // Semua reason lain: reconnect dengan exponential backoff
       const waitMs = Math.min(5000 * Math.pow(2, Math.min(retryCount, 5)), 60_000);
       console.log(`[WA] Mencoba hubungkan ulang dalam ${waitMs / 1000}s... (attempt ${retryCount + 1})`);
       await delay(waitMs);
@@ -422,6 +490,10 @@ async function connect(retryCount = 0) {
   });
 
   sock.ev.on("creds.update", saveCreds);
+  // Simpan lid-mapping saat creds update
+  sock.ev.on("creds.update", () => {
+    saveLidMapping();
+  });
 
   // ── Group updates (update cache saat ada perubahan) ───────────────────────
   sock.ev.on("groups.update", async (updates) => {
@@ -455,6 +527,25 @@ async function connect(retryCount = 0) {
     }
   });
 
+  // ── Poll votes (messages.update) ───────────────────────────────────────────
+  // Menangani voting di polling messages [reference:14]
+  sock.ev.on("messages.update", async (event) => {
+    for (const { key, update } of event) {
+      if (update.pollUpdates) {
+        // Ambil pesan pembuat poll dari store
+        const pollCreation = await store.loadMessage(key.remoteJid, key.id);
+        if (pollCreation) {
+          const votes = getAggregateVotesInPollMessage({
+            message: pollCreation,
+            pollUpdates: update.pollUpdates,
+          });
+          console.log('[WA] Poll votes:', votes);
+          // Anda bisa mengirim notifikasi atau memproses hasil voting di sini
+        }
+      }
+    }
+  });
+
   // ── Anti-call ─────────────────────────────────────────────────────────────
   sock.ev.on("call", async (callUpdates) => {
     for (const call of callUpdates) {
@@ -485,8 +576,8 @@ async function connect(retryCount = 0) {
       const baseId = rawId.split("-")[0];
       if (baseId.startsWith("BAE5") || (baseId.length === 14 && rawId.startsWith("903D"))) return;
 
-      // Normalize LID JIDs
-      await normalizeMessageIds(sock, raw);
+      // Normalize LID JIDs (dengan store)
+      await normalizeMessageIds(sock, raw, store);
 
       // Parse ke objek m yang kaya
       const m = await parseMessage(sock, raw, store);

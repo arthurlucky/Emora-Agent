@@ -46,7 +46,6 @@
     "node-cron": "^3.0.3",
     "node-html-parser": "^7.0.1",
     "ora": "^8.2.0",
-    "socketon": "^1.51.18",
     "telegraf": "^4.16.3",
     "zod": "^3.24.2"
   },

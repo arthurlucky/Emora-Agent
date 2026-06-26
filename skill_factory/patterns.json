@@ -458,12 +458,13 @@
         "knowledge_library",
         "knowledge_library"
       ],
-      "count": 1,
+      "count": 2,
       "sessions": [
-        "f0212863-34f1-4363-826f-363bb966d2fe"
+        "f0212863-34f1-4363-826f-363bb966d2fe",
+        "38e625c1-76b3-435a-b482-a06b5111e507"
       ],
       "first_seen": 1782371984532,
-      "last_seen": 1782371984532,
+      "last_seen": 1782484257078,
       "skill_created": false,
       "skill_name": null
     },
@@ -674,6 +675,24 @@
       ],
       "first_seen": 1782461605771,
       "last_seen": 1782461605771,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "knowledge_library>knowledge_library>search_web>search_web>search_web>knowledge_library": {
+      "sequence": [
+        "knowledge_library",
+        "knowledge_library",
+        "search_web",
+        "search_web",
+        "search_web",
+        "knowledge_library"
+      ],
+      "count": 1,
+      "sessions": [
+        "38e625c1-76b3-435a-b482-a06b5111e507"
+      ],
+      "first_seen": 1782484405479,
+      "last_seen": 1782484405479,
       "skill_created": false,
       "skill_name": null
     }
