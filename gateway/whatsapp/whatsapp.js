@@ -1,537 +1,577 @@
 /**
- * whatsapp.js
- * Gateway WhatsApp menggunakan @whiskeysockets/baileys.
- * Koneksi via Pairing Code (tanpa scan QR).
- * 
- * FIX: Error handling, reconnect logic, file download & processing
+ * gateway/whatsapp/whatsapp.js
+ *
+ * Gateway WhatsApp EMORA — dibangun ulang mengacu pola amane (socketon).
+ * Perbaikan utama vs versi lama:
+ *  - LID resolution (WhatsApp multi-device JID baru)
+ *  - Group metadata caching yang proper (cachedGroupMetadata + store)
+ *  - Pairing Code flow yang stabil
+ *  - normalizeMessageIds sebelum processing
+ *  - Anti double-response (filter BAE5/903D message ID)
+ *  - m object yang kaya (isGroup, sender, quoted, body, mtype, dll)
+ *  - Reconnect logic lengkap per DisconnectReason
+ *  - makeInMemoryStore untuk group metadata cache
  */
 
 import "dotenv/config";
-import crypto from "crypto";
-import path from "path";
-import fs, { rmSync, mkdirSync, existsSync } from "fs";
-import { pipeline } from "stream/promises";
-import { Readable } from "stream";
+import crypto    from "crypto";
+import fs        from "fs";
+import path      from "path";
+import readline  from "readline";
 
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  Browsers,
+  makeCacheableSignalKeyStore,
+  makeInMemoryStore,
+  getContentType,
+  downloadContentFromMessage,
+  jidDecode,
   delay,
-  downloadMediaMessage,
-  proto
+  proto,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
+import { Boom } from "@hapi/boom";
 
-import { createLLM } from "../../provider/index.js";
-import tools from "../../core/tools.js";
-import { ask } from "../../core/chat.js";
-import { handleCommand } from "../../core/cmd.js";
-import { eventBus } from "../../utils/eventBus.js";
-
+import { createLLM }         from "../../provider/index.js";
+import tools                 from "../../core/tools.js";
+import { ask }               from "../../core/chat.js";
+import { handleCommand }     from "../../core/cmd.js";
+import { eventBus }          from "../../utils/eventBus.js";
 import { formatWhatsAppMessage } from "./formatter.js";
-import { sendFile } from "./sender.js";
+import { sendFile, sendText }    from "./sender.js";
 import { getBotStatus, getMemberStatus } from "./groupManager.js";
-import { setContext, buildContextHeader } from "../sessionContext.js";
+import { setContext, buildContextHeader }  from "../sessionContext.js";
 
-const ALLOWED_NUMBERS = (process.env.WA_ALLOWED_NUMBERS || "")
-  .split(",")
-  .map((n) => `${n.trim().replace(/\D/g, "")}@s.whatsapp.net`)
-  .filter(Boolean);
+// ─── Config ────────────────────────────────────────────────────────────────────
+const WA_PHONE    = (process.env.WA_PHONE_NUMBER || "").replace(/\D/g, "");
+const WA_GATEWAY  = process.env.WA_GATEWAY === "true";
+const SESSION_DIR = path.resolve("./downloads/whatsapp");
+const ALLOWED     = (process.env.WA_ALLOWED_NUMBERS || "")
+  .split(",").map(n => `${n.trim().replace(/\D/g, "")}@s.whatsapp.net`).filter(Boolean);
 
-// ==========================================
-// SESSION STORE
-// ==========================================
+// ─── Exports ───────────────────────────────────────────────────────────────────
+// sessions: senderId → sessionId (untuk LLM memory)
 export const sessions = {};
-export let client = null;
+export let   client   = null;
 
-// ==========================================
-// DOWNLOAD DIRECTORY
-// ==========================================
-const DOWNLOAD_DIR = "./downloads/whatsapp";
-if (!existsSync(DOWNLOAD_DIR)) {
-  mkdirSync(DOWNLOAD_DIR, { recursive: true });
+// ─── LLM ───────────────────────────────────────────────────────────────────────
+let llm;
+try {
+  llm = await createLLM(tools);
+} catch (err) {
+  console.error("[WA] Gagal init LLM:", err.message);
 }
 
-const WA_PHONE = (process.env.WA_PHONE_NUMBER || "").replace(/[^0-9]/g, "");
-const WA_GATEWAY = process.env.WA_GATEWAY;
-
-// ==========================================
-// LLM SETUP
-// ==========================================
-let llm = null;
-
-if (WA_GATEWAY !== "true") {
-  console.log("\n[WHATSAPP] Gateway dinonaktifkan (WA_GATEWAY != true).");
-} else if (!WA_PHONE) {
-  console.log("\n[WHATSAPP] WA_PHONE_NUMBER tidak ditemukan di .env. Gateway dibatalkan.");
-} else {
+// ─── Background tasks ──────────────────────────────────────────────────────────
+const bgLocks = {};
+eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
+  if (bgLocks[job_id]) return;
+  bgLocks[job_id] = true;
   try {
-    llm = await createLLM(tools);
-  } catch (err) {
-    console.error(`[WHATSAPP] Gagal init LLM: ${err.message}`);
+    const bgSess = `${session_id}_bg_${job_id}`;
+    const result = await ask(llm, tools, bgSess, `[BACKGROUND TASK] ${prompt}`);
+    if (!result.includes("SILENT_ABORT") && client) {
+      const chatId = Object.keys(sessions).find(k => sessions[k] === session_id);
+      if (chatId) await client.sendMessage(chatId, { text: formatWhatsAppMessage(result) });
+    }
+  } catch (e) {
+    console.error("[WA BG ERROR]", e.message);
+  } finally {
+    bgLocks[job_id] = false;
+  }
+});
+
+// ─── JID helpers ───────────────────────────────────────────────────────────────
+function decodeJid(jid) {
+  if (!jid) return jid;
+  if (/:\d+@/gi.test(jid)) {
+    const d = jidDecode(jid) || {};
+    return (d.user && d.server) ? `${d.user}@${d.server}` : jid;
+  }
+  return jid;
+}
+
+const lidCache = new Map();
+
+async function resolveLidToJid(sock, id) {
+  if (!id) return id;
+  if (!id.endsWith("@lid")) return decodeJid(id);
+  if (lidCache.has(id)) return lidCache.get(id);
+  try {
+    const res    = await sock.onWhatsApp(id);
+    const wjid   = res?.[0]?.jid || id;
+    const final  = decodeJid(wjid);
+    lidCache.set(id, final);
+    return final;
+  } catch {
+    return id;
+  }
+}
+
+async function normalizeMessageIds(sock, msg) {
+  if (msg?.key?.participant)        msg.key.participant = await resolveLidToJid(sock, msg.key.participant);
+  if (msg?.participant)             msg.participant     = await resolveLidToJid(sock, msg.participant);
+  if (msg?.key?.remoteJid)         msg.key.remoteJid   = decodeJid(msg.key.remoteJid);
+
+  // Unwrap ephemeral/viewOnce wrappers
+  const unwrap = (m) => {
+    if (!m) return m;
+    if (m.ephemeralMessage)      return unwrap(m.ephemeralMessage.message);
+    if (m.viewOnceMessage)       return unwrap(m.viewOnceMessage.message);
+    if (m.viewOnceMessageV2)     return unwrap(m.viewOnceMessageV2.message);
+    return m;
+  };
+  const realMsg   = unwrap(msg.message);
+  const type      = realMsg ? Object.keys(realMsg)[0] : null;
+  const node      = type ? realMsg[type] : null;
+  const ctx       = node?.contextInfo;
+
+  if (ctx?.participant) ctx.participant = await resolveLidToJid(sock, ctx.participant);
+  if (Array.isArray(ctx?.mentionedJid) && ctx.mentionedJid.length) {
+    ctx.mentionedJid = await Promise.all(ctx.mentionedJid.map(j => resolveLidToJid(sock, j)));
+  }
+  return msg;
+}
+
+// ─── Build rich "m" object (terinspirasi dari amane.js) ───────────────────────
+async function parseMessage(sock, raw, store) {
+  const m = { ...raw };
+
+  m.chat     = m.key.remoteJid || "";
+  m.isGroup  = m.chat.endsWith("@g.us");
+  m.sender   = m.key.fromMe
+    ? decodeJid(sock.user.id)
+    : (m.key.participant || m.key.remoteJid || "");
+  m.pushName = m.pushName || "User";
+
+  // Message type
+  m.mtype = getContentType(m.message);
+  if (["ephemeralMessage","viewOnceMessage","viewOnceMessageV2"].includes(m.mtype)) {
+    m.message = m.message[m.mtype].message;
+    m.mtype   = getContentType(m.message);
   }
 
-  // ==========================================
-  // BACKGROUND TASK LISTENER
-  // ==========================================
-  const bgLocks = {};
+  // Body (teks utama pesan)
+  if (m.mtype === "interactiveResponseMessage" || m.message?.interactiveResponseMessage) {
+    try {
+      const ir = m.message.interactiveResponseMessage || m.message[m.mtype];
+      m.body = JSON.parse(ir.nativeFlowResponseMessage.paramsJson).id;
+    } catch { m.body = ""; }
+  } else {
+    m.body =
+      m.mtype === "conversation"              ? m.message.conversation :
+      m.mtype === "imageMessage"              ? m.message.imageMessage?.caption :
+      m.mtype === "videoMessage"              ? m.message.videoMessage?.caption :
+      m.mtype === "extendedTextMessage"       ? m.message.extendedTextMessage?.text :
+      m.mtype === "buttonsResponseMessage"    ? m.message.buttonsResponseMessage?.selectedButtonId :
+      m.mtype === "listResponseMessage"       ? m.message.listResponseMessage?.singleSelectReply?.selectedRowId :
+      m.mtype === "templateButtonReplyMessage"? m.message.templateButtonReplyMessage?.selectedId :
+      m.text || "";
+  }
+  m.body = typeof m.body === "string" ? m.body : "";
 
-  // ==========================================
-  // CONTEXT AWARENESS (grup/private, platform, status admin)
-  // ==========================================
-  /**
-   * Bangun & simpan konteks pesan saat ini (platform, grup/private, status
-   * admin EMORA & pengirim) ke sessionContext, lalu balikin objeknya.
-   * Status admin & nama grup cuma di-cek kalau chat-nya grup (hemat round
-   * trip groupMetadata buat chat personal).
-   */
-  async function buildWhatsAppContext(sessionId, { senderId, group, isGroup, senderName, replyToMessage }) {
-    let senderIsAdmin = null;
-    let botIsAdmin = null;
-    let chatTitle = null;
+  // Quoted message
+  const rawCtx = m.message?.[m.mtype]?.contextInfo;
+  if (rawCtx?.quotedMessage) {
+    let qMsg = rawCtx.quotedMessage;
+    if (qMsg.viewOnceMessageV2)          qMsg = qMsg.viewOnceMessageV2.message;
+    else if (qMsg.viewOnceMessage)       qMsg = qMsg.viewOnceMessage.message;
+    const qType = getContentType(qMsg) || Object.keys(qMsg)[0];
+    m.quoted = {
+      key: {
+        remoteJid:   m.chat,
+        fromMe:      rawCtx.participant === decodeJid(sock.user.id),
+        id:          rawCtx.stanzaId,
+        participant: rawCtx.participant,
+      },
+      message:  qMsg,
+      mtype:    qType,
+      msg:      qMsg[qType],
+      sender:   rawCtx.participant,
+      text:     qMsg.conversation || qMsg[qType]?.text || qMsg[qType]?.caption || "",
+      fakeObj: {
+        key: {
+          remoteJid:   m.chat,
+          fromMe:      rawCtx.participant === decodeJid(sock.user.id),
+          id:          rawCtx.stanzaId,
+          participant: rawCtx.participant,
+        },
+        message: qMsg,
+      },
+      download: async () => {
+        const stream = await downloadContentFromMessage(qMsg[qType], qType.replace("Message",""));
+        let buf = Buffer.from([]);
+        for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
+        return buf;
+      },
+    };
+  }
 
-    if (isGroup) {
+  // Download media
+  m.download = async () => {
+    const stream = await downloadContentFromMessage(m.message[m.mtype], m.mtype.replace("Message",""));
+    let buf = Buffer.from([]);
+    for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
+    return buf;
+  };
+
+  // Group metadata
+  let groupMetadata = null;
+  if (m.isGroup) {
+    store.groupMetadata = store.groupMetadata || {};
+    groupMetadata = store.groupMetadata[m.chat];
+    if (!groupMetadata) {
       try {
-        const [botStatus, memberStatus] = await Promise.all([
-          getBotStatus(client, group),
-          getMemberStatus(client, group, senderId),
-        ]);
-        chatTitle = botStatus.groupName || null;
-        botIsAdmin = botStatus.isAdmin;
-        senderIsAdmin = memberStatus.isAdmin;
-      } catch (err) {
-        console.warn("[WA CONTEXT] Gagal cek status admin/grup:", err.message);
-      }
+        groupMetadata = await sock.groupMetadata(m.chat);
+        store.groupMetadata[m.chat] = groupMetadata;
+      } catch {}
     }
 
-    const context = {
-      platform: "whatsapp",
-      chatId: group,
-      chatType: isGroup ? "group" : "private",
-      chatTitle,
-      senderId,
-      senderName,
-      senderIsAdmin,
-      botIsAdmin,
-      replyToMessage: replyToMessage || null,
-    };
-
-    setContext(sessionId, context);
-    return context;
+    // Resolve @lid sender to real JID
+    if (m.sender.endsWith("@lid") && groupMetadata?.participants) {
+      const found = groupMetadata.participants.find(p => p.lid === m.sender);
+      if (found?.jid) m.sender = found.jid;
+    }
   }
 
-  /**
-   * Ambil info pesan yang sedang di-reply user (kalau ada), dipakai buat
-   * fitur groupDeleteMessage. Baileys naruh info ini di `contextInfo` pada
-   * tipe pesan yang membawa reply (paling umum extendedTextMessage).
-   */
-  function extractQuotedInfo(msg) {
-    const messageType = Object.keys(msg.message || {})[0];
-    const content = msg.message?.[messageType];
-    const contextInfo = content?.contextInfo;
-    if (!contextInfo?.stanzaId) return null;
-    return {
-      id: contextInfo.stanzaId,
-      participant: contextInfo.participant || null,
-    };
+  const participants = groupMetadata?.participants || [];
+  const botJid       = decodeJid(sock.user.id);
+  m.groupName        = groupMetadata?.subject || "";
+  m.groupAdmins      = participants.filter(p => p.admin).map(p => p.jid || p.id);
+  m.isBotAdmin       = m.groupAdmins.includes(botJid);
+  m.isSenderAdmin    = m.groupAdmins.includes(m.sender);
+
+  return m;
+}
+
+// ─── Context helper ────────────────────────────────────────────────────────────
+async function buildContextAndEnrich(sock, m, sessionId) {
+  let botIsAdmin    = null;
+  let senderIsAdmin = null;
+
+  if (m.isGroup) {
+    botIsAdmin    = m.isBotAdmin;
+    senderIsAdmin = m.isSenderAdmin;
   }
 
-  /**
-   * Sama kayak `ask()` biasa, tapi otomatis nyisipin header konteks
-   * (platform/grup/admin) di depan pesan, biar agent selalu tau lagi
-   * ngobrol di mana & posisinya apa sebelum mikirin balasan/tool call.
-   */
-  async function askWithContext(sessionId, contextInput, rawMessage) {
-    const context = await buildWhatsAppContext(sessionId, contextInput);
-    const enriched = buildContextHeader(context) + rawMessage;
-    return ask(llm, tools, sessionId, enriched);
+  const replyToMessage = m.quoted
+    ? { id: m.quoted.key.id, participant: m.quoted.key.participant || null }
+    : null;
+
+  const ctx = {
+    platform:       "whatsapp",
+    chatId:         m.chat,
+    chatType:       m.isGroup ? "group" : "private",
+    chatTitle:      m.groupName || null,
+    senderId:       m.sender,
+    senderName:     m.pushName || m.sender.split("@")[0],
+    senderIsAdmin,
+    botIsAdmin,
+    replyToMessage,
+  };
+  setContext(sessionId, ctx);
+  return buildContextHeader(ctx);
+}
+
+// ─── Reply helper ──────────────────────────────────────────────────────────────
+async function reply(sock, m, text) {
+  const formatted = formatWhatsAppMessage(text);
+  const chunks    = [];
+  // Pecah pesan >4096 karakter (batas WA) menjadi beberapa pesan
+  for (let i = 0; i < formatted.length; i += 4000) {
+    chunks.push(formatted.slice(i, i + 4000));
+  }
+  for (const chunk of chunks) {
+    await sock.sendMessage(m.chat, { text: chunk }, { quoted: m });
+    if (chunks.length > 1) await delay(500);
+  }
+}
+
+// ─── Main connection ───────────────────────────────────────────────────────────
+async function connect(retryCount = 0) {
+  if (!WA_GATEWAY) {
+    console.log("[WA] Gateway dinonaktifkan (WA_GATEWAY != true)");
+    return;
+  }
+  if (!WA_PHONE) {
+    console.log("[WA] WA_PHONE_NUMBER tidak ditemukan di .env. Gateway dibatalkan.");
+    return;
+  }
+  if (!llm) {
+    console.log("[WA] LLM tidak tersedia. Gateway dibatalkan.");
+    return;
   }
 
-  eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
-    const phoneId = Object.keys(sessions).find((k) => sessions[k] === session_id);
-    if (!phoneId || !client) return;
-    if (bgLocks[job_id]) return;
-    bgLocks[job_id] = true;
+  fs.mkdirSync(SESSION_DIR, { recursive: true });
 
+  const { version }          = await fetchLatestBaileysVersion();
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+
+  const store = makeInMemoryStore({
+    logger: pino({ level: "silent" }).child({ level: "silent", stream: "store" }),
+  });
+
+  const sock = makeWASocket({
+    version,
+    logger: pino({ level: "silent" }),
+    printQRInTerminal: false,
+    auth: {
+      creds: state.creds,
+      keys:  makeCacheableSignalKeyStore(
+        state.keys,
+        pino({ level: "silent" }).child({ level: "silent" })
+      ),
+    },
+    browser:              ["Android", "Chrome", "114.0.5735.196"],
+    connectTimeoutMs:     60_000,
+    defaultQueryTimeoutMs:20_000,
+    keepAliveIntervalMs:  10_000,
+    emitOwnEvents:        true,
+    generateHighQualityLinkPreview: true,
+    markOnlineOnConnect:  true,
+    syncFullHistory:      false,
+    shouldSyncHistoryMessage: () => false,
+    getMessage: async () => null,
+    cachedGroupMetadata: async (jid) => {
+      if (!jid.endsWith("@g.us")) return;
+      let gm = store.groupMetadata?.[jid];
+      if (!gm) {
+        try {
+          gm = await sock.groupMetadata(jid);
+          store.groupMetadata = store.groupMetadata || {};
+          store.groupMetadata[jid] = gm;
+        } catch {}
+      }
+      return gm;
+    },
+    patchMessageBeforeSending: (message) => {
+      if (message.buttonsMessage || message.templateMessage || message.listMessage) {
+        message = {
+          viewOnceMessage: {
+            message: {
+              messageContextInfo: { deviceListMetadataVersion: 2, deviceListMetadata: {} },
+              ...message,
+            },
+          },
+        };
+      }
+      return message;
+    },
+  });
+
+  store.bind(sock.ev);
+
+  // Override sendMessage — tambah random messageId
+  const _sendMessage = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (jid, content, options = {}) => {
+    if (!options.messageId) options.messageId = crypto.randomBytes(16).toString("hex").toUpperCase();
+    return _sendMessage(jid, content, options);
+  };
+
+  // ── Pairing Code (jika belum terdaftar) ──────────────────────────────────
+  if (!sock.authState.creds.registered) {
+    console.log("[WA] Belum terdaftar, meminta Pairing Code...");
+    await delay(3000);
     try {
-      const bgSessionId = `${session_id}_bg_${job_id}`;
-      const result = await ask(llm, tools, bgSessionId, `[BACKGROUND TASK] ${prompt}`);
+      let code = await sock.requestPairingCode(WA_PHONE);
+      code = code?.match(/.{1,4}/g)?.join("-") || code;
+      console.log(`\n[WA] 📱 PAIRING CODE: ${code}`);
+      console.log(`[WA] Masukkan kode ini di WhatsApp → Perangkat Tertaut → Tautkan dengan nomor\n`);
+    } catch (err) {
+      console.error("[WA] Gagal meminta Pairing Code:", err.message);
+    }
+  }
 
-      if (!result.includes("SILENT_ABORT")) {
-        await client.sendMessage(phoneId, {
-          text: `🔔 *LAPORAN TERJADWAL*\n━━━━━━━━━━━━━━━━\n${formatWhatsAppMessage(result)}`
+  // ── Connection update ──────────────────────────────────────────────────────
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect } = update;
+
+    if (connection === "connecting") {
+      console.log("[WA] Menghubungkan...");
+    }
+
+    if (connection === "open") {
+      client = sock;
+      retryCount = 0;
+      console.log("[WA] ✅ Terhubung ke WhatsApp!");
+    }
+
+    if (connection === "close") {
+      const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+      console.log(`[WA] Koneksi terputus (reason: ${reason})`);
+      client = null;
+
+      // Reconnect berdasarkan reason
+      if (reason === DisconnectReason.loggedOut) {
+        console.log("[WA] Sesi logout. Hapus folder session dan jalankan ulang untuk pairing ulang.");
+        return; // jangan reconnect otomatis — butuh pairing ulang
+      }
+      if (reason === DisconnectReason.connectionReplaced) {
+        console.log("[WA] Koneksi digantikan sesi lain. Hentikan proses lain yang memakai nomor yang sama.");
+        return;
+      }
+
+      // Semua reason lain: reconnect dengan exponential backoff
+      const waitMs = Math.min(5000 * Math.pow(2, Math.min(retryCount, 5)), 60_000);
+      console.log(`[WA] Mencoba hubungkan ulang dalam ${waitMs / 1000}s... (attempt ${retryCount + 1})`);
+      await delay(waitMs);
+      connect(retryCount + 1);
+    }
+  });
+
+  sock.ev.on("creds.update", saveCreds);
+
+  // ── Group updates (update cache saat ada perubahan) ───────────────────────
+  sock.ev.on("groups.update", async (updates) => {
+    for (const update of updates) {
+      if (store.groupMetadata?.[update.id]) {
+        Object.assign(store.groupMetadata[update.id], update);
+      }
+    }
+  });
+
+  sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
+    if (!store.groupMetadata?.[id]) return;
+    const meta = store.groupMetadata[id];
+    if (!meta.participants) return;
+    if (action === "remove") {
+      meta.participants = meta.participants.filter(p => !participants.includes(p.jid || p.id));
+    } else if (action === "add") {
+      participants.forEach(jid => {
+        if (!meta.participants.find(p => (p.jid || p.id) === jid)) {
+          meta.participants.push({ id: jid, jid, admin: null });
+        }
+      });
+    } else if (action === "promote") {
+      meta.participants.forEach(p => {
+        if (participants.includes(p.jid || p.id)) p.admin = "admin";
+      });
+    } else if (action === "demote") {
+      meta.participants.forEach(p => {
+        if (participants.includes(p.jid || p.id)) p.admin = null;
+      });
+    }
+  });
+
+  // ── Anti-call ─────────────────────────────────────────────────────────────
+  sock.ev.on("call", async (callUpdates) => {
+    for (const call of callUpdates) {
+      if (call.isGroup) continue;
+      if (call.status === "offer" || call.status === "ringing") {
+        try { await sock.rejectCall?.(call.id, call.from); } catch {}
+        await sock.sendMessage(call.from, {
+          text: "Maaf, EMORA tidak bisa menerima panggilan. Kirim pesan saja ya 😊",
         });
       }
-    } catch (err) {
-      console.error(`[BG TASK WA] Job ${job_id}: ${err.message}`);
-    } finally {
-      bgLocks[job_id] = false;
     }
   });
 
-  // ==========================================
-  // FILE DOWNLOAD HELPER
-  // ==========================================
-  async function downloadWhatsAppFile(msg, messageType) {
+  // ── Message handler ───────────────────────────────────────────────────────
+  sock.ev.on("messages.upsert", async (chatUpdate) => {
     try {
-      const mediaMessage = msg.message[messageType];
-      const mimeType = mediaMessage.mimetype || "application/octet-stream";
-      const extension = mimeType.split("/")[1]?.split(";")[0] || "bin";
-      
-      // Generate unique filename
-      const timestamp = Date.now();
-      const randomStr = crypto.randomBytes(4).toString("hex");
-      const filename = `wa_${timestamp}_${randomStr}.${extension}`;
-      const filePath = path.join(DOWNLOAD_DIR, filename);
+      const raw = chatUpdate.messages?.[0];
+      if (!raw?.message) return;
 
-      // Download using Baileys built-in downloadMediaMessage
-      const stream = await downloadMediaMessage(
-        msg,
-        "buffer",
-        {},
-        {
-          logger: pino({ level: "silent" }),
-          reuploadRequest: client.updateMediaMessage
-        }
-      );
-
-      if (!stream) {
-        throw new Error("Failed to download media - stream is empty");
+      // Status broadcast → read saja, tidak diproses
+      if (raw.key?.remoteJid === "status@broadcast") {
+        await sock.readMessages([raw.key]).catch(() => {});
+        return;
       }
 
-      // Save to file
-      fs.writeFileSync(filePath, stream);
+      // Anti double-response: filter pesan dari bot lain / echo
+      const rawId = String(raw.key.id || "");
+      const baseId = rawId.split("-")[0];
+      if (baseId.startsWith("BAE5") || (baseId.length === 14 && rawId.startsWith("903D"))) return;
 
-      // Get file info
-      const stats = fs.statSync(filePath);
-      const fileSize = (stats.size / 1024).toFixed(2); // KB
+      // Normalize LID JIDs
+      await normalizeMessageIds(sock, raw);
 
-      return {
-        success: true,
-        filePath,
-        filename,
-        mimeType,
-        size: fileSize,
-        extension
-      };
-    } catch (err) {
-      console.error("[WA FILE DOWNLOAD ERROR]", err.message);
-      return {
-        success: false,
-        error: err.message
-      };
-    }
-  }
+      // Parse ke objek m yang kaya
+      const m = await parseMessage(sock, raw, store);
 
-  // ==========================================
-  // FILE PROCESSING - Analyze file content based on type
-  // ==========================================
-  async function processFileWithAI(fileInfo, caption, sessionId, msg, messageType) {
-    const { filePath, filename, mimeType, size, extension } = fileInfo;
-    
-    let fileDescription = "";
-    let analysisPrompt = "";
+      if (!m.body && !["imageMessage","videoMessage","audioMessage","documentMessage","stickerMessage"].includes(m.mtype)) return;
 
-    // Determine file type category
-    const isImage = mimeType.startsWith("image/");
-    const isVideo = mimeType.startsWith("video/");
-    const isAudio = mimeType.startsWith("audio/");
-    const isDocument = mimeType.startsWith("application/") || mimeType.startsWith("text/");
-    const isPDF = extension === "pdf" || mimeType === "application/pdf";
+      // Allowed number filter
+      const senderId = m.sender.split("@")[0];
+      if (ALLOWED.length > 0 && !ALLOWED.includes(m.sender) && !m.key.fromMe) return;
 
-    // Build file description
-    if (isImage) {
-      fileDescription = `📷 Gambar (${extension.toUpperCase()}, ${size}KB)`;
-      analysisPrompt = `User mengirim gambar: "${filename}" (${size}KB). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nAnalisis gambar ini. Jika user meminta sesuatu terkait gambar (edit, describe, analyze, extract text, dll), lakukan sesuai permintaan. Jika tidak ada permintaan spesifik, berikan deskripsi umum gambar tersebut.`;
-    } else if (isVideo) {
-      fileDescription = `🎥 Video (${extension.toUpperCase()}, ${size}KB)`;
-      analysisPrompt = `User mengirim video: "${filename}" (${size}KB). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nAnalisis video ini. Jika user meminta sesuatu terkait video (extract frames, describe, summarize, dll), lakukan sesuai permintaan.`;
-    } else if (isAudio) {
-      fileDescription = `🎵 Audio (${extension.toUpperCase()}, ${size}KB)`;
-      analysisPrompt = `User mengirim audio: "${filename}" (${size}KB). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nAnalisis audio ini. Jika user meminta transkripsi, summary, atau analisis audio, lakukan sesuai permintaan.`;
-    } else if (isPDF) {
-      fileDescription = `📄 PDF (${size}KB)`;
-      analysisPrompt = `User mengirim file PDF: "${filename}" (${size}KB). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nBaca dan analisis konten PDF ini. Jika user meminta summary, extract text, atau analisis spesifik, lakukan sesuai permintaan.`;
-    } else if (isDocument) {
-      fileDescription = `📄 Dokumen (${extension.toUpperCase()}, ${size}KB)`;
-      analysisPrompt = `User mengirim dokumen: "${filename}" (${size}KB, type: ${mimeType}). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nAnalisis dokumen ini. Jika user meminta extract text, summary, convert, atau manipulasi file, lakukan sesuai permintaan.`;
-    } else {
-      fileDescription = `📎 File (${extension.toUpperCase()}, ${size}KB)`;
-      analysisPrompt = `User mengirim file: "${filename}" (${size}KB, type: ${mimeType}). ${caption ? `Caption: "${caption}"` : "Tidak ada caption."}\n\nFile telah disimpan di: ${filePath}\n\nJika user meminta sesuatu terkait file ini (baca, convert, analyze, dll), lakukan sesuai permintaan.`;
-    }
+      // Ignore pesan dari diri sendiri (echo)
+      if (m.key.fromMe) return;
 
-    // Read file content if it's text-based
-    let fileContent = "";
-    if (mimeType.startsWith("text/") || extension === "txt" || extension === "md" || extension === "json" || extension === "csv") {
+      // ── Presence: typing indicator ───────────────────────────────────────
+      await sock.sendPresenceUpdate("composing", m.chat).catch(() => {});
+
+      // ── Session management ───────────────────────────────────────────────
+      // Key sesi pakai senderId bukan chatId, supaya satu orang satu sesi lintas grup
+      if (!sessions[m.sender]) {
+        sessions[m.sender] = crypto.randomUUID();
+      }
+      const sessionId = sessions[m.sender];
+
+      const localState = { currentSession: sessionId };
+
+      // ── Slash commands ───────────────────────────────────────────────────
+      if (m.body.startsWith("/")) {
+        const cmdResult = await handleCommand(m.body, localState);
+        if (cmdResult) {
+          sessions[m.sender] = localState.currentSession;
+          if (cmdResult.action === "reply") {
+            await reply(sock, m, `⚙️ *SISTEM*\n━━━━━━━━━━━━━━━━\n_${cmdResult.message}_`);
+          }
+          if (cmdResult.action === "exit") {
+            await reply(sock, m, "❌ Command /exit tidak tersedia di WhatsApp.");
+          }
+          return;
+        }
+      }
+
+      // ── Context awareness ────────────────────────────────────────────────
+      const contextHeader = await buildContextAndEnrich(sock, m, sessionId);
+
+      // ── Siapkan input ke LLM ─────────────────────────────────────────────
+      let userInput = contextHeader;
+
+      if (m.mtype === "imageMessage" || m.mtype === "videoMessage") {
+        const caption = m.body || "";
+        userInput += `[User mengirim ${m.mtype === "imageMessage" ? "gambar" : "video"}]${caption ? `: ${caption}` : ""}`;
+      } else if (m.mtype === "audioMessage") {
+        userInput += "[User mengirim pesan suara — transkripsi belum tersedia]";
+      } else if (m.mtype === "documentMessage") {
+        const fname = m.message.documentMessage?.fileName || "dokumen";
+        userInput += `[User mengirim dokumen: ${fname}]`;
+      } else {
+        userInput += m.body;
+      }
+
+      // ── Call LLM ─────────────────────────────────────────────────────────
       try {
-        fileContent = fs.readFileSync(filePath, "utf8");
-        if (fileContent.length > 10000) {
-          fileContent = fileContent.substring(0, 10000) + "\n... [truncated, file too large]";
-        }
-        analysisPrompt += `\n\nKonten file:\n\`\`\`\n${fileContent}\n\`\`\``;
+        const result = await ask(llm, tools, sessionId, userInput);
+        await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
+        await reply(sock, m, result);
       } catch (err) {
-        console.error("[WA FILE READ ERROR]", err.message);
+        await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
+        console.error("[WA LLM ERROR]", err.message);
+        await reply(sock, m, `❌ Maaf, terjadi kesalahan: ${err.message}`);
       }
+
+    } catch (err) {
+      console.error("[WA HANDLER ERROR]", err);
     }
-
-    // Send confirmation to user
-    const confirmation = `✅ *File Diterima*\n━━━━━━━━━━━━━━━━\n📁 Nama: ${filename}\n📊 Ukuran: ${size}KB\n📂 Tipe: ${mimeType}\n💾 Lokasi: ${filePath}\n\n${caption ? `📝 Caption: ${caption}` : ""}\n\nSedang menganalisis...`;
-
-    return { confirmation, analysisPrompt, filePath, fileDescription };
-  }
-
-  // ==========================================
-  // CLIENT START & CONNECTION
-  // ==========================================
-  let reconnectAttempts = 0;
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  let isShuttingDown = false;
-
-  async function startWhatsApp() {
-    if (isShuttingDown) return;
-
-    try {
-      const { version } = await fetchLatestBaileysVersion();
-      const { state, saveCreds } = await useMultiFileAuthState(`./session`);
-
-      client = makeWASocket({
-        version,
-        logger: pino({ level: "silent" }),
-        browser: Browsers.macOS("Chrome"),
-        auth: state,
-        markOnlineOnConnect: true,
-        generateHighQualityLinkPreview: true,
-        syncFullHistory: false,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 30000,
-        defaultQueryTimeoutMs: 60000,
-        retryRequestDelayMs: 250,
-      });
-
-      client.ev.on("creds.update", saveCreds);
-
-      // ==========================================
-      // PAIRING CODE (pengganti QR)
-      // ==========================================
-      const isRegistered = state.creds?.registered === true;
-      if (!isRegistered) {
-        setTimeout(async () => {
-          try {
-            console.log("\n[WHATSAPP] Meminta pairing code...");
-            let code = await client.requestPairingCode(WA_PHONE);
-            code = code?.match(/.{1,4}/g)?.join("-") || code;
-
-            console.log("\n╔══════════════════════════════════╗");
-            console.log("║      WHATSAPP PAIRING CODE       ║");
-            console.log(`║     👉 ${code}     ║`);
-            console.log("╚══════════════════════════════════╝");
-            console.log("\nBuka WhatsApp → Perangkat Tertaut → Tautkan Perangkat dengan Nomor Telepon → Masukkan kode di atas.\n");
-          } catch (error) {
-            console.error("[WHATSAPP] Gagal mendapatkan pairing code:", error.message);
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-              reconnectAttempts++;
-              console.log(`[WHATSAPP] Retrying pairing... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-              await delay(5000 * reconnectAttempts);
-              startWhatsApp();
-            }
-          }
-        }, 3000);
-      }
-
-      // ==========================================
-      // CONNECTION HANDLER
-      // ==========================================
-      client.ev.on("connection.update", async (update) => {
-        const { connection, lastDisconnect } = update;
-
-        if (connection === "open") {
-          console.log("📱 [WHATSAPP] Gateway aktif dan siap menerima pesan.");
-          reconnectAttempts = 0;
-        }
-
-        if (connection === "close") {
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
-
-          if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-            console.error("[WHATSAPP] Sesi tidak valid / Logged Out. Menghapus sesi...");
-            try {
-              rmSync('./session', { recursive: true, force: true });
-            } catch (e) { /* Abaikan error penghapusan */ }
-            await delay(3000);
-            reconnectAttempts = 0;
-            startWhatsApp();
-            return;
-          }
-
-          if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            const delayMs = Math.min(5000 * reconnectAttempts, 30000);
-            console.log(`[WHATSAPP] Koneksi terputus. Mencoba reconnect dalam ${delayMs/1000} detik... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-            await delay(delayMs);
-            startWhatsApp();
-          } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.error("[WHATSAPP ERROR] Max reconnect attempts reached. Gateway will not restart.");
-            client = null;
-          }
-        }
-      });
-
-      // ==========================================
-      // MESSAGE HANDLER
-      // ==========================================
-      client.ev.on("messages.upsert", async (chatUpdate) => {
-        try {
-          const msg = chatUpdate.messages[0];
-          if (!msg.message || msg.key.fromMe) return;
-
-          // Ekstrak pesan sebenarnya (menangani tipe ephemeral)
-          msg.message = (Object.keys(msg.message)[0] === 'ephemeralMessage')
-            ? msg.message.ephemeralMessage.message
-            : msg.message;
-
-          const senderId = msg.key.remoteJidAlt ?? msg.key.participantAlt;
-          const key = msg.key.remoteJidAlt ?? msg.key.remoteJid;
-          const group = msg.key?.remoteJid;
-
-          const isGroup = group.endsWith("@g.us");
-          const senderName = msg.pushName || senderId;
-          const replyToMessage = extractQuotedInfo(msg);
-          const contextInput = { senderId, group, isGroup, senderName, replyToMessage };
-
-          
-          // Hanya nomor yang ada di whitelist
-          if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(senderId)) {
-            console.log(`[WA BLOCKED] ${senderId}`);
-            return;
-          }
-
-          if (!sessions[senderId]) {
-            sessions[senderId] = crypto.randomUUID();
-          }
-
-          const messageType = Object.keys(msg.message)[0];
-          const hasMedia = ["imageMessage", "videoMessage", "documentMessage", "audioMessage", "stickerMessage"].includes(messageType);
-
-          // Helper untuk membalas pesan
-          const reply = async (text) => {
-            return await client.sendMessage(key, { text }, { quoted: msg });
-          };
-
-          // ==========================================
-          // HANDLER FILE (IMAGE, VIDEO, DOCUMENT, AUDIO)
-          // ==========================================
-          if (hasMedia) {
-            try {
-              // Download file
-              const downloadResult = await downloadWhatsAppFile(msg, messageType);
-              
-              if (!downloadResult.success) {
-                await reply(`❌ *Gagal Download File*\n━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
-                return;
-              }
-
-              // Process file with AI context
-              const caption = msg.message[messageType]?.caption || "";
-              const sessionId = sessions[senderId];
-              
-              const { confirmation, analysisPrompt } = await processFileWithAI(
-                downloadResult, 
-                caption, 
-                sessionId, 
-                msg, 
-                messageType
-              );
-
-              // Send confirmation
-              await reply(confirmation);
-
-              // Send to AI for analysis
-              try {
-                const result = await askWithContext(sessionId, contextInput, analysisPrompt);
-                if (result?.trim()) {
-                  await reply(formatWhatsAppMessage(result));
-                }
-              } catch (err) {
-                console.error("[WA AI FILE ANALYSIS ERROR]", err.message);
-                await reply(`⚠️ *Error Analisis File*\n━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
-              }
-
-            } catch (err) {
-              console.error("[WA FILE HANDLER ERROR]", err.message);
-              await reply(`⚠️ *Error Memproses File*\n━━━━━━━━━━━━━━━━\n${err.message}`);
-            }
-            return;
-          }
-
-          // ==========================================
-          // HANDLER TEXT
-          // ==========================================
-          const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-          if (!text.trim()) return;
-
-          const localState = {
-            currentSession: sessions[senderId],
-          };
-
-          const commandResult = await handleCommand(text, localState);
-
-          if (commandResult) {
-            sessions[senderId] = localState.currentSession;
-
-            if (commandResult.action === "exit") {
-              await reply("❌ Command /exit tidak tersedia di WhatsApp.");
-            } else if (commandResult.action === "reply") {
-              await reply(`⚙️ *SISTEM*\n━━━━━━━━━━━━━━━━\n_${commandResult.message}_`);
-            }
-            return;
-          }
-
-          const sessionId = sessions[senderId];
-
-          // Indikator sedang mengetik
-          await client.sendPresenceUpdate("composing", senderId);
-
-          try {
-            const result = await askWithContext(sessionId, contextInput, text);
-
-            await client.sendPresenceUpdate("paused", senderId);
-            await reply(formatWhatsAppMessage(result));
-          } catch (err) {
-            await client.sendPresenceUpdate("paused", senderId);
-            console.error("[WHATSAPP ERROR]", err.message);
-            await reply(`⚠️ Terjadi kesalahan: ${err.message}`);
-          }
-
-        } catch (err) {
-          console.error("[WHATSAPP UPSERT ERROR]", err.message);
-        }
-      });
-
-    } catch (error) {
-      console.error("[WHATSAPP INIT ERROR]", error.message);
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttempts++;
-        console.log(`[WHATSAPP] Retrying init... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-        await delay(5000 * reconnectAttempts);
-        startWhatsApp();
-      }
-    }
-  }
-
-  // ==========================================
-  // LAUNCH
-  // ==========================================
-  startWhatsApp();
-
-  // Graceful shutdown
-  process.on("SIGINT", () => {
-    isShuttingDown = true;
-    console.log("\n[WHATSAPP] Shutting down gracefully...");
-    process.exit(0);
   });
+
+  return sock;
 }
 
-export { sendFile };
+// ─── sendFileToUser (dipanggil dari gateway/index.js) ────────────────────────
+export async function sendFileToSession(sessionId, filePath, caption = "") {
+  const chatId = Object.keys(sessions).find(k => sessions[k] === sessionId);
+  if (!chatId || !client) return "❌ Sesi tidak ditemukan atau client belum terhubung.";
+  return sendFile(client, chatId, filePath, caption);
+}
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+if (WA_GATEWAY) {
+  connect().catch(err => console.error("[WA INIT ERROR]", err.message));
+}

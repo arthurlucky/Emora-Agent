@@ -387,14 +387,14 @@ A. SET API KEY (WAJIB SEBELUM PUBLISH)
 
 B. INSTALL SKILL
 · Download dan install skill dari Hub langsung ke folder skill/:
-  emora install:skill --namaskill=<nama>
+  emora install:skill <nama>
 · Jika pencarian menemukan lebih dari satu, sistem akan memilih yang paling relevan dan meminta konfirmasi sebelum download.
 · Skill yang di-download akan diekstrak dan ditempatkan di skill/<nama>/skill.md.
 · Tidak perlu restart — skill langsung tersedia di [AVAILABLE SKILLS].
 
 C. INSTALL TOOL
 · Download dan install tool dari Hub langsung ke folder tools/:
-  emora install:tool --namatool=<nama>
+  emora install:tool <nama>
 · Tool akan didownload, diekstrak, dan REGISTRASI OTOMATIS ke core/tools.js (import + array registration).
 · PERINGATAN: Setelah instalasi, RESTART aplikasi (node main.js) agar tool baru aktif.
 · Jika tool dengan nama yang sama sudah terdaftar, registrasi dilewati (tidak menimpa).

@@ -149,8 +149,8 @@ EMORA_HUB_API_KEY=your_api_key_here   # diset otomatis oleh `emora community --s
 | `emora status` | Tampilkan status semua komponen |
 | `emora skills` | Browse & kelola skill |
 | `emora mcp` | Manage MCP server |
-| `emora install:skill --namaskill=<nama>` | Install skill dari EMORA Hub |
-| `emora install:tool --namatool=<nama>` | Install tool dari EMORA Hub |
+| `emora install:skill <nama>` | Install skill dari EMORA Hub |
+| `emora install:tool <nama>` | Install tool dari EMORA Hub | Install tool dari EMORA Hub |
 | `emora publish:skill --namaskill=<nama> [--desc=<desc>] [--tags=<t1,t2>]` | Publikasikan skill ke EMORA Hub |
 | `emora publish:tool --namatool=<nama> [--desc=<desc>] [--tags=<t1,t2>]` | Publikasikan tool ke EMORA Hub |
 | `emora community --setkey=<apikey>` | Simpan API key EMORA Hub ke .env |
@@ -332,7 +332,7 @@ API key disimpan di `.env` sebagai `EMORA_HUB_API_KEY`.
 
 ```bash
 # Cari dan install skill berdasarkan nama
-emora install:skill --namaskill=auto_code_reviewer
+emora install:skill auto_code_reviewer
 
 # Instalasi akan:
 # 1. Mencari skill di Hub
@@ -344,7 +344,7 @@ emora install:skill --namaskill=auto_code_reviewer
 
 ```bash
 # Install tool dari Hub
-emora install:tool --namatool=spotify_search
+emora install:tool spotify_search
 
 # Instalasi akan:
 # 1. Mencari tool di Hub

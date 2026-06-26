@@ -27,6 +27,7 @@
   "author": "arthurlucky",
   "license": "MIT",
   "dependencies": {
+    "@hapi/boom": "^10.0.1",
     "@langchain/core": "^1.2.1",
     "@langchain/openai": "^1.5.3",
     "@whiskeysockets/baileys": "^6.7.18",

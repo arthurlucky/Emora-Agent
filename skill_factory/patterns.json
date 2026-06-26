@@ -661,6 +661,21 @@
       "last_seen": 1782394758362,
       "skill_created": false,
       "skill_name": null
+    },
+    "emora_hub>emora_hub>emora_hub": {
+      "sequence": [
+        "emora_hub",
+        "emora_hub",
+        "emora_hub"
+      ],
+      "count": 1,
+      "sessions": [
+        "50ad64f5-23b1-4dac-9c11-f2d643e77866"
+      ],
+      "first_seen": 1782461605771,
+      "last_seen": 1782461605771,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }

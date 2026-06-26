@@ -179,11 +179,11 @@ switch (subCmd) {
   
   
   
-  case "install:skill": {
+ case "install:skill": {
   const { installSkill } = await import("../cli/cmd-community.js");
-  const name = getArgValue(rest, "--namaskill") || rest[0];
+  const name = rest[0]; // argumen pertama
   if (!name) {
-    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan. Gunakan --namaskill=<nama>"));
+    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan."));
     process.exit(1);
   }
   await installSkill(name);
@@ -192,9 +192,9 @@ switch (subCmd) {
 
 case "install:tool": {
   const { installTool } = await import("../cli/cmd-community.js");
-  const name = getArgValue(rest, "--namatool") || rest[0];
+  const name = rest[0]; // argumen pertama
   if (!name) {
-    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan. Gunakan --namatool=<nama>"));
+    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan."));
     process.exit(1);
   }
   await installTool(name);
