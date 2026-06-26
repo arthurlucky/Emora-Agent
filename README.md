@@ -15,9 +15,6 @@
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 </div>
-
----
-
 ## Apa itu EMORA?
 
 EMORA adalah AI agent otonom yang bisa kamu host sendiri (self-hosted). Dia bisa dipakai dari CLI, Telegram, WhatsApp, atau browser (Web UI) — semua dari satu proses Node.js.
@@ -30,6 +27,7 @@ EMORA adalah AI agent otonom yang bisa kamu host sendiri (self-hosted). Dia bisa
 - 🔌 **Multi-provider** — Groq, Gemini, Anthropic, OpenRouter, NVIDIA, HuggingFace, Ollama
 - 🌐 **Web UI** — panel kontrol sesi, gateway, dan system prompt di browser
 - 🖥️ **MCP server** — expose semua tools EMORA ke Claude Desktop / Cursor / Windsurf
+- 📦 **EMORA Hub** — instal dan publikasikan tool/skill dari/ke komunitas
 
 ---
 
@@ -90,7 +88,7 @@ Wizard interaktif akan membimbing kamu melalui:
 Kalau mau konfigurasi tanpa wizard, buat file `.env` di root project:
 
 ```env
-# ── Provider & Model ─────────────────────────────
+# ── Provider & Model ─────────────────────────────────────────────────────────
 # Pilih salah satu: groq | gemini | openrouter | nvidia | openai | anthropic | huggingface | ollama
 MODEL_PROVIDER=groq
 
@@ -103,35 +101,36 @@ MODEL_NAME=llama-3.3-70b-versatile
 # URL endpoint (opsional — auto-diisi oleh provider system)
 # MODEL_URL=https://api.groq.com/openai/v1
 
-# ── Khusus Anthropic ─────────────────────────────
+# ── Khusus Anthropic ─────────────────────────────────────────────────────────
 # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxx
 
-# ── Khusus HuggingFace ───────────────────────────
+# ── Khusus HuggingFace ──────────────────────────────────────────────────────
 # HUGGINGFACE_API_KEY=hf_xxxxxxxxxxxx
 # HUGGINGFACE_ENDPOINT_URL=   # opsional: dedicated HF endpoint
 
-# ── Web Search (opsional) ─────────────────────────
+# ── Web Search (opsional) ──────────────────────────────────────────────────
 TAVILY_API_KEY=tvly-xxxxxxxxxx
 
-# ── Gateway Telegram ─────────────────────────────
+# ── Gateway Telegram ────────────────────────────────────────────────────────
 TELEGRAM_GATEWAY=false
 TELEGRAM_TOKEN_BOT=
 TELEGRAM_ALLOWED_IDS=        # kosong = semua user bisa chat
 
-# ── Gateway WhatsApp ─────────────────────────────
+# ── Gateway WhatsApp ────────────────────────────────────────────────────────
 WA_GATEWAY=false
 WA_PHONE_NUMBER=             # format: 6281234567890
 WA_ALLOWED_NUMBERS=          # kosong = semua nomor bisa chat
 
-# ── Identitas Agent ───────────────────────────────
+# ── Identitas Agent ─────────────────────────────────────────────────────────
 NAME=Emora
 
-# ── Web UI ────────────────────────────────────────
+# ── Web UI ──────────────────────────────────────────────────────────────────
 WEBUI=false
 WEBUI_PORT=5090
 
-# ── EMORA Hub ─────────────────────────────────────
+# ── EMORA Hub ──────────────────────────────────────────────────────────────
 EMORA_HUB=https://emora-hub--rellaja1214.replit.app
+EMORA_HUB_API_KEY=your_api_key_here   # diset otomatis oleh `emora community --setkey`
 ```
 
 ---
@@ -150,6 +149,11 @@ EMORA_HUB=https://emora-hub--rellaja1214.replit.app
 | `emora status` | Tampilkan status semua komponen |
 | `emora skills` | Browse & kelola skill |
 | `emora mcp` | Manage MCP server |
+| `emora install:skill --namaskill=<nama>` | Install skill dari EMORA Hub |
+| `emora install:tool --namatool=<nama>` | Install tool dari EMORA Hub |
+| `emora publish:skill --namaskill=<nama> [--desc=<desc>] [--tags=<t1,t2>]` | Publikasikan skill ke EMORA Hub |
+| `emora publish:tool --namatool=<nama> [--desc=<desc>] [--tags=<t1,t2>]` | Publikasikan tool ke EMORA Hub |
+| `emora community --setkey=<apikey>` | Simpan API key EMORA Hub ke .env |
 | `emora --web` | CLI + Web UI |
 | `emora --version` | Versi EMORA |
 | `emora --help` | Tampilkan bantuan |
@@ -312,6 +316,70 @@ cat /var/log/nginx/error.log | tail -20 | emora send --to=telegram
 
 ---
 
+## EMORA Hub CLI — Install & Publish
+
+EMORA Hub adalah repositori komunitas tempat pengguna berbagi tool dan skill. Kamu bisa menginstal dan mempublikasikan item langsung dari CLI.
+
+### Menyimpan API Key (wajib untuk publish)
+
+```bash
+emora community --setkey=YOUR_API_KEY
+```
+
+API key disimpan di `.env` sebagai `EMORA_HUB_API_KEY`.
+
+### Install Skill
+
+```bash
+# Cari dan install skill berdasarkan nama
+emora install:skill --namaskill=auto_code_reviewer
+
+# Instalasi akan:
+# 1. Mencari skill di Hub
+# 2. Menampilkan deskripsi & meminta konfirmasi
+# 3. Download ZIP, ekstrak, dan pindahkan ke skill/<nama>/
+```
+
+### Install Tool
+
+```bash
+# Install tool dari Hub
+emora install:tool --namatool=spotify_search
+
+# Instalasi akan:
+# 1. Mencari tool di Hub
+# 2. Konfirmasi download
+# 3. Download ZIP, ekstrak, salin ke tools/<nama>.js
+# 4. REGISTRASI OTOMATIS ke core/tools.js (import + array)
+# 5. Memberi tahu untuk restart EMORA
+```
+
+> **Peringatan:** Setelah install tool, **restart** EMORA (`node main.js`) agar tool baru aktif.
+
+### Publikasikan Skill
+
+```bash
+# Publikasikan skill lokal ke Hub
+emora publish:skill --namaskill=my_skill --desc="Menganalisis log error" --tags="debug,error,log"
+```
+
+### Publikasikan Tool
+
+```bash
+# Publikasikan tool lokal ke Hub
+emora publish:tool --namatool=my_tool --desc="Mengambil data dari API X" --tags="api,data"
+```
+
+### Alur Kerja yang Direkomendasikan
+
+1. **Set key**: `emora community --setkey=xxxxx`
+2. **Eksplorasi**: Cari tool/skill di [EMORA Hub](https://emora-hub--rellaja1214.replit.app) atau langsung `install:tool`
+3. **Kembangkan**: Buat tool/skill sendiri di folder `tools/` atau `skill/`
+4. **Publikasikan**: `emora publish:tool --namatool=namaku ...`
+5. **Bagikan**: Tool/skill-mu akan tersedia untuk komunitas EMORA!
+
+---
+
 ## MCP Server (Model Context Protocol)
 
 EMORA bisa berjalan sebagai MCP server, mengekspose semua tools-nya ke Claude Desktop, Cursor, Windsurf, atau MCP client lainnya.
@@ -352,7 +420,8 @@ Emora-Agent/
 │   ├── cmd-send.js           ← emora send
 │   ├── cmd-status.js         ← emora status
 │   ├── cmd-skills.js         ← emora skills
-│   └── cmd-mcp.js            ← emora mcp
+│   ├── cmd-mcp.js            ← emora mcp
+│   └── cmd-community.js      ← emora community, install:*, publish:*
 ├── core/
 │   ├── chat.js               ← Agent loop utama
 │   ├── tools.js              ← Registrasi semua tools
@@ -371,7 +440,7 @@ Emora-Agent/
 │   └── huggingface.js        ← HuggingFace Inference API
 ├── tools/                    ← Semua tool EMORA (shell, file, git, dsb)
 ├── skill/                    ← Skill library (auto-loaded ke system prompt)
-├── library/                  ← Knowledge Library (factual knowledge, terorganisir per tanggal)
+├── library/                  ← Knowledge Library (faktual, terorganisir per tanggal)
 │   ├── .index/               ← Flat search index (catalog.json, auto-generated)
 │   ├── index.js              ← Library engine (search, read, write, indexing)
 │   └── validator.js          ← Non-LLM validation (web search + token overlap)
@@ -426,6 +495,12 @@ Ini disengaja (diperbaiki dari bug lama). `/clear` hanya menghapus sesi aktif ka
 
 **Q: Bagaimana cara update skill tanpa restart?**
 Skill baru langsung aktif tanpa restart — katalog skill di-generate ulang di setiap pesan baru. Cukup buat skill via `skill_factory` atau tulis folder skill baru, dan langsung bisa dipakai.
+
+**Q: Bagaimana cara berkontribusi ke EMORA Hub?**
+Buat tool atau skill, lalu publikasikan dengan `emora publish:tool` atau `emora publish:skill`. Pastikan kamu sudah menyimpan API key dengan `emora community --setkey`. Tool/skill-mu akan muncul di Hub setelah diverifikasi.
+
+**Q: Apa bedanya install:skill dengan copy manual?**
+`install:skill` otomatis mencari, mendownload, mengekstrak, dan menempatkan skill di folder yang benar. Skill langsung aktif tanpa restart. `install:tool` juga otomatis mendaftarkan tool ke `core/tools.js` — menghemat langkah manual dan mengurangi risiko error sintaks.
 
 ---
 

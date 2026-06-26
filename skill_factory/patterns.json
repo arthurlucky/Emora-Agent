@@ -466,6 +466,201 @@
       "last_seen": 1782371984532,
       "skill_created": false,
       "skill_name": null
+    },
+    "fetch_page>search_web>shell_exec>shell_exec>shell_exec>shell_exec": {
+      "sequence": [
+        "fetch_page",
+        "search_web",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "00852d07-3854-411f-9e91-571dce12fd43"
+      ],
+      "first_seen": 1782383350712,
+      "last_seen": 1782383350712,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "project_manager>project_manager>project_manager>project_manager>project_manager>project_manager>project_manager>project_manager>project_manager>project_manager": {
+      "sequence": [
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager",
+        "project_manager"
+      ],
+      "count": 1,
+      "sessions": [
+        "21f7f928-8b7f-4704-8f51-eda8378deb84"
+      ],
+      "first_seen": 1782386918682,
+      "last_seen": 1782386918682,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "project_manager>system_monitor": {
+      "sequence": [
+        "project_manager",
+        "system_monitor"
+      ],
+      "count": 1,
+      "sessions": [
+        "61841215-2d54-4eba-9b2b-e08131c5bc13"
+      ],
+      "first_seen": 1782387242770,
+      "last_seen": 1782387242770,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>read_file": {
+      "sequence": [
+        "search_text",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "61841215-2d54-4eba-9b2b-e08131c5bc13"
+      ],
+      "first_seen": 1782387485845,
+      "last_seen": 1782387485845,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_web>search_web>fetch_page>fetch_page": {
+      "sequence": [
+        "search_web",
+        "search_web",
+        "fetch_page",
+        "fetch_page"
+      ],
+      "count": 1,
+      "sessions": [
+        "8eaa4374-f860-4cf3-9c4f-89a24f953ba8"
+      ],
+      "first_seen": 1782391641647,
+      "last_seen": 1782391641647,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_web>fetch_page>search_web": {
+      "sequence": [
+        "search_web",
+        "fetch_page",
+        "search_web"
+      ],
+      "count": 1,
+      "sessions": [
+        "527a2a02-a5df-46db-8da4-3e18d997dd3f"
+      ],
+      "first_seen": 1782392128941,
+      "last_seen": 1782392128941,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>search_text>search_text>search_text>search_text": {
+      "sequence": [
+        "search_text",
+        "search_text",
+        "search_text",
+        "search_text",
+        "search_text"
+      ],
+      "count": 1,
+      "sessions": [
+        "23ccb93a-adee-42f5-a95d-8dfb73b5d512"
+      ],
+      "first_seen": 1782393434510,
+      "last_seen": 1782393434510,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>search_text>search_text>search_text>search_text>read_file>read_file>read_file": {
+      "sequence": [
+        "search_text",
+        "search_text",
+        "search_text",
+        "search_text",
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "23ccb93a-adee-42f5-a95d-8dfb73b5d512"
+      ],
+      "first_seen": 1782393576419,
+      "last_seen": 1782393576419,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>search_text>list_files>read_file>search_text>read_file>read_file>shell_exec>shell_exec>read_file>read_file>shell_exec": {
+      "sequence": [
+        "search_text",
+        "search_text",
+        "list_files",
+        "read_file",
+        "search_text",
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "b48065fb-da03-4e51-a7de-dc006c63b181"
+      ],
+      "first_seen": 1782394553432,
+      "last_seen": 1782394553432,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>read_file>search_text>search_text": {
+      "sequence": [
+        "search_text",
+        "read_file",
+        "search_text",
+        "search_text"
+      ],
+      "count": 1,
+      "sessions": [
+        "b48065fb-da03-4e51-a7de-dc006c63b181"
+      ],
+      "first_seen": 1782394651942,
+      "last_seen": 1782394651942,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_text>search_text>search_text>read_file>search_text>read_file>read_file": {
+      "sequence": [
+        "search_text",
+        "search_text",
+        "search_text",
+        "read_file",
+        "search_text",
+        "read_file",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "b48065fb-da03-4e51-a7de-dc006c63b181"
+      ],
+      "first_seen": 1782394758362,
+      "last_seen": 1782394758362,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }

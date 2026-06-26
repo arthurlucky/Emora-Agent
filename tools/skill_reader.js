@@ -5,6 +5,28 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 
 const SKILLS_DIR = path.resolve("./skill");
 
+/**
+ * Mencari file skill.md dalam berbagai variasi kapitalisasi
+ * @param {string} dirPath - Path ke direktori skill
+ * @returns {Promise<string|null>} - Path file yang ditemukan atau null
+ */
+async function findSkillMd(dirPath) {
+  try {
+    const files = await fs.readdir(dirPath);
+    // Cari file yang cocok dengan "skill.md" secara case-insensitive
+    const skillMdFile = files.find(file => {
+      if (file.toLowerCase() !== "skill.md") return false;
+      // Verifikasi bahwa ini adalah file, bukan direktori
+      const fullPath = path.join(dirPath, file);
+      return fs.stat(fullPath).then(stat => stat.isFile()).catch(() => false);
+    });
+    
+    return skillMdFile ? path.join(dirPath, skillMdFile) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const skillReaderTool = new DynamicStructuredTool({
   name: "read_skill",
   description: "WAJIB dipanggil pertama kali sebelum memulai coding project. Berguna untuk membaca panduan, pedoman, atau best-practice dari bahasa pemrograman tertentu.",
@@ -13,13 +35,20 @@ export const skillReaderTool = new DynamicStructuredTool({
   }),
   async func({ language }) {
     try {
-      const skillPath = path.join(SKILLS_DIR, language.toLowerCase(), "skill.md");
+      const languageDir = path.join(SKILLS_DIR, language.toLowerCase());
       
-      // Cek apakah file ada
+      // Cek apakah direktori bahasa ada
       try {
-        await fs.access(skillPath);
+        await fs.access(languageDir);
       } catch {
-        return `❌ Pedoman untuk '${language}' tidak ditemukan di ${skillPath}. Gunakan pengetahuan umummu.`;
+        return `❌ Direktori untuk '${language}' tidak ditemukan. Gunakan pengetahuan umummu.`;
+      }
+
+      // Cari file skill.md secara case-insensitive
+      const skillPath = await findSkillMd(languageDir);
+      
+      if (!skillPath) {
+        return `❌ File pedoman (skill.md) untuk '${language}' tidak ditemukan. Gunakan pengetahuan umummu.`;
       }
 
       const content = await fs.readFile(skillPath, "utf-8");

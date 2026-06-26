@@ -6,6 +6,7 @@ session/
 mcp.config.json
 
 .emora_projects/
+emora.zip
 
 # Web UI (Vite)
 webui/node_modules/

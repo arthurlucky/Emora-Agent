@@ -21,15 +21,16 @@ import { select, confirm, input, sectionHeader, sectionFooter, infoLine, success
 
 const CONFIG_PATH = "./mcp.config.json";
 
+// Use chalk instances (chainable) instead of arrow functions
 const C = {
-  cyan:    (t) => chalk.hex("#58a6ff")(t),
-  green:   (t) => chalk.hex("#3fb950")(t),
-  yellow:  (t) => chalk.hex("#d29922")(t),
-  red:     (t) => chalk.hex("#f85149")(t),
-  purple:  (t) => chalk.hex("#a371f7")(t),
-  muted:   (t) => chalk.hex("#8b949e")(t),
-  dim:     (t) => chalk.hex("#6e7681")(t),
-  primary: (t) => chalk.hex("#e6edf3")(t),
+  cyan:    chalk.hex("#58a6ff"),
+  green:   chalk.hex("#3fb950"),
+  yellow:  chalk.hex("#d29922"),
+  red:     chalk.hex("#f85149"),
+  purple:  chalk.hex("#a371f7"),
+  muted:   chalk.hex("#8b949e"),
+  dim:     chalk.hex("#6e7681"),
+  primary: chalk.hex("#e6edf3"),
 };
 
 // ─────────────────────────────────────────────

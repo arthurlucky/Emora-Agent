@@ -87,3 +87,4 @@ echo "NPM:    $(npm -v 2>/dev/null || echo 'not found')"
 
 echo ""
 echo "[DONE] EMORA siap digunakan"
+

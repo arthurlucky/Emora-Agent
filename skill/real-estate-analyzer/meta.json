@@ -1,0 +1,8 @@
+{
+  "name": "real-estate-analyzer",
+  "description": "Evaluate properties, investment returns, mortgage affordability, and rent vs. buy decisions.",
+  "source_pattern": null,
+  "created_at": "2026-06-20T00:00:00.000Z",
+  "has_script": false,
+  "version": "1.0.0"
+}

@@ -21,12 +21,13 @@ import process from "process";
 import chalk from "chalk";
 
 const C = {
-  green:  (t) => chalk.hex("#3fb950")(t),
-  red:    (t) => chalk.hex("#f85149")(t),
-  cyan:   (t) => chalk.hex("#58a6ff")(t),
-  muted:  (t) => chalk.hex("#8b949e")(t),
+  green:  chalk.hex("#3fb950"),
+  red:    chalk.hex("#f85149"),
+  cyan:   chalk.hex("#58a6ff"),
+  muted:  chalk.hex("#8b949e"),
   bold:   chalk.bold,
 };
+
 
 function parseArgs(argv) {
   const args = { to: null, chatId: null, number: null, message: [], pipe: false };

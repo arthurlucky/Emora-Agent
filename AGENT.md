@@ -20,8 +20,9 @@ TABLE OF CONTENTS
 14. Skill Factory Protocol (14A: Pattern-Based, 14B: Project-Based)
 15. Tool Creation Protocol (Self-Expansion)
 16. EMORA Hub Installation Protocol
+16B. EMORA Hub CLI Commands (Community Management)
 17. Economy System (Optional)
-18. Backup Manager
+18. Knowledge Library Protocol
 19. Complete Reference of All Tools
 
 ==================================================
@@ -373,12 +374,61 @@ FINAL HANDOVER:
 After project_manager reports all tasks done, inform the user that the installation from EMORA Community was successful and STRONGLY remind them to restart the application (node main.js) so the new tool is loaded.
 
 ==================================================
+16B. EMORA HUB CLI COMMANDS (COMMUNITY MANAGEMENT)
+==================================================
+
+EMORA menyediakan perintah CLI untuk mengelola interaksi dengan EMORA Community Hub tanpa harus masuk ke agent loop. Perintah-perintah ini berguna untuk instalasi cepat, publikasi, dan manajemen API key.
+
+A. SET API KEY (WAJIB SEBELUM PUBLISH)
+· Untuk mempublikasikan skill/tool ke Hub, kamu memerlukan API key.
+· Simpan API key dengan:
+  emora community --setkey=<apikey>
+· API key akan disimpan di .env sebagai EMORA_HUB_API_KEY dan langsung digunakan oleh semua perintah publish.
+
+B. INSTALL SKILL
+· Download dan install skill dari Hub langsung ke folder skill/:
+  emora install:skill --namaskill=<nama>
+· Jika pencarian menemukan lebih dari satu, sistem akan memilih yang paling relevan dan meminta konfirmasi sebelum download.
+· Skill yang di-download akan diekstrak dan ditempatkan di skill/<nama>/skill.md.
+· Tidak perlu restart — skill langsung tersedia di [AVAILABLE SKILLS].
+
+C. INSTALL TOOL
+· Download dan install tool dari Hub langsung ke folder tools/:
+  emora install:tool --namatool=<nama>
+· Tool akan didownload, diekstrak, dan REGISTRASI OTOMATIS ke core/tools.js (import + array registration).
+· PERINGATAN: Setelah instalasi, RESTART aplikasi (node main.js) agar tool baru aktif.
+· Jika tool dengan nama yang sama sudah terdaftar, registrasi dilewati (tidak menimpa).
+
+D. PUBLISH SKILL
+· Publikasikan skill lokal ke EMORA Hub:
+  emora publish:skill --namaskill=<nama> [--desc=<deskripsi>] [--tags=<tag1,tag2>]
+· Skill yang dipublikasikan adalah folder skill/<nama>/ — seluruh isi folder akan di-zip dan diupload.
+· Parameter --desc dan --tags opsional, namun sangat direkomendasikan agar skill mudah ditemukan orang lain.
+· BUTUH API KEY: pastikan sudah menjalankan emora community --setkey terlebih dahulu.
+
+E. PUBLISH TOOL
+· Publikasikan tool lokal ke EMORA Hub:
+  emora publish:tool --namatool=<nama> [--desc=<deskripsi>] [--tags=<tag1,tag2>]
+· Tool yang dipublikasikan adalah file tools/<nama>.js — akan di-zip dan diupload.
+· Parameter opsional sama dengan publish:skill.
+· BUTUH API KEY: sama seperti di atas.
+
+FLOW YANG DIREKOMENDASIKAN:
+1. Set API key: emora community --setkey=YOUR_API_KEY
+2. Cari tool/skill yang dibutuhkan via Web UI atau langsung install: emora install:tool --namatool=spotify
+3. Kembangkan tool/skill lokal, lalu publikasikan: emora publish:tool --namatool=my_tool --desc="Tool keren" --tags="api,music"
+
+CATATAN:
+· Semua perintah komunitas menggunakan endpoint EMORA_HUB dari .env (default: https://emora-hub--rellaja1214.replit.app).
+· Jika Hub tidak bisa diakses, periksa koneksi internet dan nilai EMORA_HUB di .env.
+· Untuk mencari tool/skill tanpa install, gunakan Web UI atau perintah emora mcp (jika terintegrasi dengan client).
+
+==================================================
 17. ECONOMY SYSTEM (OPTIONAL)
 
 The economy_manager tool manages an optional internal coin system (balance, pricing, and tool usage costs). Available actions: check_balance, get_pricing, charge_tool, add_coins.
 · Only use this tool if the user explicitly asks about balance/coins/price, or if the system is configured to enforce per-tool costs. Do not proactively deduct user balance without being asked or without clear system instruction.
 
-==================================================
 ==================================================
 18. KNOWLEDGE LIBRARY PROTOCOL
 
@@ -438,5 +488,3 @@ ACTIONS REFERENCE:
 · write          → save formatted knowledge to library (runs validation)
 · list_topics    → see all topics/subtopics in library
 · rebuild_index  → force rebuild the search index (after manual file additions)
-
-==================================================

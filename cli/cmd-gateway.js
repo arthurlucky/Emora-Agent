@@ -9,12 +9,13 @@ import chalk from "chalk";
 import { sectionHeader, sectionFooter, infoLine, successLine, warnLine, errorLine } from "./select.js";
 
 const C = {
-  green:  (t) => chalk.hex("#3fb950")(t),
-  red:    (t) => chalk.hex("#f85149")(t),
-  yellow: (t) => chalk.hex("#d29922")(t),
-  cyan:   (t) => chalk.hex("#58a6ff")(t),
-  muted:  (t) => chalk.hex("#8b949e")(t),
+  green:  chalk.hex("#3fb950"),
+  red:    chalk.hex("#f85149"),
+  yellow: chalk.hex("#d29922"),
+  cyan:   chalk.hex("#58a6ff"),
+  muted:  chalk.hex("#8b949e"),
 };
+
 
 export async function cmdGateway() {
   sectionHeader("GATEWAY MODE", "Menjalankan gateway tanpa CLI agent loop");

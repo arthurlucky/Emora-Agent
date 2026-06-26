@@ -44,6 +44,52 @@ async function readFileSafe(filePath) {
   }
 }
 
+/**
+ * Mencari file skill.md dalam berbagai variasi kapitalisasi
+ * @param {string} dirPath - Path ke direktori skill
+ * @returns {Promise<string|null>} - Nama file yang ditemukan atau null
+ */
+async function findSkillMdFile(dirPath) {
+  try {
+    const files = await fs.readdir(dirPath);
+    const skillMdFile = files.find(file => {
+      if (file.toLowerCase() !== "skill.md") return false;
+      // Verifikasi bahwa ini adalah file, bukan direktori
+      const fullPath = path.join(dirPath, file);
+      return fs.stat(fullPath).then(stat => stat.isFile()).catch(() => false);
+    });
+    
+    return skillMdFile || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Membaca file skill.md dari direktori skill (case-insensitive)
+ * @param {string} skillDir - Path ke direktori skill
+ * @returns {Promise<string|null>} - Konten file skill.md atau null
+ */
+async function readSkillMdContent(skillDir) {
+  try {
+    const fileName = await findSkillMdFile(skillDir);
+    if (!fileName) return null;
+    return await fs.readFile(path.join(skillDir, fileName), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Menulis file skill.md ke direktori skill (selalu gunakan lowercase)
+ * @param {string} skillDir - Path ke direktori skill
+ * @param {string} content - Konten yang akan ditulis
+ */
+async function writeSkillMd(skillDir, content) {
+  // Selalu tulis dengan nama lowercase untuk konsistensi
+  await fs.writeFile(path.join(skillDir, "skill.md"), content, "utf8");
+}
+
 // ── Project helpers (jembatan ke hasil kerja project_manager) ──
 async function listProjectFiles() {
   try {
@@ -362,12 +408,8 @@ export const skillFactoryTool = new DynamicStructuredTool({
           const skillDir = path.join(SKILL_DIR, safeName);
           await fs.mkdir(skillDir, { recursive: true });
 
-          // Simpan dokumen skill utama
-          await fs.writeFile(
-            path.join(skillDir, "skill.md"),
-            skill_content,
-            "utf8"
-          );
+          // Simpan dokumen skill utama (selalu gunakan lowercase)
+          await writeSkillMd(skillDir, skill_content);
 
           // Simpan script otomasi jika ada
           if (skill_script) {
@@ -449,8 +491,10 @@ export const skillFactoryTool = new DynamicStructuredTool({
             const metaRaw = await readFileSafe(
               path.join(SKILL_DIR, e.name, "meta.json")
             );
-            const contentFirst = await readFileSafe(
-              path.join(SKILL_DIR, e.name, "skill.md")
+            
+            // Baca skill.md secara case-insensitive
+            const contentFirst = await readSkillMdContent(
+              path.join(SKILL_DIR, e.name)
             );
 
             let meta = {};
@@ -493,8 +537,10 @@ export const skillFactoryTool = new DynamicStructuredTool({
             });
           }
           const safeName = toSafeName(skill_name_target);
-          const content = await readFileSafe(
-            path.join(SKILL_DIR, safeName, "skill.md")
+          
+          // Baca skill.md secara case-insensitive
+          const content = await readSkillMdContent(
+            path.join(SKILL_DIR, safeName)
           );
 
           if (!content) {
@@ -508,7 +554,12 @@ export const skillFactoryTool = new DynamicStructuredTool({
             path.join(SKILL_DIR, safeName, "run.sh")
           );
 
-          return JSON.stringify({ success: true, skill_name: safeName, content, script: script || null });
+          return JSON.stringify({ 
+            success: true, 
+            skill_name: safeName, 
+            content, 
+            script: script || null 
+          });
         }
 
         // ──────────────────────────────────────────

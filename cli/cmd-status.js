@@ -10,16 +10,19 @@ import chalk from "chalk";
 import ora from "ora";
 
 const C = {
-  cyan:    (t) => chalk.hex("#58a6ff")(t),
-  green:   (t) => chalk.hex("#3fb950")(t),
-  yellow:  (t) => chalk.hex("#d29922")(t),
-  red:     (t) => chalk.hex("#f85149")(t),
-  purple:  (t) => chalk.hex("#a371f7")(t),
-  muted:   (t) => chalk.hex("#8b949e")(t),
-  dim:     (t) => chalk.hex("#6e7681")(t),
-  primary: (t) => chalk.hex("#e6edf3")(t),
-  bold:    chalk.bold,
+  cyan:    chalk.hex("#58a6ff"),
+  green:   chalk.hex("#3fb950"),
+  yellow:  chalk.hex("#d29922"),
+  red:     chalk.hex("#f85149"),
+  purple:  chalk.hex("#a371f7"),
+  muted:   chalk.hex("#8b949e"),
+  dim:     chalk.hex("#6e7681"),
+  primary: chalk.hex("#e6edf3"),
 };
+
+
+// Helper untuk chaining bold + color
+const bold = (fn) => (t) => chalk.bold(fn(t));
 
 function row(label, value, status = "ok") {
   const statusSymbol = status === "ok"      ? C.green("●")
@@ -37,7 +40,7 @@ function row(label, value, status = "ok") {
 function divider(title = "") {
   const w = Math.min(process.stdout.columns || 80, 88) - 3;
   if (title) {
-    process.stdout.write(C.cyan("  │\n  │  ") + C.purple.bold(title) + "\n");
+    process.stdout.write(C.cyan("  │\n  │  ") + bold(C.purple)(title) + "\n");
     process.stdout.write(C.cyan("  │  ") + C.dim("─".repeat(w - 5)) + "\n");
   } else {
     process.stdout.write(C.cyan("  │\n"));
@@ -47,14 +50,14 @@ function divider(title = "") {
 function header(title) {
   const w = Math.min(process.stdout.columns || 80, 88);
   console.log();
-  console.log(C.cyan.bold("  ╭─ EMORA STATUS ") + C.dim("─".repeat(w - 19)));
+  console.log(bold(C.cyan)("  ╭─ EMORA STATUS ") + C.dim("─".repeat(w - 19)));
   console.log(C.cyan("  │  ") + C.muted(new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })));
 }
 
 function footer() {
   const w = Math.min(process.stdout.columns || 80, 88);
   console.log(C.cyan("  │"));
-  console.log(C.cyan.bold("  ╰" + "─".repeat(w - 3)));
+  console.log(bold(C.cyan)("  ╰" + "─".repeat(w - 3)));
   console.log();
 }
 
@@ -181,7 +184,7 @@ export async function cmdStatus() {
     }
   } catch { row("Memory", "Gagal membaca", "error"); }
 
-  // ── Knowledge Library ────────────────────────────────────────────────
+  // ── Knowledge Library ────────────────────────────────────────────────────
   divider("KNOWLEDGE LIBRARY");
   try {
     const libIdx = path.join(".", "library", ".index", "catalog.json");
@@ -196,36 +199,43 @@ export async function cmdStatus() {
         const topicCount = Object.keys(topics).length;
         row("Status",       C.green("Aktif"), "ok");
         row("Total docs",   String(catalog.count || 0), "ok");
-        row("Topik",        String(topicCount), topicCount > 0 ? "ok" : "warn");
-        if (topicCount > 0) {
-          Object.entries(topics).slice(0, 5).forEach(([t, subs]) => {
-            row(`  ${t}`, [...subs].join(", "), "ok");
-          });
-          if (topicCount > 5) row("", `… dan ${topicCount - 5} topik lagi`, "ok");
+        row("Total topics", String(topicCount), topicCount > 0 ? "ok" : "warn");
+        Object.entries(topics).slice(0, 5).forEach(([topic, subs]) => {
+          row(topic, `${subs.size} subtopic`, "ok");
+        });
+        if (Object.keys(topics).length > 5) {
+          row("", C.dim(`… dan ${Object.keys(topics).length - 5} topik lainnya`), "ok");
         }
-        const builtAt = catalog.builtAt ? new Date(catalog.builtAt).toLocaleString("id-ID") : "—";
-        row("Index dibangun", builtAt, "ok");
       } else {
-        row("Status", "Folder ada tapi index belum dibuat", "warn");
-        row("Fix",    "Jalankan: emora, lalu minta agent 'rebuild index library'", "warn");
+        row("Status", C.yellow("Folder ada, index belum dibangun"), "warn");
       }
     } else {
-      row("Status", "Folder library/ belum ada (akan dibuat otomatis saat pertama dipakai)", "off");
+      row("Status", "Belum ada", "off");
     }
-  } catch (err) {
-    row("Library", `Error: ${err.message}`, "error");
-  }
+  } catch (err) { row("Status", `Error: ${err.message}`, "error"); }
 
-  // ── Web UI ────────────────────────────────────────────────────────────────
-  divider("WEB UI");
-  const webuiEnabled = getEnv("WEBUI") === "true";
-  const webuiPort    = getEnv("WEBUI_PORT") || "5090";
-  const distExists   = fs.existsSync("./webui/dist");
-  row("Web UI",   webuiEnabled ? C.green("Dikonfigurasi") : "Nonaktif", webuiEnabled ? "ok" : "off");
-  if (webuiEnabled) {
-    row("Port",   webuiPort, "ok");
-    row("Built",  distExists ? C.green("Ya") : C.yellow("Belum — jalankan: npm run webui:build"), distExists ? "ok" : "warn");
-  }
+  // ── Backup Manager ────────────────────────────────────────────────────────
+  divider("BACKUPS");
+  try {
+    const backupDir = "./backups";
+    if (fs.existsSync(backupDir)) {
+      const backups = fs.readdirSync(backupDir).filter(f => f.endsWith(".zip"));
+      row("Total backup", String(backups.length), backups.length > 0 ? "ok" : "warn");
+      if (backups.length > 0) {
+        const sorted = backups
+          .map(f => ({ name: f, time: fs.statSync(path.join(backupDir, f)).mtime }))
+          .sort((a, b) => b.time - a.time)
+          .slice(0, 3);
+        sorted.forEach(b => {
+          const size = fs.statSync(path.join(backupDir, b.name)).size;
+          const sizeStr = size > 1024*1024 ? `${(size/(1024*1024)).toFixed(1)} MB` : `${(size/1024).toFixed(1)} KB`;
+          row(b.name, sizeStr, "ok");
+        });
+      }
+    } else {
+      row("Backups", "Folder belum ada", "off");
+    }
+  } catch { row("Backups", "Gagal membaca", "error"); }
 
   footer();
 }

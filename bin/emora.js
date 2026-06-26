@@ -48,6 +48,16 @@ const yellow = chalk.hex("#d29922");
 const muted  = chalk.hex("#8b949e");
 const bold   = chalk.bold;
 
+
+// ── Arg value parser ──────────────────────────────────────────────────────
+function getArgValue(args, flag) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith(flag + "=")) return arg.split("=")[1];
+    if (arg === flag && i + 1 < args.length) return args[i + 1];
+  }
+  return null;
+}
 // ── Help text ─────────────────────────────────────────────────────────────────
 function printHelp() {
   const w = Math.min(process.stdout.columns || 80, 88);
@@ -67,6 +77,11 @@ function printHelp() {
     ["emora status",    "Tampilkan status semua komponen EMORA"],
     ["emora skills",    "Browse & kelola skill"],
     ["emora mcp",       "Manage MCP server & jalankan EMORA sebagai MCP server"],
+    ["emora install:skill --namaskill=<nama>", "Install skill dari EMORA Hub"],
+["emora install:tool --namatool=<nama>", "Install tool dari EMORA Hub"],
+["emora publish:skill --namaskill=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan skill ke EMORA Hub"],
+["emora publish:tool --namatool=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan tool ke EMORA Hub"],
+["emora community --setkey=<apikey>", "Simpan API key EMORA Hub ke .env"],
     ["emora --web",     "Jalankan CLI + Web UI control panel"],
     ["emora --version", "Tampilkan versi"],
     ["emora --help",    "Tampilkan bantuan ini"],
@@ -161,6 +176,67 @@ switch (subCmd) {
     await cmdMcp(rest);
     break;
   }
+  
+  
+  
+  case "install:skill": {
+  const { installSkill } = await import("../cli/cmd-community.js");
+  const name = getArgValue(rest, "--namaskill") || rest[0];
+  if (!name) {
+    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan. Gunakan --namaskill=<nama>"));
+    process.exit(1);
+  }
+  await installSkill(name);
+  break;
+}
+
+case "install:tool": {
+  const { installTool } = await import("../cli/cmd-community.js");
+  const name = getArgValue(rest, "--namatool") || rest[0];
+  if (!name) {
+    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan. Gunakan --namatool=<nama>"));
+    process.exit(1);
+  }
+  await installTool(name);
+  break;
+}
+
+case "publish:skill": {
+  const { publishSkill } = await import("../cli/cmd-community.js");
+  const name = getArgValue(rest, "--namaskill");
+  const desc = getArgValue(rest, "--desc") || "";
+  const tags = getArgValue(rest, "--tags") || "";
+  if (!name) {
+    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan. Gunakan --namaskill=<nama>"));
+    process.exit(1);
+  }
+  await publishSkill(name, desc, tags);
+  break;
+}
+
+case "publish:tool": {
+  const { publishTool } = await import("../cli/cmd-community.js");
+  const name = getArgValue(rest, "--namatool");
+  const desc = getArgValue(rest, "--desc") || "";
+  const tags = getArgValue(rest, "--tags") || "";
+  if (!name) {
+    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan. Gunakan --namatool=<nama>"));
+    process.exit(1);
+  }
+  await publishTool(name, desc, tags);
+  break;
+}
+
+case "community": {
+  const { setApiKey } = await import("../cli/cmd-community.js");
+  const key = getArgValue(rest, "--setkey");
+  if (!key) {
+    console.error(chalk.hex("#f85149")("  ✗ API key harus diberikan. Gunakan --setkey=<apikey>"));
+    process.exit(1);
+  }
+  setApiKey(key);
+  break;
+}
 
   default: {
     console.error(chalk.hex("#f85149")(`  ✗ Subcommand tidak dikenal: "${subCmd}"`));
