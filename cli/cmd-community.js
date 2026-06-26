@@ -3,14 +3,9 @@
  * cli/cmd-community.js
  * Handler untuk subcommand komunitas EMORA Hub:
  *   install:skill, install:tool, publish:skill, publish:tool, community --setkey
+ *
+ * Mendukung format install @user/nama sesuai docs API.
  */
- 
- /*
- tags:arthurlucky,author
-"Aku benar benar gak bisa mengembalikan cinta pertamaku."
- */
-
-
 
 import fs from "fs";
 import path from "path";
@@ -41,6 +36,28 @@ async function searchHub(type, query) {
   if (!res.ok) throw new Error(`Gagal mencari: ${res.status}`);
   const data = await res.json();
   return data.data || [];
+}
+
+// ── Helper: install langsung dari slug (format @user/slug) ──────────────
+async function installFromSlug(type, slug) {
+  // slug = "@johndoe/my-skill" atau "johndoe/my-skill"
+  const cleanSlug = slug.startsWith("@") ? slug.slice(1) : slug;
+  const [user, name] = cleanSlug.split("/");
+  if (!user || !name) {
+    throw new Error(`Format slug tidak valid: ${slug}. Gunakan @user/nama atau user/nama.`);
+  }
+  const endpoint = type === "tool" ? "install/tool" : "install/skill";
+  const url = `${HUB_BASE}/${endpoint}/@${user}/${name}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gagal mendapatkan info paket: ${res.status} - ${err}`);
+  }
+  const data = await res.json();
+  if (!data.success || !data.data) {
+    throw new Error("Respon API tidak valid.");
+  }
+  return data.data; // { name, version, description, author, tags, dependencies, download, installCmd }
 }
 
 // ── Helper: download file ──────────────────────────────────────────────────
@@ -102,143 +119,192 @@ function askQuestion(query) {
 
 // ── INSTALL SKILL ──────────────────────────────────────────────────────────
 export async function installSkill(name) {
-  console.log(`🔍 Mencari skill "${name}" di EMORA Hub...`);
-  const items = await searchHub("skill", name);
-  if (items.length === 0) {
-    console.log(`❌ Skill "${name}" tidak ditemukan.`);
-    return;
-  }
-  const item = items[0];
-  console.log(`✅ Ditemukan: ${item.name}`);
-  console.log(`📖 ${item.description}`);
-  const confirm = await askQuestion(`Download dan install skill "${item.name}"? (y/n) `);
-  if (confirm.toLowerCase() !== "y") {
-    console.log("⏹️ Dibatalkan.");
-    return;
-  }
+  try {
+    // Cek apakah name berupa slug (@user/skill)
+    let pkgInfo;
+    if (name.includes("/")) {
+      console.log(`📦 Mengambil info paket dari slug: ${name} ...`);
+      pkgInfo = await installFromSlug("skill", name);
+      console.log(`✅ Ditemukan: ${pkgInfo.name} (${pkgInfo.version})`);
+      console.log(`📖 ${pkgInfo.description}`);
+      if (pkgInfo.dependencies && pkgInfo.dependencies.length) {
+        console.log(`📦 Dependencies: ${pkgInfo.dependencies.map(d => d.name).join(", ")}`);
+      }
+      const confirm = await askQuestion(`Install skill ini? (y/n) `);
+      if (confirm.toLowerCase() !== "y") {
+        console.log("⏹️ Dibatalkan.");
+        return;
+      }
+    } else {
+      // Cari dulu
+      console.log(`🔍 Mencari skill "${name}" di EMORA Hub...`);
+      const items = await searchHub("skill", name);
+      if (items.length === 0) {
+        console.log(`❌ Skill "${name}" tidak ditemukan.`);
+        return;
+      }
+      const item = items[0];
+      console.log(`✅ Ditemukan: ${item.name}`);
+      console.log(`📖 ${item.description}`);
+      const confirm = await askQuestion(`Download dan install skill "${item.name}"? (y/n) `);
+      if (confirm.toLowerCase() !== "y") {
+        console.log("⏹️ Dibatalkan.");
+        return;
+      }
+      // Ambil info detail via install endpoint
+      const slug = `${item.author}/${item.slug}`;
+      pkgInfo = await installFromSlug("skill", slug);
+    }
 
-  const downloadDir = path.join(ROOT_DIR, "download");
-  if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
-  const zipName = `${item.name.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.zip`;
-  const zipPath = path.join(downloadDir, zipName);
+    const downloadDir = path.join(ROOT_DIR, "download");
+    if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
-  console.log(`⬇️ Mendownload ${item.download} ...`);
-  await downloadFile(item.download, zipPath);
-  console.log(`✅ Download selesai: ${zipPath}`);
+    const zipName = `${pkgInfo.name.replace(/[^a-z0-9_]/g, "_")}.zip`;
+    const zipPath = path.join(downloadDir, zipName);
 
-  const tempDir = path.join(downloadDir, `temp_${Date.now()}`);
-  console.log(`📦 Mengekstrak...`);
-  extractZip(zipPath, tempDir);
+    console.log(`⬇️ Mendownload ${pkgInfo.download} ...`);
+    await downloadFile(pkgInfo.download, zipPath);
+    console.log(`✅ Download selesai: ${zipPath}`);
 
-  const files = fs.readdirSync(tempDir);
-  const mdFile = files.find((f) => f.endsWith(".md"));
-  if (!mdFile) {
-    console.log(`❌ Tidak ditemukan file .md di dalam zip.`);
+    const tempDir = path.join(downloadDir, `temp_${Date.now()}`);
+    console.log(`📦 Mengekstrak...`);
+    extractZip(zipPath, tempDir);
+
+    const files = fs.readdirSync(tempDir);
+    const mdFile = files.find((f) => f.endsWith(".md"));
+    if (!mdFile) {
+      console.log(`❌ Tidak ditemukan file .md di dalam zip.`);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(zipPath, { force: true });
+      return;
+    }
+
+    const content = fs.readFileSync(path.join(tempDir, mdFile), "utf8");
+    const skillName = pkgInfo.slug || pkgInfo.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const skillDir = path.join(ROOT_DIR, "skill", skillName);
+    if (!fs.existsSync(skillDir)) fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "skill.md"), content);
+    console.log(`✅ Skill berhasil diinstall ke ${skillDir}`);
+
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.rmSync(zipPath, { force: true });
-    return;
+    console.log(`🧹 Bersih-bersih selesai.`);
+  } catch (err) {
+    console.error(`❌ Gagal install skill: ${err.message}`);
   }
-
-  const content = fs.readFileSync(path.join(tempDir, mdFile), "utf8");
-  const skillName = item.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-  const skillDir = path.join(ROOT_DIR, "skill", skillName);
-  if (!fs.existsSync(skillDir)) fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, "skill.md"), content);
-  console.log(`✅ Skill berhasil diinstall ke ${skillDir}`);
-
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  fs.rmSync(zipPath, { force: true });
-  console.log(`🧹 Bersih-bersih selesai.`);
 }
 
 // ── INSTALL TOOL ──────────────────────────────────────────────────────────
 export async function installTool(name) {
-  console.log(`🔍 Mencari tool "${name}" di EMORA Hub...`);
-  const items = await searchHub("tool", name);
-  if (items.length === 0) {
-    console.log(`❌ Tool "${name}" tidak ditemukan.`);
-    return;
-  }
-  const item = items[0];
-  console.log(`✅ Ditemukan: ${item.name}`);
-  console.log(`📖 ${item.description}`);
-  const confirm = await askQuestion(`Download dan install tool "${item.name}"? (y/n) `);
-  if (confirm.toLowerCase() !== "y") {
-    console.log("⏹️ Dibatalkan.");
-    return;
-  }
+  try {
+    let pkgInfo;
+    if (name.includes("/")) {
+      console.log(`📦 Mengambil info paket dari slug: ${name} ...`);
+      pkgInfo = await installFromSlug("tool", name);
+      console.log(`✅ Ditemukan: ${pkgInfo.name} (${pkgInfo.version})`);
+      console.log(`📖 ${pkgInfo.description}`);
+      if (pkgInfo.dependencies && pkgInfo.dependencies.length) {
+        console.log(`📦 Dependencies: ${pkgInfo.dependencies.map(d => d.name).join(", ")}`);
+      }
+      const confirm = await askQuestion(`Install tool ini? (y/n) `);
+      if (confirm.toLowerCase() !== "y") {
+        console.log("⏹️ Dibatalkan.");
+        return;
+      }
+    } else {
+      console.log(`🔍 Mencari tool "${name}" di EMORA Hub...`);
+      const items = await searchHub("tool", name);
+      if (items.length === 0) {
+        console.log(`❌ Tool "${name}" tidak ditemukan.`);
+        return;
+      }
+      const item = items[0];
+      console.log(`✅ Ditemukan: ${item.name}`);
+      console.log(`📖 ${item.description}`);
+      const confirm = await askQuestion(`Download dan install tool "${item.name}"? (y/n) `);
+      if (confirm.toLowerCase() !== "y") {
+        console.log("⏹️ Dibatalkan.");
+        return;
+      }
+      const slug = `${item.author}/${item.slug}`;
+      pkgInfo = await installFromSlug("tool", slug);
+    }
 
-  const downloadDir = path.join(ROOT_DIR, "download");
-  if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
-  const zipName = `${item.name.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.zip`;
-  const zipPath = path.join(downloadDir, zipName);
+    const downloadDir = path.join(ROOT_DIR, "download");
+    if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
-  console.log(`⬇️ Mendownload ${item.download} ...`);
-  await downloadFile(item.download, zipPath);
-  console.log(`✅ Download selesai: ${zipPath}`);
+    const zipName = `${pkgInfo.name.replace(/[^a-z0-9_]/g, "_")}.zip`;
+    const zipPath = path.join(downloadDir, zipName);
 
-  const tempDir = path.join(downloadDir, `temp_${Date.now()}`);
-  console.log(`📦 Mengekstrak...`);
-  extractZip(zipPath, tempDir);
+    console.log(`⬇️ Mendownload ${pkgInfo.download} ...`);
+    await downloadFile(pkgInfo.download, zipPath);
+    console.log(`✅ Download selesai: ${zipPath}`);
 
-  const files = fs.readdirSync(tempDir);
-  const jsFile = files.find((f) => f.endsWith(".js"));
-  if (!jsFile) {
-    console.log(`❌ Tidak ditemukan file .js di dalam zip.`);
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(zipPath, { force: true });
-    return;
-  }
+    const tempDir = path.join(downloadDir, `temp_${Date.now()}`);
+    console.log(`📦 Mengekstrak...`);
+    extractZip(zipPath, tempDir);
 
-  const content = fs.readFileSync(path.join(tempDir, jsFile), "utf8");
-  const toolBaseName = path.basename(jsFile, ".js");
-  const toolsDir = path.join(ROOT_DIR, "tools");
-  if (!fs.existsSync(toolsDir)) fs.mkdirSync(toolsDir, { recursive: true });
-  const toolPath = path.join(toolsDir, `${toolBaseName}.js`);
-  fs.writeFileSync(toolPath, content);
-  console.log(`✅ Tool berhasil disalin ke ${toolPath}`);
+    const files = fs.readdirSync(tempDir);
+    const jsFile = files.find((f) => f.endsWith(".js"));
+    if (!jsFile) {
+      console.log(`❌ Tidak ditemukan file .js di dalam zip.`);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(zipPath, { force: true });
+      return;
+    }
 
-  // Registrasi ke core/tools.js
-  console.log(`📝 Mendaftarkan tool ke core/tools.js...`);
-  const coreToolsPath = path.join(ROOT_DIR, "core", "tools.js");
-  let coreContent = fs.readFileSync(coreToolsPath, "utf8");
+    const content = fs.readFileSync(path.join(tempDir, jsFile), "utf8");
+    const toolBaseName = path.basename(jsFile, ".js");
+    const toolsDir = path.join(ROOT_DIR, "tools");
+    if (!fs.existsSync(toolsDir)) fs.mkdirSync(toolsDir, { recursive: true });
+    const toolPath = path.join(toolsDir, `${toolBaseName}.js`);
+    fs.writeFileSync(toolPath, content);
+    console.log(`✅ Tool berhasil disalin ke ${toolPath}`);
 
-  const importRegex = new RegExp(
-    `import\\s+\\{?\\s*${toolBaseName}Tool\\s*\\}?\\s*from\\s*["']\\.\\.\\/tools\\/${toolBaseName}\\.js["']`
-  );
-  if (importRegex.test(coreContent)) {
-    console.log(`⚠️ Tool "${toolBaseName}" sudah terdaftar. Melewati registrasi.`);
-  } else {
-    // Inject import
-    const importLines = coreContent.match(/^import .*?;$/gm);
-    const lastImport = importLines ? importLines[importLines.length - 1] : null;
-    const insertIndex = lastImport ? coreContent.indexOf(lastImport) + lastImport.length : 0;
-    const importStatement = `\nimport { ${toolBaseName}Tool } from "../tools/${toolBaseName}.js";`;
-    coreContent = coreContent.slice(0, insertIndex) + importStatement + coreContent.slice(insertIndex);
+    // Registrasi ke core/tools.js
+    console.log(`📝 Mendaftarkan tool ke core/tools.js...`);
+    const coreToolsPath = path.join(ROOT_DIR, "core", "tools.js");
+    let coreContent = fs.readFileSync(coreToolsPath, "utf8");
 
-    // Inject ke array tools
-    const toolsArrayRegex = /const\s+tools\s*=\s*\[([\s\S]*?)\];/;
-    const match = coreContent.match(toolsArrayRegex);
-    if (match) {
-      const lastBracketIndex = coreContent.lastIndexOf("];");
-      const beforeBracket = coreContent.lastIndexOf("]", lastBracketIndex - 1);
-      if (beforeBracket !== -1) {
-        const inject = `\n  ${toolBaseName}Tool,`;
-        coreContent = coreContent.slice(0, beforeBracket + 1) + inject + coreContent.slice(beforeBracket + 1);
+    const importRegex = new RegExp(
+      `import\\s+\\{?\\s*${toolBaseName}Tool\\s*\\}?\\s*from\\s*["']\\.\\.\\/tools\\/${toolBaseName}\\.js["']`
+    );
+    if (importRegex.test(coreContent)) {
+      console.log(`⚠️ Tool "${toolBaseName}" sudah terdaftar. Melewati registrasi.`);
+    } else {
+      // Inject import
+      const importLines = coreContent.match(/^import .*?;$/gm);
+      const lastImport = importLines ? importLines[importLines.length - 1] : null;
+      const insertIndex = lastImport ? coreContent.indexOf(lastImport) + lastImport.length : 0;
+      const importStatement = `\nimport { ${toolBaseName}Tool } from "../tools/${toolBaseName}.js";`;
+      coreContent = coreContent.slice(0, insertIndex) + importStatement + coreContent.slice(insertIndex);
+
+      // Inject ke array tools
+      const toolsArrayRegex = /const\s+tools\s*=\s*\[([\s\S]*?)\];/;
+      const match = coreContent.match(toolsArrayRegex);
+      if (match) {
+        const lastBracketIndex = coreContent.lastIndexOf("];");
+        const beforeBracket = coreContent.lastIndexOf("]", lastBracketIndex - 1);
+        if (beforeBracket !== -1) {
+          const inject = `\n  ${toolBaseName}Tool,`;
+          coreContent = coreContent.slice(0, beforeBracket + 1) + inject + coreContent.slice(beforeBracket + 1);
+        } else {
+          console.log(`❌ Gagal menemukan array tools. Registrasi manual diperlukan.`);
+        }
       } else {
         console.log(`❌ Gagal menemukan array tools. Registrasi manual diperlukan.`);
       }
-    } else {
-      console.log(`❌ Gagal menemukan array tools. Registrasi manual diperlukan.`);
+      fs.writeFileSync(coreToolsPath, coreContent);
+      console.log(`✅ Registrasi selesai.`);
     }
-    fs.writeFileSync(coreToolsPath, coreContent);
-    console.log(`✅ Registrasi selesai.`);
-  }
 
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  fs.rmSync(zipPath, { force: true });
-  console.log(`🧹 Bersih-bersih selesai.`);
-  console.log(`🔁 RESTART APLIKASI (node main.js) agar tool baru aktif.`);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(zipPath, { force: true });
+    console.log(`🧹 Bersih-bersih selesai.`);
+    console.log(`🔁 RESTART APLIKASI (node main.js) agar tool baru aktif.`);
+  } catch (err) {
+    console.error(`❌ Gagal install tool: ${err.message}`);
+  }
 }
 
 // ── PUBLISH SKILL ─────────────────────────────────────────────────────────
@@ -261,7 +327,7 @@ export async function publishSkill(name, desc, tags) {
   console.log(`✅ Zip created: ${zipPath}`);
 
   console.log(`⬆️ Mengupload ke EMORA Hub...`);
-  const result = await uploadItem("skill", zipPath, desc, tags, apiKey);
+  const result = await uploadItem("skill", zipPath, desc, tags, apiKey, name);
   console.log(result);
   fs.rmSync(zipPath, { force: true });
 }
@@ -290,19 +356,19 @@ export async function publishTool(name, desc, tags) {
   console.log(`✅ Zip created: ${zipPath}`);
 
   console.log(`⬆️ Mengupload ke EMORA Hub...`);
-  const result = await uploadItem("tool", zipPath, desc, tags, apiKey);
+  const result = await uploadItem("tool", zipPath, desc, tags, apiKey, name);
   console.log(result);
   fs.rmSync(zipPath, { force: true });
 }
 
 // ── UPLOAD ITEM (internal) ───────────────────────────────────────────────
-async function uploadItem(type, filePath, description, tags, apiKey) {
-  // Sesuai spesifikasi emora_hub.js: butuh api_key, item_type, description, tags, file_path
-  const uploadTipe = type === "tool" ? "tools" : "skills";
+async function uploadItem(type, filePath, description, tags, apiKey, name) {
+  const uploadTipe = type === "tool" ? "tools" : "skill";
   const fileBuffer = fs.readFileSync(filePath);
   const fileBlob = new Blob([fileBuffer]);
   const formData = new FormData();
   formData.append("tipe", uploadTipe);
+  formData.append("name", name || path.basename(filePath, ".zip"));
   formData.append("description", description || "");
   formData.append("tags", tags || "");
   formData.append("file", fileBlob, path.basename(filePath));
@@ -316,8 +382,12 @@ async function uploadItem(type, filePath, description, tags, apiKey) {
     const errText = await res.text();
     throw new Error(`Upload error ${res.status}: ${errText}`);
   }
-  const result = await res.text();
-  return `✅ Upload berhasil: ${result}`;
+  const result = await res.json();
+  if (result.success) {
+    return `✅ Upload berhasil! ID: ${result.data.id}\n📦 Install: ${result.data.installCmd}`;
+  } else {
+    throw new Error(result.message || "Upload gagal");
+  }
 }
 
 // ── SET API KEY ───────────────────────────────────────────────────────────

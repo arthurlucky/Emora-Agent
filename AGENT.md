@@ -387,17 +387,26 @@ A. SET API KEY (WAJIB SEBELUM PUBLISH)
 
 B. INSTALL SKILL
 · Download dan install skill dari Hub langsung ke folder skill/:
-  emora install:skill <nama>
-· Jika pencarian menemukan lebih dari satu, sistem akan memilih yang paling relevan dan meminta konfirmasi sebelum download.
-· Skill yang di-download akan diekstrak dan ditempatkan di skill/<nama>/skill.md.
+  emora install:skill @user/nama   (rekomendasi, langsung dari slug)
+  emora install:skill nama_skill   (akan mencari yang paling relevan di Hub)
+· Jika menggunakan format slug, CLI akan mengambil info paket langsung tanpa pencarian.
+· Jika hanya menggunakan nama, sistem akan mencari di Hub dan meminta konfirmasi sebelum download.
+· Skill yang di-download akan diekstrak dan ditempatkan di skill/<slug>/skill.md.
 · Tidak perlu restart — skill langsung tersedia di [AVAILABLE SKILLS].
+· Contoh:
+  emora install:skill @johndoe/auto_code_reviewer
+  emora install:skill auto_code_reviewer
 
 C. INSTALL TOOL
 · Download dan install tool dari Hub langsung ke folder tools/:
-  emora install:tool <nama>
+  emora install:tool @user/nama
+  emora install:tool nama_tool
 · Tool akan didownload, diekstrak, dan REGISTRASI OTOMATIS ke core/tools.js (import + array registration).
 · PERINGATAN: Setelah instalasi, RESTART aplikasi (node main.js) agar tool baru aktif.
 · Jika tool dengan nama yang sama sudah terdaftar, registrasi dilewati (tidak menimpa).
+· Contoh:
+  emora install:tool @johndoe/spotify_search
+  emora install:tool spotify_search
 
 D. PUBLISH SKILL
 · Publikasikan skill lokal ke EMORA Hub:
@@ -415,12 +424,15 @@ E. PUBLISH TOOL
 
 FLOW YANG DIREKOMENDASIKAN:
 1. Set API key: emora community --setkey=YOUR_API_KEY
-2. Cari tool/skill yang dibutuhkan via Web UI atau langsung install: emora install:tool --namatool=spotify
-3. Kembangkan tool/skill lokal, lalu publikasikan: emora publish:tool --namatool=my_tool --desc="Tool keren" --tags="api,music"
+2. Cari tool/skill yang dibutuhkan via Web UI atau langsung install: 
+   emora install:tool @username/nama_tool
+3. Kembangkan tool/skill lokal, lalu publikasikan: 
+   emora publish:tool --namatool=my_tool --desc="Tool keren" --tags="api,music"
 
 CATATAN:
 · Semua perintah komunitas menggunakan endpoint EMORA_HUB dari .env (default: https://emora-hub--rellaja1214.replit.app).
 · Jika Hub tidak bisa diakses, periksa koneksi internet dan nilai EMORA_HUB di .env.
+· Format slug mengikuti standar: @username/nama-item (misal: @johndoe/my-skill).
 · Untuk mencari tool/skill tanpa install, gunakan Web UI atau perintah emora mcp (jika terintegrasi dengan client).
 
 ==================================================

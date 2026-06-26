@@ -77,8 +77,8 @@ function printHelp() {
     ["emora status",    "Tampilkan status semua komponen EMORA"],
     ["emora skills",    "Browse & kelola skill"],
     ["emora mcp",       "Manage MCP server & jalankan EMORA sebagai MCP server"],
-    ["emora install:skill --namaskill=<nama>", "Install skill dari EMORA Hub"],
-["emora install:tool --namatool=<nama>", "Install tool dari EMORA Hub"],
+  ["emora install:skill <@user/nama>", "Install skill dari EMORA Hub (bisa pake @user/nama atau nama saja)"],
+["emora install:tool <@user/nama>", "Install tool dari EMORA Hub (bisa pake @user/nama atau nama saja)"],
 ["emora publish:skill --namaskill=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan skill ke EMORA Hub"],
 ["emora publish:tool --namatool=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan tool ke EMORA Hub"],
 ["emora community --setkey=<apikey>", "Simpan API key EMORA Hub ke .env"],
@@ -181,9 +181,9 @@ switch (subCmd) {
   
  case "install:skill": {
   const { installSkill } = await import("../cli/cmd-community.js");
-  const name = rest[0]; // argumen pertama
+  const name = rest[0];
   if (!name) {
-    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan."));
+    console.error(chalk.hex("#f85149")("  ✗ Nama skill harus diberikan. Contoh: @user/nama atau nama"));
     process.exit(1);
   }
   await installSkill(name);
@@ -192,15 +192,14 @@ switch (subCmd) {
 
 case "install:tool": {
   const { installTool } = await import("../cli/cmd-community.js");
-  const name = rest[0]; // argumen pertama
+  const name = rest[0];
   if (!name) {
-    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan."));
+    console.error(chalk.hex("#f85149")("  ✗ Nama tool harus diberikan. Contoh: @user/nama atau nama"));
     process.exit(1);
   }
   await installTool(name);
   break;
 }
-
 case "publish:skill": {
   const { publishSkill } = await import("../cli/cmd-community.js");
   const name = getArgValue(rest, "--namaskill");
