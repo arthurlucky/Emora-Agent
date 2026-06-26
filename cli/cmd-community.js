@@ -21,7 +21,7 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 // Load .env
 dotenv.config({ path: path.join(ROOT_DIR, ".env") });
 
-const HUB_BASE = process.env.EMORA_HUB || "https://emora-hub--rellaja1214.replit.app";
+const HUB_BASE = process.env.EMORA_HUB 
 
 // ── Helper: dapatkan API key ──────────────────────────────────────────────
 function getApiKey() {
@@ -31,7 +31,7 @@ function getApiKey() {
 // ── Helper: search ke Hub ──────────────────────────────────────────────────
 async function searchHub(type, query) {
   const endpoint = type === "tool" ? "searchtool" : "searchskill";
-  const url = `${HUB_BASE}/${endpoint}?q=${encodeURIComponent(query)}`;
+  const url = `${HUB_BASE}/api/${endpoint}?q=${encodeURIComponent(query)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Gagal mencari: ${res.status}`);
   const data = await res.json();
@@ -47,7 +47,7 @@ async function installFromSlug(type, slug) {
     throw new Error(`Format slug tidak valid: ${slug}. Gunakan @user/nama atau user/nama.`);
   }
   const endpoint = type === "tool" ? "install/tool" : "install/skill";
-  const url = `${HUB_BASE}/${endpoint}/@${user}/${name}`;
+  const url = `${HUB_BASE}/api/${endpoint}/@${user}/${name}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.text();
