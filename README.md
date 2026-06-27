@@ -120,8 +120,8 @@ TELEGRAM_ALLOWED_IDS=        # kosong = semua user bisa chat
 WA_GATEWAY=false
 WA_PHONE_NUMBER=             # format: 6281234567890
 WA_ALLOWED_NUMBERS=          # kosong = semua nomor bisa chat
-
-# ── Identitas Agent ─────────────────────────────────────────────────────────
+PAIRING_CODE=EMORAGEN # pairing code WhatsApp
+# ── Identitas Agent  ─────────────────────────────────────────────────────────
 NAME=Emora
 
 # ── Web UI ──────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ WEBUI=false
 WEBUI_PORT=5090
 
 # ── EMORA Hub ──────────────────────────────────────────────────────────────
-EMORA_HUB=https://emora-hub--rellaja1214.replit.app
+EMORA_HUB=https://emora-backend.vercel.app
 EMORA_HUB_API_KEY=your_api_key_here   # diset otomatis oleh `emora community --setkey`
 ```
 
@@ -444,6 +444,8 @@ Emora-Agent/
 │   ├── .index/               ← Flat search index (catalog.json, auto-generated)
 │   ├── index.js              ← Library engine (search, read, write, indexing)
 │   └── validator.js          ← Non-LLM validation (web search + token overlap)
+├── mcp/          
+│   └── validator.js          ←  MCP Server (Model Context Protocol)
 ├── memory/                   ← Session memory (JSON per sesi)
 ├── webui/                    ← Web UI (Vite + vanilla JS)
 ├── utils/                    ← Helper utilities

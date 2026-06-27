@@ -1,0 +1,12 @@
+[
+  {
+    "role": "user",
+    "content": "[EMORA-CTX] platform=Telegram | chat=private | dari=user\n\nkita chat dimana",
+    "timestamp": 1782556019475
+  },
+  {
+    "role": "assistant",
+    "content": "Hey RELL! 👋\n\nKita lagi chat di **Telegram** — ini adalah private chat antara kamu sama aku (EMORA). \n\nJadi setiap pesan yang kamu kirim ke bot EMORA di Telegram, langsung masuk ke sini. Kalau kamu butuh sesuatu — coding, analisis, research, file management, atau apapun — tinggal ketik aja, gue siap membantu! 💪\n\nAda yang bisa gue bantu hari ini?",
+    "timestamp": 1782556019475
+  }
+]

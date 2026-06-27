@@ -38,7 +38,7 @@ export async function loadGateways() {
   if (process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER) {
     console.log("[GATEWAY] Memuat WhatsApp...");
     try {
-      const wa = await import("./whatsapp/whatsapp.js");
+      const wa = await import("./whatsapp/main.js");
 
       // Verify client is actually connected
       if (wa.client && wa.sessions) {

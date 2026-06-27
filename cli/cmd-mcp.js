@@ -19,7 +19,7 @@ import path from "path";
 import chalk from "chalk";
 import { select, confirm, input, sectionHeader, sectionFooter, infoLine, successLine, warnLine, errorLine } from "./select.js";
 
-const CONFIG_PATH = "./mcp.config.json";
+const CONFIG_PATH = "./mcp/mcp.config.json";
 
 // Use chalk instances (chainable) instead of arrow functions
 const C = {
