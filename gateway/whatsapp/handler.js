@@ -40,7 +40,7 @@ async function buildContextAndEnrich(sock, sessionId,m){
     senderIsAdmin,
     botIsAdmin,
   };
-  console.log(ctx)
+  
   setContext(sessionId, ctx);
   return buildContextHeader(ctx);
 }
