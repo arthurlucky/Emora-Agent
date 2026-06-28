@@ -4,7 +4,7 @@ node_modules/
 # Memory
 session/
 mcp.config.json
-mmeory/
+memory/
 .emora_projects/
 emora.zip
 

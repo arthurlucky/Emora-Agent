@@ -32,7 +32,7 @@ export async function handleSendFile(command, sessionId) {
       return `❌ File tidak ditemukan: '${rawPath}'`;
     }
 
-    const { client, sessions, sendFile } = await import("./whatsapp.js");
+    const { client, sessions, sendFile } = await import("./handler.js");
 
     if (!client) {
       return "❌ WhatsApp gateway tidak aktif. File tidak bisa dikirim.";

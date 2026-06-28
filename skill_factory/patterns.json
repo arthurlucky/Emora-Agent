@@ -734,6 +734,35 @@
       "last_seen": 1782562050938,
       "skill_created": false,
       "skill_name": null
+    },
+    "read_file>list_files": {
+      "sequence": [
+        "read_file",
+        "list_files"
+      ],
+      "count": 2,
+      "sessions": [
+        "303f4111-70de-4ef4-8e82-7e4d02bc7253",
+        "11a92b82-a05e-4adc-8cd8-fed2853f0384"
+      ],
+      "first_seen": 1782614000361,
+      "last_seen": 1782614233613,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>shell_exec": {
+      "sequence": [
+        "read_file",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "303f4111-70de-4ef4-8e82-7e4d02bc7253"
+      ],
+      "first_seen": 1782614063180,
+      "last_seen": 1782614063180,
+      "skill_created": false,
+      "skill_name": null
     }
   }
 }
