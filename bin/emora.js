@@ -127,8 +127,14 @@ if (args.includes("--help") || args.includes("-h")) {
 
 // Sub-command router
 switch (subCmd) {
-  case undefined:
   case "--web":
+  case "webui": {
+  const { startWebUI } = await import("../webui/server.js");
+  await startWebUI();
+  break;
+}
+  
+  case undefined:
   case "--debug": {
     // Normal start: import dan run main.js
     await import("../main.js");

@@ -108,14 +108,15 @@
         "emora_hub",
         "emora_hub"
       ],
-      "count": 3,
+      "count": 4,
       "sessions": [
         "bf5c34a2-6c0a-4869-9497-e9bcedda0b1f",
         "06fba46d-8ac8-485a-a29b-8f1e96e778f4",
-        "dd5028c0-28a2-4fd6-b7b6-b26d86643d04"
+        "dd5028c0-28a2-4fd6-b7b6-b26d86643d04",
+        "5fb6168c-e078-4750-b74e-da2d42a42e95"
       ],
       "first_seen": 1781939013459,
-      "last_seen": 1782020910143,
+      "last_seen": 1782650737005,
       "skill_created": false,
       "skill_name": null
     },
@@ -761,6 +762,21 @@
       ],
       "first_seen": 1782614063180,
       "last_seen": 1782614063180,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "fetch_page>fetch_page>search_web": {
+      "sequence": [
+        "fetch_page",
+        "fetch_page",
+        "search_web"
+      ],
+      "count": 1,
+      "sessions": [
+        "5fb6168c-e078-4750-b74e-da2d42a42e95"
+      ],
+      "first_seen": 1782650395191,
+      "last_seen": 1782650395192,
       "skill_created": false,
       "skill_name": null
     }

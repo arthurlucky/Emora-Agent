@@ -56,10 +56,10 @@ let lastResponseMs = 0;
 let totalChars     = 0;
 let msgCount       = 0;
 
-const WEB_MODE =
-  process.env.WEBUI === "true" ||
-  process.env.npm_config_web === "true" ||
-  process.argv.includes("--web");
+// const WEB_MODE =
+//   process.env.WEBUI === "true" ||
+//   process.env.npm_config_web === "true" ||
+//   process.argv.includes("--web");
 
 // ═══════════════════════════════════════════════════════════════════════
 // LLM INIT
@@ -592,11 +592,11 @@ eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
 // ═══════════════════════════════════════════════════════════════════════
 // WEB UI
 // ═══════════════════════════════════════════════════════════════════════
-if (WEB_MODE) {
-  import("./webui/server.js").catch(err =>
-    console.error(red(`\n  ✗ Web UI gagal: ${err.message}\n`))
-  );
-}
+// if (WEB_MODE) {
+//   import("./webui/server.js").catch(err =>
+//     console.error(red(`\n  ✗ Web UI gagal: ${err.message}\n`))
+//   );
+// }
 
 // ═══════════════════════════════════════════════════════════════════════
 // MAIN LOOP

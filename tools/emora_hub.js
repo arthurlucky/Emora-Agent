@@ -5,9 +5,8 @@ import { z } from "zod";
 
 const ROOT_DIR = path.resolve(process.cwd());
 
-// BUGFIX 1: Kasih fallback default URL biar gak crash kalau .env lupa diset
-// (Sudah ditambahkan fallback ke replit app)
-const BASE_URL = process.env.EMORA_HUB || "https://emora-hub--rellaja1214.replit.app"; 
+// Base URL dari environment, fallback ke Replit app
+const BASE_URL = process.env.EMORA_HUB+"/api"
 
 export const emoraHubTool = new DynamicStructuredTool({
   name: "emora_hub",
@@ -20,55 +19,65 @@ export const emoraHubTool = new DynamicStructuredTool({
       "search_tools", 
       "search_skills",
       "download_item",
-      "upload_item" // Action baru untuk POST
+      "upload_item"
     ]),
     query: z.string().optional(),
     download_url: z.string().optional(),
     item_type: z.enum(["tool", "skill"]).optional(),
     item_name: z.string().optional(),
-    // Parameter baru khusus untuk upload_item
     api_key: z.string().optional(),
     description: z.string().optional(),
     tags: z.string().optional(),
-    file_path: z.string().optional() // Path file .zip lokal yang mau di-upload
+    file_path: z.string().optional()
   }),
 
   func: async ({ action, query, download_url, item_type, item_name, api_key, description, tags, file_path }) => {
     try {
       let url = "";
       switch (action) {
-        case "get_popular_tools": url = `${BASE_URL}/getpopulartools`; break;
-        case "get_popular_skills": url = `${BASE_URL}/getpopularskill`; break;
+        case "get_popular_tools": 
+          url = `${BASE_URL}/getpopulartools`; 
+          break;
+        case "get_popular_skills": 
+          url = `${BASE_URL}/getpopularskill`; 
+          break;
         case "search_tools":
           if (!query) return "❌ Error: 'query' wajib.";
-          url = `${BASE_URL}/searchtool?q=${encodeURIComponent(query)}`; break;
+          url = `${BASE_URL}/searchtool?q=${encodeURIComponent(query)}`;
+          break;
         case "search_skills":
           if (!query) return "❌ Error: 'query' wajib.";
-          url = `${BASE_URL}/searchskill?q=${encodeURIComponent(query)}`; break;
+          url = `${BASE_URL}/searchskill?q=${encodeURIComponent(query)}`;
+          break;
         
         case "download_item":
-          if (!download_url || !item_type || !item_name) return "❌ Error: Data tidak lengkap.";
-          
-          // BUGFIX: Handle Localhost IPv6 Fetch Issue
-          let safeUrl = download_url;
-          if (safeUrl.includes("localhost")) {
-            safeUrl = safeUrl.replace("localhost", "127.0.0.1");
+          if (!download_url || !item_type || !item_name) {
+            return "❌ Error: Data tidak lengkap. Butuh 'download_url', 'item_type', dan 'item_name'.";
           }
           
-          const res = await fetch(safeUrl);
+          // Jika download_url relatif, tambahkan BASE_URL
+          let fullUrl = download_url;
+          if (download_url.startsWith("/")) {
+            fullUrl = `${BASE_URL}${download_url}`;
+          }
+          
+          // Handle localhost
+          if (fullUrl.includes("localhost")) {
+            fullUrl = fullUrl.replace("localhost", "127.0.0.1");
+          }
+          
+          const res = await fetch(fullUrl);
           if (!res.ok) {
             const errText = await res.text();
             throw new Error(`Fetch error ${res.status}: ${errText}`);
           }
           
-          // Ambil binary file ZIP
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
           
           const downloadDir = path.join(ROOT_DIR, "download");
           if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
           
-          // BUGFIX 2: Sanitize nama file biar gak ada spasi (auto content -> auto_content.zip)
           const safeFileName = item_name.toLowerCase().trim().replace(/[^a-z0-9_]/g, "_");
           const dlFilePath = path.join(downloadDir, `${safeFileName}.zip`);
           
@@ -76,9 +85,6 @@ export const emoraHubTool = new DynamicStructuredTool({
           
           return `✅ File ZIP berhasil didownload ke '${dlFilePath}'. SEKARANG: Kamu WAJIB menggunakan project_manager untuk mengeksekusi proses instalasi (ekstrak, pindah, registrasi) sesuai EMORA HUB INSTALLATION PROTOCOL di AGENT.md. Gunakan nama direktori tujuan '${safeFileName}'.`;
 
-        // ==========================================
-        // FITUR BARU: UPLOAD ITEM (POST)
-        // ==========================================
         case "upload_item":
           if (!api_key || !item_type || !description || !tags || !file_path) {
             return "❌ Error: Data upload tidak lengkap. Butuh 'api_key', 'item_type' (tool/skill), 'description', 'tags', dan 'file_path'.";
@@ -89,16 +95,19 @@ export const emoraHubTool = new DynamicStructuredTool({
             return `❌ Error: File ZIP tidak ditemukan di '${absoluteFilePath}'. Pastikan file sudah terbuat sebelum di-upload.`;
           }
 
-          // Konversi buffer ke format Blob yang bisa diterima FormData di environment Fetch Node.js
           const fileBufferUpload = fs.readFileSync(absoluteFilePath);
           const fileBlob = new Blob([fileBufferUpload]);
           
           const formData = new FormData();
           
-          // Map item_type dari "tool" ke "tools", dan "skill" ke "skills" sesuai expected API
+          // Map tipe: "tool" -> "tools", "skill" -> "skills"
           const uploadTipe = item_type === "tool" ? "tools" : "skills";
           
           formData.append("tipe", uploadTipe);
+          // Tambahkan name jika diberikan, jika tidak default dari nama file
+          if (item_name) {
+            formData.append("name", item_name);
+          }
           formData.append("description", description);
           formData.append("tags", tags);
           formData.append("file", fileBlob, path.basename(absoluteFilePath));
@@ -115,27 +124,44 @@ export const emoraHubTool = new DynamicStructuredTool({
             throw new Error(`Upload error ${uploadRes.status}: ${errText}`);
           }
 
-          return `✅ File ZIP '${path.basename(absoluteFilePath)}' berhasil dipublikasikan ke EMORA Hub sebagai '${uploadTipe}'!`;
+          const result = await uploadRes.json();
+          if (result.success && result.data) {
+            const { id, name, slug, version, installCmd } = result.data;
+            return `✅ Upload berhasil!\n📦 ID: ${id}\n📛 Nama: ${name} (${slug})\n🔖 Versi: ${version}\n📥 Install: ${installCmd}`;
+          } else {
+            return `⚠️ Upload berhasil tapi respons tidak lengkap: ${JSON.stringify(result)}`;
+          }
       }
 
       // Untuk aksi get/search
       const response = await fetch(url);
-      if (!response.ok) return `❌ Gagal menghubungi API (Status: ${response.status}).`;
+      if (!response.ok) {
+        return `❌ Gagal menghubungi API (Status: ${response.status}).`;
+      }
       const data = await response.json();
       
-      if (!data.data || data.data.length === 0) return `ℹ️ Tidak ada hasil.`;
+      if (!data.data || data.data.length === 0) {
+        return `ℹ️ Tidak ada hasil.`;
+      }
 
       let resultText = `✅ **Hasil EMORA Hub:**\n`;
       data.data.forEach((item, idx) => {
-        // BUGFIX 3: Masukkan Deskripsi agar AI tahu apa fungsi tool/skill tersebut!
-        resultText += `${idx + 1}. **${item.name}** (ID: ${item.id}) | ❤️ ${item.like}\n`;
-        resultText += `   📖 Deskripsi: ${item.description}\n`;
-        resultText += `   📥 URL Download: \`${item.download}\`\n\n`;
+        // Pastikan field download ada, jika tidak buat sendiri
+        let downloadPath = item.download || `/download/${item_type === 'tool' ? 'tools' : 'skill'}/${item.id}`;
+        if (downloadPath.startsWith("/")) {
+          downloadPath = `${BASE_URL}${downloadPath}`;
+        }
+        resultText += `${idx + 1}. **${item.name}** (ID: ${item.id}) | ❤️ ${item.like || 0}\n`;
+        resultText += `   📖 Deskripsi: ${item.description || 'Tidak ada deskripsi'}\n`;
+        resultText += `   📥 URL Download: \`${downloadPath}\`\n`;
+        if (item.installCmd) {
+          resultText += `   📦 Install: \`${item.installCmd}\`\n`;
+        }
+        resultText += `\n`;
       });
       return resultText;
 
     } catch (err) {
-      // Menampilkan cause error spesifik jika network gagal
       return `❌ Error emora_hub: ${err.message} ${err.cause ? `(Penyebab: ${err.cause.message})` : ""}`;
     }
   },

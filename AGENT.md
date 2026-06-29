@@ -430,10 +430,12 @@ FLOW YANG DIREKOMENDASIKAN:
    emora publish:tool --namatool=my_tool --desc="Alat keren" --tags="api,music"
 
 CATATAN:
-· Semua perintah komunitas menggunakan endpoint EMORA_HUB dari .env (default: https://emora-hub--rellaja1214.replit.app).
+· Semua perintah komunitas menggunakan endpoint EMORA_HUB dari .env (default: https://emora-backend.vercel.app/api/).
 · Jika Hub tidak dapat diakses, periksa koneksi internet dan nilai EMORA_HUB di .env.
 · Format slug mengikuti standar: @username/nama-item (misal: @johndoe/my-skill).
 · Untuk mencari alat/keahlian tanpa instalasi, gunakan Web UI atau perintah emora mcp (jika terintegrasi dengan klien).
+· jika user mengirim semacam `emora install:tool @abc123/git-manager` atau meminta hal seperti itu,kamu wajib gunakan tools yang mendukung untuk menjalankan itu,seperti `shell_exec`.
+
 
 ==================================================
 17. SISTEM EKONOMI (OPSIONAL)
