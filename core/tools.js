@@ -28,6 +28,8 @@ import { systemMonitorTool } from "../tools/system_monitor.js";
 import { economyManagerTool } from "../tools/economy_manager.js";
 import { gitManagerTool } from "../tools/git_manager.js";
 import knowledgeLibraryTool from "../tools/knowledge_library.js";
+import { pterodactylManager } from "../tools/pterodactyl-client.js";
+import { loadMCPTools } from "../tools/mcp_bridge.js";
 
 const tools = [
   SearchWebTool,
@@ -60,6 +62,21 @@ const tools = [
   
   groupManagerTool,
   knowledgeLibraryTool,
+  
+  pterodactylManager
 ];
+
+// ─────────────────────────────────────────────
+// MCP external tools — spawn server stdio yang dikonfigurasi di
+// mcp/mcp.config.json (mis. autocad-mcp) dan tambahkan tool-toolnya
+// ke daftar tool EMORA. Top-level await aman karena project ini
+// "type": "module" dan main.js sudah memakai top-level await juga.
+// ─────────────────────────────────────────────
+try {
+  const mcpTools = await loadMCPTools();
+  if (mcpTools.length) tools.push(...mcpTools);
+} catch (err) {
+  console.error(`  ⚠️  MCP bridge gagal dimuat: ${err.message}`);
+}
 
 export default tools;

@@ -110,11 +110,22 @@ async function getSystemPrompt() {
     const name = process.env.NAME || "Emora";
     const soulPath = path.join(ROOT_DIR, 'SOUL.md');
     const agentPath = path.join(ROOT_DIR, 'AGENT.md');
-    
-    const soul = await fs.readFile(soulPath, "utf8");
-    const agent = await fs.readFile(agentPath, "utf8");
-    const skillCatalog = await buildSkillCatalog();
-    const librarySummary = await buildLibrarySummary();
+
+    // ==========================================
+    // PERF #1: I/O paralel.
+    // 4 operasi async independen (baca SOUL.md, baca AGENT.md, scan
+    // folder skill, load index library) sekarang jalan bersamaan via
+    // Promise.all, bukan berurutan -> total waktu = durasi paling
+    // lama, bukan jumlah semuanya. Hanya berjalan sekali per proses
+    // (hasil di-cache di cachedSystemPrompt) tapi memangkas latency
+    // request pertama / setelah cache di-invalidate.
+    // ==========================================
+    const [soul, agent, skillCatalog, librarySummary] = await Promise.all([
+      fs.readFile(soulPath, "utf8"),
+      fs.readFile(agentPath, "utf8"),
+      buildSkillCatalog(),
+      buildLibrarySummary(),
+    ]);
     
     const Context = `
  user identity
@@ -230,12 +241,47 @@ async function invokeWithRetry(llm, messages, maxRetries = 3) {
   }
 }
 
+// ==========================================
+// PERF #3: Fast-path untuk chat pendek/basa-basi.
+// AGENT.md mewajibkan cek knowledge_library untuk "pertanyaan faktual"
+// dan skill catalog untuk permintaan yang cocok skill — bagus untuk
+// pertanyaan substantif, tapi kalau model salah generalisasi ke pesan
+// kasual ("hai", "makasih", "oke") itu nambah 1 round-trip tool call
+// penuh (invoke -> tool -> invoke lagi) yang gampang bikin total waktu
+// respon > 5 detik untuk chat sepele. Deteksi heuristik ringan di sini
+// dan sisipkan catatan kecil (bukan ubah AGENT.md) yang menegaskan:
+// kalau pesan ini kasual & tidak butuh pengetahuan/skill spesifik,
+// jawab langsung tanpa tool. Kalau ternyata memang butuh tool, model
+// tetap bebas memanggilnya — ini cuma hint, bukan larangan keras.
+// ==========================================
+const SMALLTALK_RE = /^(hai|halo+|hi|hei|hy|hello|hey|p+ag+i|si+ang|so+re|ma+lam|thanks?|thx|makasih|terima\s*kasih|oke*|ok|sip|mantap|ya|iya|gpp|santai|wkwk+|haha+|bye|dadah|see\s*ya)[\s!.,?]*$/i;
+
+function isLikelyShortChat(input) {
+  const trimmed = (input || "").trim();
+  if (!trimmed) return false;
+  if (trimmed.length <= 40 && SMALLTALK_RE.test(trimmed)) return true;
+  if (trimmed.length <= 12 && !/[?]/.test(trimmed)) return true; // super pendek & bukan pertanyaan
+  return false;
+}
+
 export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
+  const t0 = Date.now();
   const systemPrompt = await getSystemPrompt();
   const memory = await loadSession(sessionId);
 
+  let turnSystemPrompt = systemPrompt + `\n\n[INFO SYSTEM]\nSession ID aktif user ini adalah: ${sessionId}`;
+
+  if (isLikelyShortChat(input)) {
+    turnSystemPrompt +=
+      `\n\n[FAST MODE — pesan turn ini terdeteksi kasual/sangat pendek]\n` +
+      `Pesan user kemungkinan besar basa-basi/singkat, BUKAN pertanyaan faktual. ` +
+      `Jika benar demikian, balas langsung tanpa memanggil tool apa pun (skip cek knowledge_library ` +
+      `dan skip baca skill) supaya respon cepat (target < 5 detik). Kalau ternyata pesan ini ` +
+      `tetap butuh tool/fakta spesifik, tetap panggil tool seperti biasa — ini cuma hint, bukan larangan.`;
+  }
+
   const messages = [
-    new SystemMessage(systemPrompt + `\n\n[INFO SYSTEM]\nSession ID aktif user ini adalah: ${sessionId}`),
+    new SystemMessage(turnSystemPrompt),
     ...memoryToMessages(memory),
     new HumanMessage(input),
   ];
@@ -330,6 +376,11 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
   });
 
   await saveSession(sessionId, memory);
+
+  const elapsedMs = Date.now() - t0;
+  if (process.env.EMORA_DEBUG_TIMING === "1") {
+    console.log(`[TIMING] turn selesai dalam ${elapsedMs}ms (session=${sessionId})`);
+  }
 
   return finalContent;
 }

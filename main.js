@@ -1,7 +1,7 @@
 /**
  * main.js — EMORA CLI Agent
- * Desain mengacu screenshot referensi: tool bullets, clean response header,
- * status bar, autocomplete di bawah prompt.
+ * UI redesign: Claude Code–style tool bullets, diff output, task tracker,
+ * session chip, clean autocomplete.
  */
 
 import "dotenv/config";
@@ -16,9 +16,10 @@ import tools                          from "./core/tools.js";
 import { ask }                        from "./core/chat.js";
 import { handleCommand }              from "./core/cmd.js";
 import { eventBus }                   from "./utils/eventBus.js";
+import { closeMCPClients }            from "./tools/mcp_bridge.js";
 
 // ═══════════════════════════════════════════════════════════════════════
-// COLOR TOKENS  (sesuai permintaan)
+// COLOR TOKENS
 // ═══════════════════════════════════════════════════════════════════════
 const dim    = chalk.hex("#6e7681");
 const cyan   = chalk.hex("#58a6ff");
@@ -26,11 +27,11 @@ const green  = chalk.hex("#3fb950");
 const yellow = chalk.hex("#d29922");
 const muted  = chalk.hex("#8b949e");
 const bold   = chalk.bold;
-
-// Tambahan yang dibutuhkan
 const red    = chalk.hex("#f85149");
 const purple = chalk.hex("#a371f7");
 const white  = chalk.hex("#e6edf3");
+const bgRed  = chalk.bgHex("#3d1b1b");
+const bgGreen= chalk.bgHex("#1b2d1b");
 
 // ═══════════════════════════════════════════════════════════════════════
 // TERMINAL HELPERS
@@ -46,6 +47,20 @@ function pad(str, len) {
   return raw.length >= len ? str : str + " ".repeat(len - raw.length);
 }
 
+// ─── Chip / badge helper ─────────────────────────────────────────────
+// Renders a small bracketed chip like: [redesign-ui]
+function chip(text, color = dim) {
+  return dim("[") + color(text) + dim("]");
+}
+
+// ─── Right-align a string on the same line ───────────────────────────
+function rightAlign(left, right) {
+  const lRaw = stripAnsi(left);
+  const rRaw = stripAnsi(right);
+  const gap = Math.max(1, W() - lRaw.length - rRaw.length);
+  return left + " ".repeat(gap) + right;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // SESSION STATE
 // ═══════════════════════════════════════════════════════════════════════
@@ -56,10 +71,8 @@ let lastResponseMs = 0;
 let totalChars     = 0;
 let msgCount       = 0;
 
-// const WEB_MODE =
-//   process.env.WEBUI === "true" ||
-//   process.env.npm_config_web === "true" ||
-//   process.argv.includes("--web");
+// Short session ID for the chip (first 8 chars)
+const SESSION_CHIP = state.currentSession.slice(0, 8);
 
 // ═══════════════════════════════════════════════════════════════════════
 // LLM INIT
@@ -88,14 +101,14 @@ const SLASH_COMMANDS = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
-// STATUS BAR
+// TIME HELPERS
 // ═══════════════════════════════════════════════════════════════════════
 function formatTime(ms) {
   const s = Math.floor(ms / 1000);
   if (s < 60)  return `${s}s`;
   const m = Math.floor(s / 60);
-  if (m < 60)  return `${m}m`;
-  return `${Math.floor(m / 60)}h${m % 60}m`;
+  if (m < 60)  return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 function progressBar(pct, w = 8) {
@@ -108,34 +121,38 @@ function progressBar(pct, w = 8) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// STATUS BAR  (rendered above the prompt)
+// ═══════════════════════════════════════════════════════════════════════
 function renderStatusBar() {
   const prov    = getProviderMeta();
   const model   = `${prov.label.toLowerCase().replace(/\s+/g, "-")}:${process.env.MODEL_NAME || "—"}`;
-  const ctxMax  = 400_000;             // ~100K tokens * 4 chars
+  const ctxMax  = 400_000;
   const pct     = Math.min(100, Math.round((totalChars / ctxMax) * 100));
   const charsK  = totalChars > 999 ? `${(totalChars / 1000).toFixed(1)}K` : `${totalChars}`;
   const limitK  = `${Math.round(ctxMax / 1000)}K`;
   const uptime  = formatTime(Date.now() - sessionStart);
   const lastR   = lastResponseMs ? `⊙ ${formatTime(lastResponseMs)}` : "⊙ —";
-  const msgs    = `${msgCount} msg`;
 
-  const parts = [
-    yellow.bold(`$ ${model}`),
-    muted(`${charsK}/${limitK}`),
+  const left = [
+    yellow(`$ ${model}`),
+    dim(`${charsK}/${limitK}`),
     progressBar(pct) + " " + dim(`${pct}%`),
     dim(uptime),
     muted(lastR),
-    dim(`✓ ${msgs}`),
-  ];
+    dim(`✓ ${msgCount} msg`),
+  ].join(dim(" │ "));
 
-  // Compact: join with dim " | " separator, truncate if terminal too narrow
-  const line = parts.join(dim(" | "));
-  const raw  = stripAnsi(line);
-  if (raw.length <= W()) {
-    console.log(line);
+  const right = chip(SESSION_CHIP, cyan);
+  const leftRaw = stripAnsi(left);
+  const rightRaw = stripAnsi(right);
+  const gap = Math.max(1, W() - leftRaw.length - rightRaw.length);
+
+  if (leftRaw.length + rightRaw.length + 1 <= W()) {
+    console.log(left + " ".repeat(gap) + right);
   } else {
-    // Too long: drop last parts
-    console.log(parts.slice(0, 4).join(dim(" | ")));
+    // Narrow terminal: just left parts
+    console.log([yellow(`$ ${model}`), dim(uptime), muted(lastR)].join(dim(" │ ")));
   }
 }
 
@@ -171,7 +188,7 @@ async function showBanner() {
   ];
   rows.forEach(([k, v]) => console.log("  " + k + v));
 
-  // Skills inline
+  // Skills
   try {
     const skills = fs.readdirSync("./skill", { withFileTypes: true }).filter(d => d.isDirectory());
     if (skills.length) {
@@ -180,8 +197,8 @@ async function showBanner() {
       const names = skills.map(s => muted(s.name));
       let line = "", count = 0;
       for (const n of names) {
-        const sep   = count > 0 ? dim("  ·  ") : "";
-        const try1  = stripAnsi(line + stripAnsi(sep) + stripAnsi(n));
+        const sep  = count > 0 ? dim("  ·  ") : "";
+        const try1 = stripAnsi(line + stripAnsi(sep) + stripAnsi(n));
         if (try1.length > W() - 12) { console.log(line); write("  " + " ".repeat(10)); line = n; }
         else { line += sep + n; }
         count++;
@@ -190,12 +207,12 @@ async function showBanner() {
     }
   } catch {}
 
-  // Library summary (import dilakukan di luar try agar tidak error di node --check)
+  // Library
   try {
-    const libMod  = await import("./library/index.js");
-    const topics   = libMod.listTopics();
-    const catalog  = libMod.loadIndex();
-    const tkeys    = Object.keys(topics);
+    const libMod = await import("./library/index.js");
+    const topics  = libMod.listTopics();
+    const catalog = libMod.loadIndex();
+    const tkeys   = Object.keys(topics);
     if (tkeys.length) {
       write(
         "  " + dim("library   ") +
@@ -215,9 +232,9 @@ async function showBanner() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// THINKING DISPLAY  — spinner ringan, Termux-safe
+// THINKING DISPLAY  — spinner + elapsed
 // ═══════════════════════════════════════════════════════════════════════
-const THINKING = [
+const THINKING_PHRASES = [
   "memikirkan jawaban",
   "sedang analisa",
   "meramu respons",
@@ -227,37 +244,45 @@ const THINKING = [
   "nyusun pemikiran",
   "menelaah permintaan",
 ];
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function startThinking() {
-  const t0      = Date.now();
-  let   phraseI = Math.floor(Math.random() * THINKING.length);
-  let   active  = true;
-  const events  = [];
+  const t0     = Date.now();
+  let   frameI = 0;
+  let   active = true;
 
   // Initial line
-  write(dim("  ◆ ") + muted(THINKING[phraseI] + "...") + "  " + dim("0.0s") + "\n");
+  write(
+    dim("  ") + cyan(SPINNER_FRAMES[0]) + " " +
+    muted(THINKING_PHRASES[0] + "...") + "  " + dim("0.0s") + "\n"
+  );
 
   const tick = setInterval(() => {
     if (!active) return;
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    // Phrase rotates every 3s
-    const newPhrase = THINKING[Math.floor((Date.now() - t0) / 3000) % THINKING.length];
-    // Rewrite same line
+    frameI = (frameI + 1) % SPINNER_FRAMES.length;
+    const elapsed   = ((Date.now() - t0) / 1000).toFixed(1);
+    const phraseI   = Math.floor((Date.now() - t0) / 3000) % THINKING_PHRASES.length;
     write("\x1B[1A\x1B[2K");
-    write(dim("  ◆ ") + muted(newPhrase + "...") + "  " + dim(elapsed + "s") + "\n");
-  }, 200);
+    write(
+      dim("  ") + cyan(SPINNER_FRAMES[frameI]) + " " +
+      muted(THINKING_PHRASES[phraseI] + "...") + "  " + dim(elapsed + "s") + "\n"
+    );
+  }, 80);
 
   function logEvent(formatted) {
-    // Remove thinking line, print event, restore thinking line
     write("\x1B[1A\x1B[2K");
     console.log(formatted);
-    write(dim("  ◆ ") + muted(THINKING[phraseI] + "...") + "\n");
+    // Restore spinner line (minimal, no elapsed update needed here)
+    write(
+      dim("  ") + cyan(SPINNER_FRAMES[frameI]) + " " +
+      muted(THINKING_PHRASES[0] + "...") + "\n"
+    );
   }
 
   function stop() {
     active = false;
     clearInterval(tick);
-    write("\x1B[1A\x1B[2K"); // erase thinking line
+    write("\x1B[1A\x1B[2K");
     return Date.now() - t0;
   }
 
@@ -265,35 +290,84 @@ function startThinking() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// TOOL / SKILL EVENT FORMATTER
+// TOOL LABEL MAP  — maps internal tool names → display names
+// Uses Claude Code style: capitalize first letter, verb form
 // ═══════════════════════════════════════════════════════════════════════
 const TOOL_LABELS = {
-  shell_exec:      "shell",
-  read_file:       "read",
-  write_file:      "write",
-  list_files:      "ls",
-  search_web:      "search",
-  fetch_page:      "fetch",
-  git_manager:     "git",
-  backup_manager:  "backup",
-  scheduler:       "scheduler",
-  project_manager: "project",
-  system_monitor:  "sysmon",
-  group_manager:   "group",
-  skill_factory:   "skill factory",
-  zip_compress:    "zip",
-  zip_extract:     "unzip",
-  create_folder:   "mkdir",
-  delete_folder:   "rmdir",
-  search_text:     "grep",
-  find_folder:     "find",
-  economy_manager: "economy",
-  emora_hub:       "hub",
-  datetime:        "datetime",
+  shell_exec:      "Bash",
+  read_file:       "Read",
+  write_file:      "Write",
+  list_files:      "List",
+  search_web:      "WebSearch",
+  fetch_page:      "Fetch",
+  git_manager:     "Git",
+  backup_manager:  "Backup",
+  scheduler:       "Scheduler",
+  project_manager: "TodoWrite",
+  system_monitor:  "SysMon",
+  group_manager:   "Group",
+  skill_factory:   "SkillFactory",
+  zip_compress:    "Zip",
+  zip_extract:     "Unzip",
+  create_folder:   "Mkdir",
+  delete_folder:   "Rmdir",
+  search_text:     "Grep",
+  find_folder:     "Find",
+  economy_manager: "Economy",
+  emora_hub:       "Hub",
+  datetime:        "DateTime",
 };
 
+// Extract a short arg preview for the tool invocation line
+// Returns: "preview string" to show inside parens
+function getArgPreview(name, args) {
+  if (!args) return "";
+  if (args.command)      return String(args.command).slice(0, 60);
+  if (args.path)         return args.path;
+  if (args.query)        return `"${String(args.query).slice(0, 48)}"`;
+  if (args.action)       return args.action;
+  if (args.url)          return String(args.url).slice(0, 55);
+  if (args.filename)     return args.filename;
+  if (args.topic)        return args.topic;
+  return "";
+}
+
 // ═══════════════════════════════════════════════════════════════════════
-// PRINT AI RESPONSE  — matches screenshot style
+// TOOL EVENT RENDERER  (Claude Code style)
+//
+//   ● Bash(node --check server.js && echo "server.js OK")
+//   └  server.js OK
+//
+//   ● Read(src/index.js)
+//   └  $ 342 lines
+//
+//   ◈ reading skill weather
+// ═══════════════════════════════════════════════════════════════════════
+function formatToolUse(name, args) {
+  let label = TOOL_LABELS[name] || name;
+
+  // MCP-bridged tools: "mcp_<server>__<tool>" -> "MCP:server/tool"
+  const mcpMatch = name.match(/^mcp_(.+?)__(.+)$/);
+  if (mcpMatch) label = `MCP:${mcpMatch[1]}/${mcpMatch[2]}`;
+
+  const preview = getArgPreview(name, args);
+  const head    = green("  ● ") + white.bold(label) + dim("(") + dim(preview) + dim(")");
+  return head;
+}
+
+function formatToolResult(name, result, durationMs) {
+  const preview  = result ? String(result).trim().split("\n")[0].slice(0, 68) : "";
+  const dur      = durationMs != null ? dim(`  ${(durationMs / 1000).toFixed(1)}s`) : "";
+  if (!preview) return null;
+  return dim("  └  ") + muted(preview) + dur;
+}
+
+function formatSkillRead(skillName) {
+  return purple("  ◈ ") + dim("reading skill ") + cyan.bold(skillName);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRINT AI RESPONSE  — Claude Code style
 // ═══════════════════════════════════════════════════════════════════════
 function printResponse(text, durationMs) {
   const agentName = process.env.NAME || "Emora";
@@ -301,24 +375,50 @@ function printResponse(text, durationMs) {
   msgCount++;
   lastResponseMs = durationMs;
 
-  // Header: — AgentName ────────────────────────
-  const headerMid  = `  ${dim("—")} ${green(agentName)} `;
-  const headerFill = dim("─".repeat(Math.max(0, W() - stripAnsi(headerMid).length)));
-  console.log(headerMid + headerFill);
+  // ── Header line  ─  AgentName ────────────────────── [session]
+  const nameStr    = green.bold(agentName);
+  const headerLeft = "  " + dim("─") + " " + nameStr + " ";
+  const sessionTag = chip(SESSION_CHIP, cyan);
+  const dashLen    = Math.max(0, W() - stripAnsi(headerLeft).length - stripAnsi(sessionTag).length);
+  console.log(headerLeft + dim("─".repeat(dashLen)) + " " + sessionTag);
   console.log();
 
   const maxW = W() - 4;
 
   for (const rawLine of text.split("\n")) {
+    // Blank line
     if (!rawLine.trim()) { console.log(); continue; }
 
-    // Detect markdown
-    const isH = /^#{1,3} /.test(rawLine);
+    // Detect markdown-ish patterns
+    const isH1     = /^# /.test(rawLine);
+    const isH2     = /^#{2,3} /.test(rawLine);
     const isBullet = /^\s*[-•*▸]\s/.test(rawLine);
-    const isCode = rawLine.startsWith("    ") || rawLine.startsWith("\t");
+    const isCode   = rawLine.startsWith("    ") || rawLine.startsWith("\t");
+    // Diff-style lines (if AI outputs unified diff)
+    const isDiffAdd = /^\+(?!\+\+)/.test(rawLine);
+    const isDiffRem = /^-(?!--)/.test(rawLine);
+    const isDiffNum = /^\d+\s+[+\-]/.test(rawLine);
 
-    // Word-wrap (based on plain text width)
-    const words = rawLine.split(" ");
+    if (isCode) {
+      // Inline code block: dim background-ish
+      console.log("  " + dim(rawLine));
+      continue;
+    }
+
+    if (isDiffAdd) {
+      const lineStr = rawLine.replace(/\n$/, "");
+      console.log("  " + bgGreen(green("  " + lineStr.padEnd(Math.min(lineStr.length + 2, maxW - 2)))));
+      continue;
+    }
+
+    if (isDiffRem) {
+      const lineStr = rawLine.replace(/\n$/, "");
+      console.log("  " + bgRed(red("  " + lineStr.padEnd(Math.min(lineStr.length + 2, maxW - 2)))));
+      continue;
+    }
+
+    // Word wrap
+    const words   = rawLine.split(" ");
     const wrapped = [];
     let cur = "";
     for (const w of words) {
@@ -330,23 +430,33 @@ function printResponse(text, durationMs) {
 
     for (const line of wrapped) {
       let out = line;
-      if (isH)     { out = cyan.bold(line); }
-      else if (isCode) { out = dim(line); }
-      else {
-        out = out.replace(/`([^`]+)`/g,    (_, c) => cyan("`" + c + "`"));
-        out = out.replace(/\*\*([^*]+)\*\*/g, (_, c) => bold(white(c)));
-        if (isBullet) out = dim("  ") + out;
+      if (isH1) {
+        out = cyan.bold.underline(line.replace(/^# /, ""));
+      } else if (isH2) {
+        out = cyan.bold(line.replace(/^#{2,3} /, ""));
+      } else {
+        // Inline formatting
+        out = out.replace(/`([^`]+)`/g,       (_, c) => cyan("`" + c + "`"));
+        out = out.replace(/\*\*([^*]+)\*\*/g,  (_, c) => bold(white(c)));
+        out = out.replace(/\*([^*]+)\*/g,      (_, c) => white(c));
+        if (isBullet) {
+          // Replace bullet marker with green ●
+          out = out.replace(/^(\s*)[-•*▸]\s/, (_, sp) => sp + green("● ") );
+        }
       }
       console.log("  " + out);
     }
   }
 
   console.log();
-  // Footer timing
+
+  // Footer: timing + word count
   if (durationMs) {
-    const durStr = (durationMs / 1000).toFixed(1) + "s";
-    console.log(dim(`  ✓ ${durStr}`));
+    const durStr   = (durationMs / 1000).toFixed(1) + "s";
+    const charStr  = text.length > 999 ? `${(text.length / 1000).toFixed(1)}K chars` : `${text.length} chars`;
+    console.log(dim(`  ✓ ${durStr}  ·  ${charStr}`));
   }
+
   console.log();
 }
 
@@ -367,9 +477,11 @@ function printSystem(text, { isError = false, isExit = false } = {}) {
 function printHelp() {
   console.log();
   console.log(SEP());
+  console.log("  " + purple.bold("SLASH COMMANDS"));
+  console.log(SEP());
   SLASH_COMMANDS.forEach(({ cmd, desc }) => {
     console.log(
-      cyan(pad(cmd, 14)) +
+      "  " + cyan.bold(pad(cmd, 14)) +
       dim("  ") +
       muted(desc)
     );
@@ -383,7 +495,7 @@ function printHelp() {
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Render prompt + optional autocomplete list.
+ * Render status bar + prompt + optional autocomplete list.
  * Returns number of lines printed (for clearing on next key).
  */
 function renderInputArea(buf, completions = null) {
@@ -393,18 +505,21 @@ function renderInputArea(buf, completions = null) {
   renderStatusBar();
   lines++;
 
-  // Prompt line
+  // Prompt line: "> " + typed text
+  if (completions !== null) {
+    // In slash mode: show dim border, then prompt
+    write(SEP() + "\n"); lines++;
+  }
+
   write(dim("> ") + (buf ? yellow(buf) : "") + "\n");
   lines++;
 
-  // Autocomplete list (if "/" mode)
-  if (completions !== null) {
-    write(SEP() + "\n");
-    lines++;
+  // Autocomplete popup below prompt
+  if (completions !== null && completions.length > 0) {
     for (const { cmd, desc, selected } of completions) {
-      const cmdStr  = selected ? cyan.bold(pad(cmd, 16)) : white(pad(cmd, 16));
-      const descStr = selected ? white(desc) : dim(desc);
-      write(cmdStr + "  " + descStr + "\n");
+      const cmdStr  = selected ? green.bold(pad(cmd, 16)) : white(pad(cmd, 16));
+      const descStr = selected ? white(desc)              : dim(desc);
+      write("  " + cmdStr + "  " + descStr + "\n");
       lines++;
     }
   }
@@ -414,13 +529,13 @@ function renderInputArea(buf, completions = null) {
 
 function readInput() {
   return new Promise((resolve) => {
-    let buf      = "";
+    let buf       = "";
     let slashMode = false;
-    let selIdx   = -1;      // -1 = no selection (typing)
+    let selIdx    = -1;
     let renderedLines = 0;
 
     function filtered() {
-      const q = buf.slice(1).toLowerCase();   // after "/"
+      const q = buf.slice(1).toLowerCase();
       return SLASH_COMMANDS.filter(c =>
         !q || c.cmd.slice(1).startsWith(q) || c.desc.toLowerCase().includes(q)
       );
@@ -432,16 +547,13 @@ function readInput() {
     }
 
     function render() {
-      // Clear previous render
       clearLines(renderedLines);
       const comps = buildCompletions(selIdx);
       renderedLines = renderInputArea(buf, comps);
     }
 
-    // Initial render
     render();
 
-    // Raw mode
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.setEncoding("utf8");
 
@@ -451,77 +563,46 @@ function readInput() {
     }
 
     async function onKey(key) {
-      // Ctrl+C
       if (key === "\x03") {
-        cleanup();
-        clearLines(renderedLines);
-        resolve(null); // null = cancelled, will ask again
-        return;
+        cleanup(); clearLines(renderedLines); resolve(null); return;
       }
-
-      // Ctrl+D
       if (key === "\x04") {
-        cleanup();
-        clearLines(renderedLines);
+        cleanup(); clearLines(renderedLines);
         printSystem("Sampai jumpa! 👋", { isExit: true });
         process.exit(0);
       }
-
-      // Enter
       if (key === "\r" || key === "\n") {
-        // If selection active, use it
         if (slashMode && selIdx >= 0) {
           const chosen = filtered()[selIdx];
           if (chosen) {
-            cleanup();
-            clearLines(renderedLines);
-            // If no-arg command, submit directly
+            cleanup(); clearLines(renderedLines);
             const noArg = ["/new","/sesilist","/help","/exit","/clear","/sesi"];
             if (noArg.includes(chosen.cmd)) {
               resolve(chosen.cmd);
             } else {
-              buf = chosen.cmd + " ";
-              slashMode = false; selIdx = -1;
-              renderedLines = 0;
-              render();
-              // Continue typing
+              buf = chosen.cmd + " "; slashMode = false; selIdx = -1; renderedLines = 0; render();
             }
             return;
           }
         }
-        cleanup();
-        clearLines(renderedLines);
-        resolve(buf.trim());
-        return;
+        cleanup(); clearLines(renderedLines); resolve(buf.trim()); return;
       }
-
-      // Backspace
       if (key === "\x7F" || key === "\b") {
-        buf = buf.slice(0, -1);
-        slashMode = buf.startsWith("/");
-        if (!slashMode) selIdx = -1;
-        render();
-        return;
+        buf = buf.slice(0, -1); slashMode = buf.startsWith("/");
+        if (!slashMode) selIdx = -1; render(); return;
       }
-
-      // Escape → clear
       if (key === "\x1B" && !key.startsWith("\x1B[")) {
-        buf = ""; slashMode = false; selIdx = -1;
-        render();
-        return;
+        buf = ""; slashMode = false; selIdx = -1; render(); return;
       }
-
-      // Arrow keys
-      if (key === "\x1B[A") {  // Up
+      if (key === "\x1B[A") {
         if (slashMode) {
           const f = filtered();
-          if (selIdx <= 0) selIdx = f.length - 1;
-          else selIdx--;
+          selIdx = selIdx <= 0 ? f.length - 1 : selIdx - 1;
           render();
         }
         return;
       }
-      if (key === "\x1B[B") {  // Down
+      if (key === "\x1B[B") {
         if (slashMode) {
           const f = filtered();
           selIdx = (selIdx + 1) % f.length;
@@ -529,33 +610,24 @@ function readInput() {
         }
         return;
       }
-      if (key === "\x1B[C" || key === "\x1B[D") return; // Left/Right: ignore
-
-      // Tab → autocomplete first match
+      if (key === "\x1B[C" || key === "\x1B[D") return;
       if (key === "\t") {
         if (slashMode) {
           const f = filtered();
           if (f.length === 1) {
-            buf = f[0].cmd + " ";
-            slashMode = false; selIdx = -1;
+            buf = f[0].cmd + " "; slashMode = false; selIdx = -1;
           } else if (selIdx >= 0 && f[selIdx]) {
-            buf = f[selIdx].cmd + " ";
-            slashMode = false; selIdx = -1;
+            buf = f[selIdx].cmd + " "; slashMode = false; selIdx = -1;
           }
           render();
         }
         return;
       }
-
-      // Ignore other escape sequences
       if (key.startsWith("\x1B")) return;
 
-      // Normal char
       buf += key;
-      if (buf === "/") { slashMode = true; selIdx = -1; }
-      else if (!buf.startsWith("/")) slashMode = false;
-      else slashMode = true;
-
+      slashMode = buf.startsWith("/");
+      if (!slashMode) selIdx = -1;
       render();
     }
 
@@ -576,10 +648,12 @@ eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
     const result = await ask(llm, tools, bgSess, `[BACKGROUND TASK] ${prompt}`);
     if (!result.includes("SILENT_ABORT")) {
       console.log();
-      console.log(SEP(yellow));
-      console.log(yellow("  🔔 Background Task: ") + dim(job_id));
-      result.split("\n").forEach(l => console.log(dim("  ") + white(l)));
-      console.log(SEP(yellow));
+      console.log(rightAlign(
+        yellow("  🔔 Background Task ") + dim(job_id),
+        chip("bg", yellow)
+      ));
+      result.split("\n").forEach(l => console.log(dim("  │ ") + white(l)));
+      console.log(dim("  └" + "─".repeat(W() - 4)));
       console.log();
     }
   } catch (err) {
@@ -590,25 +664,13 @@ eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// WEB UI
-// ═══════════════════════════════════════════════════════════════════════
-// if (WEB_MODE) {
-//   import("./webui/server.js").catch(err =>
-//     console.error(red(`\n  ✗ Web UI gagal: ${err.message}\n`))
-//   );
-// }
-
-// ═══════════════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════════════
 async function runChat() {
   await showBanner();
 
   while (true) {
-    // Read user input (blocking, raw mode)
     const input = await readInput();
-
-    // null = Ctrl+C, just loop again
     if (input === null) continue;
     if (!input)         continue;
 
@@ -616,10 +678,9 @@ async function runChat() {
     const cmdResult = await handleCommand(input, state);
     if (cmdResult) {
       if (cmdResult.action === "exit") {
-        printSystem(cmdResult.message, { isExit: true });
-        process.exit(0);
+        printSystem(cmdResult.message, { isExit: true }); process.exit(0);
       }
-      if (cmdResult.action === "help") { printHelp(); continue; }
+      if (cmdResult.action === "help")  { printHelp(); continue; }
       if (cmdResult.action === "reply") { printSystem(cmdResult.message); continue; }
       continue;
     }
@@ -628,45 +689,28 @@ async function runChat() {
     msgCount++;
     totalChars += input.length;
 
-    // Separator before response
     console.log();
     console.log(SEP());
 
-    const thinking = startThinking();
-    const toolCallTimers = new Map(); // name -> startMs
+    const thinking      = startThinking();
+    const toolCallStart = new Map();   // name -> startMs
 
     try {
       const result = await ask(llm, tools, state.currentSession, input, {
         onEvent(ev) {
-          let formatted = "";
-
           if (ev.type === "tool_use") {
-            toolCallTimers.set(ev.name, Date.now());
-            const label = TOOL_LABELS[ev.name] || ev.name;
-            let detail = "";
-            if (ev.args) {
-              if (ev.args.command)      detail = dim("  " + String(ev.args.command).slice(0, 52));
-              else if (ev.args.path)    detail = dim("  " + ev.args.path);
-              else if (ev.args.query)   detail = dim(`  "${String(ev.args.query).slice(0, 40)}"`);
-              else if (ev.args.action)  detail = dim("  " + ev.args.action);
-              else if (ev.args.url)     detail = dim("  " + String(ev.args.url).slice(0, 50));
-            }
-            formatted = green("  ● ") + white(label) + detail;
-            thinking.logEvent(formatted);
+            toolCallStart.set(ev.name, Date.now());
+            thinking.logEvent(formatToolUse(ev.name, ev.args));
 
           } else if (ev.type === "tool_result") {
-            const startMs = toolCallTimers.get(ev.name);
-            const dur     = startMs ? dim(`  ${((Date.now() - startMs) / 1000).toFixed(1)}s`) : "";
-            toolCallTimers.delete(ev.name);
-            const preview = ev.result ? String(ev.result).trim().split("\n")[0].slice(0, 64) : "";
-            if (preview) {
-              formatted = dim("  │ ") + dim("$ ") + muted(preview) + dur;
-              thinking.logEvent(formatted);
-            }
+            const startMs = toolCallStart.get(ev.name);
+            const dur     = startMs != null ? Date.now() - startMs : null;
+            toolCallStart.delete(ev.name);
+            const line = formatToolResult(ev.name, ev.result, dur);
+            if (line) thinking.logEvent(line);
 
           } else if (ev.type === "skill_read") {
-            formatted = purple("  ◈ ") + dim("reading skill ") + cyan.bold(ev.name);
-            thinking.logEvent(formatted);
+            thinking.logEvent(formatSkillRead(ev.name));
           }
         },
       });
@@ -685,3 +729,6 @@ async function runChat() {
 }
 
 runChat();
+
+process.on("SIGINT",  () => { closeMCPClients(); process.exit(0); });
+process.on("exit",    () => { closeMCPClients(); });

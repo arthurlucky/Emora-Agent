@@ -57,7 +57,9 @@ export async function createLLM({ apiKey, model, tools = [] } = {}) {
     apiKey:    apiKey || process.env.ANTHROPIC_API_KEY || process.env.MODEL_API,
     model:     model  || process.env.MODEL_NAME || DEFAULT_MODEL,
     temperature: 0.2,
-    maxTokens:   8192,
+    // PERF: default diturunkan dari 8192 -> 2048, override via .env
+    // MODEL_MAX_TOKENS jika butuh output panjang.
+    maxTokens: Number(process.env.MODEL_MAX_TOKENS) || 2048,
     streaming:   false,
   });
 

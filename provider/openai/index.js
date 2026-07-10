@@ -28,7 +28,9 @@ export function createLLM({ apiKey, model, tools = [] } = {}) {
     model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
     configuration: { baseURL: BASE_URL },
     temperature: 0.2,
-    maxTokens:   4096,
+    // PERF: default diturunkan dari 4096 -> 2048, override via .env
+    // MODEL_MAX_TOKENS jika butuh output panjang.
+    maxTokens: Number(process.env.MODEL_MAX_TOKENS) || 2048,
   });
   return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
 }

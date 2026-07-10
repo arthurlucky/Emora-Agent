@@ -90,7 +90,12 @@ export function createLLM({ apiKey, model, tools = [] } = {}) {
     model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
     configuration: { baseURL: BASE_URL },
     temperature: 0.2,
-    maxTokens:   8192,
+    // PERF: default diturunkan dari 8192 -> 2048. Jawaban chat biasa
+    // jarang butuh >2048 token; ceiling yang lebih rendah memangkas
+    // waktu generasi worst-case tanpa memotong jawaban normal.
+    // Override lewat .env MODEL_MAX_TOKENS kalau memang butuh output
+    // panjang (laporan, kode besar, dll).
+    maxTokens: Number(process.env.MODEL_MAX_TOKENS) || 2048,
     // KRITIS: Groq tidak support parallel tool calls dengan reliable
     modelKwargs: { parallel_tool_calls: false },
   });
