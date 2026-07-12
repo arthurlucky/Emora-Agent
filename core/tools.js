@@ -28,7 +28,6 @@ import { systemMonitorTool } from "../tools/system_monitor.js";
 import { economyManagerTool } from "../tools/economy_manager.js";
 import { gitManagerTool } from "../tools/git_manager.js";
 import knowledgeLibraryTool from "../tools/knowledge_library.js";
-import { pterodactylManager } from "../tools/pterodactyl-client.js";
 import { loadMCPTools } from "../tools/mcp_bridge.js";
 
 const tools = [
@@ -63,7 +62,7 @@ const tools = [
   groupManagerTool,
   knowledgeLibraryTool,
   
-  pterodactylManager
+  
 ];
 
 // ─────────────────────────────────────────────
