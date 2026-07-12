@@ -25,7 +25,6 @@ import zipExtractTool from "../tools/zip_extract.js";
 import { skillFactoryTool } from "../tools/skill_factory.js";
 import backupManager from "../tools/backup_manager.js";
 import { systemMonitorTool } from "../tools/system_monitor.js";
-import { economyManagerTool } from "../tools/economy_manager.js";
 import { gitManagerTool } from "../tools/git_manager.js";
 import knowledgeLibraryTool from "../tools/knowledge_library.js";
 import { loadMCPTools } from "../tools/mcp_bridge.js";
@@ -56,7 +55,6 @@ const tools = [
   backupManager,
   systemMonitorTool,
   emoraHubTool,
-  economyManagerTool,
   gitManagerTool,
   
   groupManagerTool,
