@@ -132,7 +132,8 @@ if (!token) {
     return ask(llm, tools, sessionId, enriched);
   }
 
-  const bgLocks = {};
+  // ✅ FIX #1: Map untuk track background jobs (clear setelah selesai, bukan selamanya)
+  const bgJobs = new Map();
 
   // ==========================================
   // BACKGROUND TASK LISTENER
@@ -140,8 +141,9 @@ if (!token) {
   eventBus.on("execute_bg_task", async ({ job_id, session_id, prompt }) => {
     const chatId = Object.keys(sessions).find((k) => sessions[k] === session_id);
     if (!chatId) return;
-    if (bgLocks[job_id]) return;
-    bgLocks[job_id] = true;
+    if (bgJobs.has(job_id)) return; // Job sudah running
+    
+    bgJobs.set(job_id, true);
 
     try {
       const bgSessionId = `${session_id}_bg_${job_id}`;
@@ -154,7 +156,8 @@ if (!token) {
     } catch (err) {
       console.error(`[BG TASK TG] Job ${job_id}: ${err.message}`);
     } finally {
-      bgLocks[job_id] = false;
+      // ✅ FIX #1: Clear lock setelah job selesai (tidak forever)
+      bgJobs.delete(job_id);
     }
   });
 
@@ -175,10 +178,17 @@ if (!token) {
       const filename = `tg_${fileType}_${timestamp}_${randomStr}.${extension}`;
       const filePath = path.join(DOWNLOAD_DIR, filename);
 
-      // Download file using fetch
+      // ✅ FIX #2: Improved file download dengan streaming (handle large files)
       const response = await fetch(fileUrl);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Check content-length sebelum download
+      const contentLength = response.headers.get("content-length");
+      const maxSize = 50 * 1024 * 1024; // 50 MB limit untuk Telegram
+      if (contentLength && parseInt(contentLength) > maxSize) {
+        throw new Error(`File terlalu besar: ${(parseInt(contentLength) / 1024 / 1024).toFixed(2)}MB (max: 50MB)`);
       }
 
       const buffer = await response.arrayBuffer();

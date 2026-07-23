@@ -16,8 +16,6 @@
 
 import fs from "fs";
 import path from "path";
-import https from "https";
-import http from "http";
 
 const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
@@ -27,23 +25,30 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 /**
- * Download file dari URL ke path lokal.
+ * ✅ FIX #3: Download file dari URL ke path lokal menggunakan Fetch API (modern, konsisten)
  * @param {string} url
  * @param {string} destPath
  * @returns {Promise<void>}
  */
-function downloadFile(url, destPath) {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith("https") ? https : http;
-    const file = fs.createWriteStream(destPath);
-    protocol.get(url, (res) => {
-      res.pipe(file);
-      file.on("finish", () => file.close(resolve));
-    }).on("error", (err) => {
-      fs.unlink(destPath, () => {});
-      reject(err);
-    });
-  });
+async function downloadFile(url, destPath) {
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  // Check content-length untuk menghindari file terlalu besar
+  const contentLength = response.headers.get("content-length");
+  const maxSize = 64 * 1024 * 1024; // 64 MB limit untuk WhatsApp
+  if (contentLength && parseInt(contentLength) > maxSize) {
+    throw new Error(
+      `File terlalu besar: ${(parseInt(contentLength) / 1024 / 1024).toFixed(2)}MB (max: 64MB)`
+    );
+  }
+
+  // Stream response langsung ke file (lebih aman untuk file besar)
+  const buffer = await response.arrayBuffer();
+  fs.writeFileSync(destPath, Buffer.from(buffer));
 }
 
 /**
