@@ -1,201 +1,81 @@
-# 🌟 Star Graphics Generator
+# 🌟 EMORA Autonomous Agent
 
-Aplikasi Python interaktif untuk menghasilkan berbagai pola grafis menggunakan karakter bintang (★).
+EMORA adalah sistem AI cerdas dan *autonomous* yang dirancang untuk beroperasi secara lokal (via Termux/Linux) dengan kemampuan multi-platform dan *multi-skill*. Sistem ini dilengkapi dengan antarmuka **Web UI** modern, manajemen agen, penjadwalan otomatis (*Cron*), sistem pencarian web, serta basis pengetahuan (Knowledge Library/RAG).
 
-## 📋 Daftar Isi
+## 🚀 Fitur Utama
 
-- [Fitur](#fitur)
-- [Instalasi](#instalasi)
-- [Penggunaan](#penggunaan)
-- [Pola Tersedia](#pola-tersedia)
-- [File-file Proyek](#file-file-proyek)
-- [Contoh Output](#contoh-output)
+- **🧠 Advanced Knowledge Base (RAG)**
+  Sistem basis pengetahuan internal dengan pembacaan indeks otomatis (TF-IDF scoring). EMORA dapat mencari, membaca, dan menyimpan pengetahuan secara permanen tanpa terhalang *token limit* LLM.
+- **🌐 Multi-Gateway Integration**
+  EMORA bisa terhubung secara bersamaan ke berbagai platform komunikasi:
+  - Telegram
+  - WhatsApp
+  - Discord
+  - Slack
+  - Matrix
+- **⚡ Real-time Web UI (SPA)**
+  Dashboard pengontrol agen berbasis web lokal yang mendukung *Server-Sent Events* (SSE) untuk melihat proses berpikir AI secara *real-time* (streaming & tool execution badges).
+- **⏱️ Cron Scheduler Dashboard**
+  Tugaskan EMORA untuk berjalan di latar belakang secara berkala (misal: "Setiap jam 8 pagi cek cuaca dan kirim ke grup WhatsApp") melalui visual *Cron Dashboard*.
+- **📊 Interactive Widgets (Mermaid & Chart.js)**
+  Web UI EMORA mampu merender diagram *flowchart* (Mermaid) dan grafik data (*Chart.js*) langsung dari respon agen. Termasuk fitur pemutar *voice notes*/audio otomatis.
+- **🕵️ Web Research Skill**
+  EMORA dapat menggunakan *search engine* (Tavily/Google) dan melakukan *scraping* konten halaman web secara instan untuk mencari informasi terbaru.
 
-## ✨ Fitur
+## 📁 Struktur Direktori
 
-- **11+ Pola Grafis** - Pyramid, Diamond, Heart, Galaxy, dan masih banyak lagi
-- **Mode Interaktif** - Menu pilihan untuk memilih pola yang diinginkan
-- **Demo Otomatis** - Jalankan semua pola dengan animasi otomatis
-- **Animasi Smooth** - Efek visual dengan delay yang dapat dikonfigurasi
-- **Cross-Platform** - Kompatibel dengan Linux, macOS, dan Windows (dengan terminal Unicode)
+\`\`\`text
+EMORA/
+├── core/
+│   ├── chat.js            # Engine LLM utama
+│   ├── tools.js           # Pendaftaran tools/skill
+│   └── cmd.js             # Parser slash commands
+├── gateway/
+│   ├── manager.js         # Gateway Manager terpusat
+│   ├── telegram/          # Adapter Telegram
+│   ├── whatsapp/          # Adapter WhatsApp
+│   ├── discord/           # Adapter Discord
+│   ├── slack/             # Adapter Slack (Baru)
+│   ├── matrix/            # Adapter Matrix (Baru)
+│   └── cron/              # Sistem penjadwalan cron
+├── skill/                 # Daftar modul *Skill* otonom (mis. web_research)
+├── library/               # Knowledge Base Data
+├── webui/
+│   ├── server.js          # Express.js Server
+│   ├── src/               # Front-end React-like SPA
+│   └── index.html         # Entry point UI
+└── bin/emora.js           # CLI entry point
+\`\`\`
 
-## 🚀 Instalasi
+## 🛠️ Cara Menjalankan
 
-Tidak ada dependensi eksternal yang diperlukan. Hanya butuh Python 3.6+.
+### 1. Menjalankan Web UI & Backend Server
+\`\`\`bash
+npm run start --prefix webui
+\`\`\`
+*(Akses dashboard di `http://localhost:3000`)*
 
-```bash
-# Clone atau download file ini
-git clone <repository>
-cd star-graphics
+### 2. Menjalankan Gateway Platform
+Lewat CLI:
+\`\`\`bash
+node bin/emora.js gateway --platform telegram
+\`\`\`
+Atau langsung jalankan dan kelola melalui halaman **Gateway Manager** di Web UI.
 
-# Atau cukup download file .py
-```
+## 🧩 Sistem Skill & Tools
 
-## 💻 Penggunaan
+EMORA beroperasi menggunakan konsep *Dynamic Tools* dari LangChain. Beberapa tools penting meliputi:
+- `search_web` & `fetch_page`: Untuk mencari dan membaca halaman web.
+- `knowledge_library`: RAG tool untuk membaca/menulis ke penyimpanan pintar.
+- `shell_exec`: Menjalankan command sistem secara aman.
+- `system_monitor`: Memantau metrik performa (CPU, RAM).
 
-### Mode Interaktif
+Skill baru dapat didefinisikan dengan menambahkan folder baru di direktori `skill/` beserta file `meta.json` dan `skill.md` berisi instruksi.
 
-```bash
-python3 hello.py
-```
-
-Akan menampilkan menu pilihan untuk memilih pola yang ingin ditampilkan.
-
-```
-  🌟 STAR GRAPHICS GENERATOR - INTERACTIVE MENU 🌟
-
-   1. Pyramid
-   2. Diamond
-   3. Rectangle
-   4. Wave
-   5. Heart
-   6. Spiral
-   7. Galaxy
-   8. Checkerboard
-   9. Hourglass
-  10. All Patterns
-  11. Animated Wave
-
-   0. Exit
-
-  Select pattern (0-11): _
-```
-
-### Mode Demo Otomatis
-
-```bash
-python3 hello_demo.py
-```
-
-Menampilkan semua pola secara berurutan dengan animasi otomatis (~15 detik).
-
-## 🎨 Pola Tersedia
-
-| No. | Nama | Deskripsi |
-|-----|------|-----------|
-| 1 | **Pyramid** | Piramida bertingkat dengan bintang |
-| 2 | **Diamond** | Bentuk berlian/intan |
-| 3 | **Rectangle** | Persegi panjang dengan border bintang |
-| 4 | **Wave** | Pola gelombang sinusoidal |
-| 5 | **Heart** | Bentuk hati yang stylish |
-| 6 | **Spiral** | Spiral yang mengisi grid |
-| 7 | **Galaxy** | Pola konstelasi galaksi |
-| 8 | **Checkerboard** | Papan catur dengan bintang |
-| 9 | **Hourglass** | Bentuk jam pasir |
-| 10 | **All Patterns** | Tampilkan semua pola sekaligus |
-| 11 | **Animated Wave** | Gelombang animasi real-time |
-
-## 📁 File-file Proyek
-
-```
-.
-├── hello.py              # Mode interaktif dengan menu
-├── hello_demo.py         # Mode demo otomatis
-├── README.md             # Dokumentasi ini
-├── CHANGELOG.md          # Riwayat perubahan
-├── config.json           # Konfigurasi default
-└── requirements.txt      # Dependensi (jika ada)
-```
-
-## ⚙️ Konfigurasi
-
-Edit file `config.json` untuk mengubah pengaturan default:
-
-```json
-{
-  "delay": 0.5,
-  "pyramid_height": 6,
-  "diamond_size": 5,
-  "rectangle_width": 20,
-  "rectangle_height": 6,
-  "checkerboard_size": 8,
-  "hourglass_size": 7,
-  "animation_frames": 16
-}
-```
-
-## 🎬 Contoh Output
-
-### Pyramid
-```
-     ★
-    ★★
-   ★★★
-  ★★★★
- ★★★★★
-★★★★★★
-```
-
-### Diamond
-```
-    ★
-   ★★★
-  ★★★★★
- ★★★★★★★
-★★★★★★★★★
- ★★★★★★★
-  ★★★★★
-   ★★★
-    ★
-```
-
-### Heart
-```
-  ★★★       ★★★
- ★★★★★     ★★★★★
-★★★★★★★   ★★★★★★★
-★★★★★★★★ ★★★★★★★★
-★★★★★★★★★★★★★★★★★
-```
-
-## 🎮 Shortcut Keyboard
-
-- `0` - Exit
-- `1-11` - Pilih pola
-- `Ctrl+C` - Hentikan program
-
-## 📝 Catatan Teknis
-
-- Menggunakan karakter Unicode `★` (U+2605)
-- Kompatibel dengan Python 3.6+
-- Tidak memerlukan library eksternal
-- Cross-platform (Windows/macOS/Linux)
-- Terminal harus mendukung Unicode untuk tampilan optimal
-
-## 🐛 Troubleshooting
-
-### Output tidak menampilkan bintang dengan benar
-- Pastikan terminal Anda mendukung Unicode
-- Coba ubah encoding terminal ke UTF-8
-
-### Program lambat atau delay tidak konsisten
-- Ini normal pada sistem yang sibuk
-- Ubah nilai `delay` di `config.json` jika diperlukan
-
-## 📚 Extensibility
-
-Mudah untuk menambahkan pola baru:
-
-```python
-def my_custom_pattern(self):
-    """Pola custom saya"""
-    print("\n⭐ MY CUSTOM PATTERN ⭐\n")
-    # Tulis logika Anda di sini
-    print("★" * 10)
-```
+## 🤝 Kontribusi & Pengembangan Lanjutan
+Rencana fase selanjutnya:
+- Mengubah *Single Agent* menjadi **Multi-Agent / Swarm Architecture** di mana beberapa *sub-agents* akan saling berkomunikasi di *background* untuk menyelesaikan masalah kompleks.
+- Eksplorasi mode kontrol multi-modal (Melihat gambar via Termux API).
 
 ## 📄 Lisensi
-
-MIT License - Bebas digunakan untuk keperluan personal dan komersial
-
-## 👨‍💻 Author
-
-Dibuat dengan ❤️ menggunakan Python
-
-## 📞 Support
-
-Untuk pertanyaan atau saran, silakan buka issue di repository ini.
-
----
-
-**Happy Star Generating!** ✨⭐✨
+MIT License - Bebas digunakan dan dimodifikasi untuk pengembangan AI mandiri.
