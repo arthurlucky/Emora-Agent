@@ -1,7 +1,17 @@
 {
-  "builtAt": "2026-07-12T12:32:00.709Z",
-  "count": 1,
+  "builtAt": "2026-08-01T13:46:20.509Z",
+  "count": 2,
   "entries": [
+    {
+      "topic": "astronomi",
+      "subtopic": "kosmologi",
+      "date": "12_07_2026",
+      "dateObj": "2026-07-12T00:00:00.000Z",
+      "filename": "pengenalan_kosmologi_dan_big_bang.txt",
+      "relPath": "library/astronomi/kosmologi/12_07_2026/pengenalan_kosmologi_dan_big_bang.txt",
+      "absPath": "/data/data/com.termux/files/home/EMORA/library/astronomi/kosmologi/12_07_2026/pengenalan_kosmologi_dan_big_bang.txt",
+      "sizeBytes": 2856
+    },
     {
       "topic": "astronomi",
       "subtopic": "sejarah",

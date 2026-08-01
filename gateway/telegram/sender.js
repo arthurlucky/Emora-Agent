@@ -14,18 +14,25 @@ import path from "path";
  * @param {object} extraOptions - { chatId } jika isBot = true
  */
 export async function sendSafeMessage(target, text, isBot = false, extraOptions = {}) {
+  // Telegram API menolak pesan dengan text kosong ("Bad Request: message
+  // text is empty") — daripada itu nyangkut jadi error yang gak jelas ke
+  // user, kasih fallback message yang jujur.
+  const safeText = (text ?? "").toString().trim()
+    ? text
+    : "⚠️ _Agent tidak menghasilkan balasan untuk pesan ini. Coba tanya ulang ya._";
+
   try {
     if (isBot) {
-      await target.telegram.sendMessage(extraOptions.chatId, text, { parse_mode: "Markdown" });
+      await target.telegram.sendMessage(extraOptions.chatId, safeText, { parse_mode: "Markdown" });
     } else {
-      await target.reply(text, { parse_mode: "Markdown" });
+      await target.reply(safeText, { parse_mode: "Markdown" });
     }
   } catch {
     console.warn("\n[TELEGRAM] Format Markdown tidak valid, beralih ke teks mentah.");
     if (isBot) {
-      await target.telegram.sendMessage(extraOptions.chatId, text);
+      await target.telegram.sendMessage(extraOptions.chatId, safeText);
     } else {
-      await target.reply(text);
+      await target.reply(safeText);
     }
   }
 }

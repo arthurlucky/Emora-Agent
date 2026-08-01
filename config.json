@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "Star Graphics Generator",
+    "version": "1.0.0",
+    "author": "EMORA",
+    "description": "Interactive star pattern graphics generator"
+  },
+  "ui": {
+    "clear_screen": true,
+    "show_menu": true,
+    "unicode_enabled": true
+  },
+  "animation": {
+    "delay": 0.5,
+    "animation_frames": 16,
+    "frame_delay": 0.2
+  },
+  "patterns": {
+    "pyramid": {
+      "enabled": true,
+      "default_height": 6
+    },
+    "diamond": {
+      "enabled": true,
+      "default_size": 5
+    },
+    "rectangle": {
+      "enabled": true,
+      "default_width": 20,
+      "default_height": 6
+    },
+    "wave": {
+      "enabled": true,
+      "amplitude": 3,
+      "frequency": 0.8
+    },
+    "heart": {
+      "enabled": true,
+      "style": "full"
+    },
+    "spiral": {
+      "enabled": true,
+      "default_size": 9
+    },
+    "galaxy": {
+      "enabled": true,
+      "star_density": "medium"
+    },
+    "checkerboard": {
+      "enabled": true,
+      "default_size": 8
+    },
+    "hourglass": {
+      "enabled": true,
+      "default_size": 7
+    }
+  },
+  "demo": {
+    "auto_delay": 0.5,
+    "show_summary": true,
+    "total_duration": 15
+  },
+  "accessibility": {
+    "high_contrast": false,
+    "screen_reader_friendly": true
+  }
+}

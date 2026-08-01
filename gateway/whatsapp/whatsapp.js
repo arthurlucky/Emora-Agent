@@ -49,6 +49,10 @@ import { formatWhatsAppMessage } from "./formatter.js";
 import { sendFile, sendText }    from "./sender.js";
 import { getBotStatus, getMemberStatus } from "./groupManager.js";
 import { setContext, buildContextHeader }  from "../sessionContext.js";
+import { touchSession } from "../../core/sessionStore.js";
+import { TurnStateManager } from "../session.js";
+import { handleCronCommand } from "../cron/commands.js";
+import { getManager } from "../manager.js";
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 const WA_PHONE    = (process.env.WA_PHONE_NUMBER || "").replace(/\D/g, "");
@@ -61,6 +65,8 @@ const ALLOWED     = (process.env.WA_ALLOWED_NUMBERS || "")
 // sessions: senderId → sessionId (untuk LLM memory)
 export const sessions = {};
 export let   client   = null;
+export const turns = new TurnStateManager("whatsapp");
+const pendingApprovals = new Map(); // senderId -> { content, resolve }
 
 // ─── LLM ───────────────────────────────────────────────────────────────────────
 let llm;
@@ -347,6 +353,78 @@ async function reply(sock, m, text) {
   }
 }
 
+// ─── Approval gate (text-based /yes /no — WA button messages tidak dipakai
+// di sini karena dukungannya makin dibatasi WhatsApp) ───────────────────────
+async function requestWhatsAppApproval(sock, m, senderId, toolName, args) {
+  const argsJson = JSON.stringify(args || {}, null, 2);
+  const trimmed = argsJson.length > 800 ? argsJson.slice(0, 800) + "\n…" : argsJson;
+  const content = `⚠️ *EMORA minta izin jalankan tool:* ${toolName}\n\`\`\`\n${trimmed}\n\`\`\`\nBalas */yes* atau */no*.`;
+  await reply(sock, m, content);
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingApprovals.delete(senderId);
+      reply(sock, m, "⏱ Timeout menunggu approval, otomatis ditolak.").catch(() => {});
+      resolve(false);
+    }, 5 * 60 * 1000);
+
+    pendingApprovals.set(senderId, {
+      resolve: (val) => { clearTimeout(timeout); resolve(val); },
+    });
+  });
+}
+
+/**
+ * Perintah baru level-gateway (`/status`, `/mode`, `/yes`, `/no`, `/stop`,
+ * `/cron`). Return `null` kalau bukan salah satu ini, supaya lanjut ke
+ * handleCommand() bawaan lalu ke agent seperti biasa.
+ */
+async function handleGatewayCommand(sock, m, senderId, text) {
+  if (!text.startsWith("/")) return null;
+  const [cmdRaw, ...args] = text.trim().split(/\s+/);
+  const cmd = cmdRaw.slice(1).toLowerCase();
+
+  switch (cmd) {
+    case "status":
+      return `⎔ *EMORA Gateway (WhatsApp)*\nMode: ${turns.getMode(senderId)}\nSedang jalan: ${turns.isRunning(senderId) ? "ya" : "tidak"}\nTotal sesi aktif: ${turns.activeChatCount()}`;
+
+    case "yes":
+    case "no": {
+      const pending = pendingApprovals.get(senderId);
+      if (!pending) return "ℹ Gak ada approval yang lagi nunggu.";
+      pendingApprovals.delete(senderId);
+      pending.resolve(cmd === "yes");
+      return cmd === "yes" ? "✔ Disetujui." : "✘ Ditolak.";
+    }
+
+    case "stop":
+      return turns.stop(senderId) ? "⏹ Proses dihentikan." : "ℹ Gak ada proses yang lagi jalan.";
+
+    case "continue":
+      return "ℹ EMORA jalan otomatis sampai selesai tiap giliran — gak ada proses yang perlu di-/continue.";
+
+    case "mode": {
+      const val = (args[0] || "").toLowerCase();
+      if (val !== "safe" && val !== "autonomous") {
+        return `Mode saat ini: *${turns.getMode(senderId)}*. Pakai /mode safe atau /mode autonomous.`;
+      }
+      turns.setMode(senderId, val);
+      return `✔ Mode diganti ke *${val}*.`;
+    }
+
+    case "cron": {
+      const mgr = getManager();
+      return handleCronCommand(mgr.cronStore, "whatsapp", senderId, "", args, {
+        runNow: (job) => mgr.cronScheduler.runJobNow(job),
+        reload: () => mgr.cronScheduler.reload(),
+      });
+    }
+
+    default:
+      return null;
+  }
+}
+
 // ─── Main connection ───────────────────────────────────────────────────────────
 async function connect(retryCount = 0) {
   if (!WA_GATEWAY) {
@@ -605,6 +683,12 @@ async function connect(retryCount = 0) {
 
       // ── Slash commands ───────────────────────────────────────────────────
       if (m.body.startsWith("/")) {
+        const gwReply = await handleGatewayCommand(sock, m, m.sender, m.body);
+        if (gwReply !== null) {
+          if (gwReply) await reply(sock, m, gwReply);
+          return;
+        }
+
         const cmdResult = await handleCommand(m.body, localState);
         if (cmdResult) {
           sessions[m.sender] = localState.currentSession;
@@ -637,14 +721,26 @@ async function connect(retryCount = 0) {
       }
 
       // ── Call LLM ─────────────────────────────────────────────────────────
+      const signal = turns.beginTurn(m.sender);
+      const mode = turns.getMode(m.sender);
+      const onApproval = (toolName, args) => requestWhatsAppApproval(sock, m, m.sender, toolName, args);
+
       try {
-        const result = await ask(llm, tools, sessionId, userInput);
+        const result = await ask(llm, tools, sessionId, userInput, { onApproval, mode, signal });
         await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
         await reply(sock, m, result);
+        touchSession(sessionId).catch(() => {});
       } catch (err) {
         await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
-        console.error("[WA LLM ERROR]", err.message);
-        await reply(sock, m, `❌ Maaf, terjadi kesalahan: ${err.message}`);
+        if (err?.aborted) {
+          await reply(sock, m, "⏹ Dihentikan.");
+        } else {
+          console.error("[WA LLM ERROR]", err.message);
+          await reply(sock, m, `❌ Maaf, terjadi kesalahan: ${err.message}`);
+        }
+      } finally {
+        turns.endTurn(m.sender);
+        turns.touch(m.sender);
       }
 
     } catch (err) {

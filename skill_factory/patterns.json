@@ -560,12 +560,13 @@
         "fetch_page",
         "search_web"
       ],
-      "count": 1,
+      "count": 2,
       "sessions": [
-        "527a2a02-a5df-46db-8da4-3e18d997dd3f"
+        "527a2a02-a5df-46db-8da4-3e18d997dd3f",
+        "session_1785589533033"
       ],
       "first_seen": 1782392128941,
-      "last_seen": 1782392128941,
+      "last_seen": 1785589574067,
       "skill_created": false,
       "skill_name": null
     },
@@ -792,6 +793,196 @@
       ],
       "first_seen": 1783685710288,
       "last_seen": 1783685710289,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "search_web>search_web>fetch_page": {
+      "sequence": [
+        "search_web",
+        "search_web",
+        "fetch_page"
+      ],
+      "count": 1,
+      "sessions": [
+        "9b125d08-a02e-4016-9195-80b36f337146"
+      ],
+      "first_seen": 1783860808680,
+      "last_seen": 1783860808680,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "find_folder>find_folder>list_files>read_file>read_file>read_file>read_file>read_file>read_file>read_file": {
+      "sequence": [
+        "find_folder",
+        "find_folder",
+        "list_files",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "61a51c58-91c4-4a57-999e-9d374d6f826b"
+      ],
+      "first_seen": 1784794645653,
+      "last_seen": 1784794645653,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>read_file>read_file>write_file>write_file>write_file>read_file>write_file>shell_exec>shell_exec>shell_exec>shell_exec>write_file>git_manager>git_manager>git_manager>shell_exec": {
+      "sequence": [
+        "read_file",
+        "read_file",
+        "read_file",
+        "write_file",
+        "write_file",
+        "write_file",
+        "read_file",
+        "write_file",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "write_file",
+        "git_manager",
+        "git_manager",
+        "git_manager",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "61a51c58-91c4-4a57-999e-9d374d6f826b"
+      ],
+      "first_seen": 1784795068339,
+      "last_seen": 1784795068339,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "shell_exec>read_file>list_files>list_files>read_file>shell_exec>read_file>read_file>read_file>shell_exec>shell_exec>shell_exec>search_text>shell_exec>read_file>read_file>read_file": {
+      "sequence": [
+        "shell_exec",
+        "read_file",
+        "list_files",
+        "list_files",
+        "read_file",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "search_text",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "d8ee6791-1026-4916-b634-7c2bd9fc75b2"
+      ],
+      "first_seen": 1784795401775,
+      "last_seen": 1784795401775,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>shell_exec>list_files>shell_exec>read_file>read_file>read_file>read_file>read_file>shell_exec>shell_exec>read_file>shell_exec>shell_exec>read_file": {
+      "sequence": [
+        "read_file",
+        "shell_exec",
+        "list_files",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "d8ee6791-1026-4916-b634-7c2bd9fc75b2"
+      ],
+      "first_seen": 1784795595180,
+      "last_seen": 1784795595180,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "read_file>read_file>shell_exec>list_files>read_file>read_file": {
+      "sequence": [
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "list_files",
+        "read_file",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "d8ee6791-1026-4916-b634-7c2bd9fc75b2"
+      ],
+      "first_seen": 1784796234245,
+      "last_seen": 1784796234245,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "shell_exec>read_file>shell_exec>shell_exec>read_file>shell_exec>shell_exec>read_file>read_file>shell_exec>shell_exec>shell_exec>shell_exec>read_file>shell_exec>read_file>read_file>shell_exec>shell_exec>read_file>shell_exec>shell_exec>shell_exec>read_file": {
+      "sequence": [
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "read_file",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "read_file",
+        "shell_exec",
+        "shell_exec",
+        "shell_exec",
+        "read_file"
+      ],
+      "count": 1,
+      "sessions": [
+        "563209c9-188c-4fba-b9ce-f0f5fcf3ec1d"
+      ],
+      "first_seen": 1784796670794,
+      "last_seen": 1784796670794,
+      "skill_created": false,
+      "skill_name": null
+    },
+    "write_file>shell_exec": {
+      "sequence": [
+        "write_file",
+        "shell_exec"
+      ],
+      "count": 1,
+      "sessions": [
+        "2bddcf9e-303d-461f-9788-e29e2daa504e"
+      ],
+      "first_seen": 1785143806883,
+      "last_seen": 1785143806883,
       "skill_created": false,
       "skill_name": null
     }

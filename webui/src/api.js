@@ -13,6 +13,44 @@ export const chatApi = {
   send: (sessionId, message) => request('/api/chat', {
     method: 'POST', body: JSON.stringify({ sessionId, message })
   }),
+  sendStream: (sessionId, message, { onEvent, onToken, onDone, onError }) => {
+    const controller = new AbortController();
+    fetch(`${API_BASE}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, message }),
+      signal: controller.signal
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(trimmed.slice(6));
+              if (data.type === 'stream_token') onToken && onToken(data.content);
+              else if (data.type === 'done') onDone && onDone(data);
+              else if (data.type === 'error') onError && onError(data.content);
+              else onEvent && onEvent(data);
+            } catch (e) {}
+          }
+        }
+      }
+    }).catch(err => {
+      if (err.name !== 'AbortError') onError && onError(err.message);
+    });
+    return () => controller.abort();
+  },
   upload: (file) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -30,6 +68,7 @@ export const gatewayApi = {
 
 export const memoryApi = {
   list: () => request('/api/memory'),
+  get: (id) => request(`/api/memory/${id}`),
   create: (name, content = []) => request('/api/memory', {
     method: 'POST', body: JSON.stringify({ action: 'create', name, content })
   }),
@@ -37,6 +76,29 @@ export const memoryApi = {
     method: 'POST', body: JSON.stringify({ action: 'rename', id, name })
   }),
   delete: (id) => request(`/api/memory/${id}`, { method: 'DELETE' })
+}
+
+export const skillApi = {
+  list: () => request('/api/skills'),
+  get: (name) => request(`/api/skills/${name}`),
+  toggle: (name, enabled) => request('/api/skills/toggle', {
+    method: 'POST', body: JSON.stringify({ name, enabled })
+  })
+}
+
+export const libraryApi = {
+  list: () => request('/api/library'),
+  readFile: (relPath) => request(`/api/library/file?path=${encodeURIComponent(relPath)}`)
+}
+
+export const systemApi = {
+  getMetrics: () => request('/api/system/metrics')
+}
+
+export const terminalApi = {
+  exec: (command) => request('/api/terminal/exec', {
+    method: 'POST', body: JSON.stringify({ command })
+  })
 }
 
 export const configApi = {
@@ -59,4 +121,17 @@ export function connectPMStream(onMessage) {
   es.onmessage = (e) => onMessage(JSON.parse(e.data))
   es.onerror = () => es.close()
   return () => es.close()
+}
+
+export async function getSessions() { return request('/api/sessions'); }
+export async function createSession(name) { return request('/api/sessions', { method: 'POST', body: JSON.stringify({ name }) }); }
+export async function renameSession(id, name) { return request(`/api/sessions/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }); }
+export async function deleteSession(id) { return request(`/api/sessions/${id}`, { method: 'DELETE' }); }
+export async function getHistory(sessionId) { return request(`/api/history/${sessionId}`); }
+export async function sendMessage(sessionId, message) { return request('/api/chat', { method: 'POST', body: JSON.stringify({ sessionId, message }) }); }
+
+export const cronApi = {
+  list: () => request('/api/cron'),
+  save: (data) => request('/api/cron', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (name) => request(`/api/cron/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }

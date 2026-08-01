@@ -7,7 +7,9 @@ export function Header() {
   
   const pageTitles = {
     chat: 'AI Chat', gateways: 'Gateway Manager',
-    memory: 'Memory Manager', config: 'Configuration',
+    memory: 'Memory Manager', skills: 'Skill Catalog',
+    library: 'Knowledge Library', metrics: 'System Metrics',
+    terminal: 'Terminal Console', config: 'Configuration',
     projects: 'Project Debugger'
   }
   
@@ -17,13 +19,13 @@ export function Header() {
       <h1 class="header-title" id="page-title">AI Chat</h1>
     </div>
     <div class="header-actions">
-      <button class="btn-icon" id="theme-toggle" title="Toggle theme">
-        ${store.get('theme') === 'dark' ? icons.sun : icons.moon}
+      <button class="btn btn-secondary btn-sm" id="theme-toggle" title="Ganti Tema">
+        ${icons.sun} <span id="theme-label" style="text-transform:capitalize;">${store.get('theme')}</span>
       </button>
     </div>
   `
   
-  el.querySelector('#theme-toggle').addEventListener('click', () => store.toggleTheme())
+  el.querySelector('#theme-toggle').addEventListener('click', () => store.cycleTheme())
   
   const menuToggle = el.querySelector('#menu-toggle')
   if (menuToggle) {
@@ -33,7 +35,8 @@ export function Header() {
   store.subscribe((key, value) => {
     if (key === 'currentPage') el.querySelector('#page-title').textContent = pageTitles[value] || value
     if (key === 'theme') {
-      el.querySelector('#theme-toggle').innerHTML = value === 'dark' ? icons.sun : icons.moon
+      const label = el.querySelector('#theme-label')
+      if (label) label.textContent = value
     }
   })
   

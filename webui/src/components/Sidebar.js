@@ -5,6 +5,11 @@ const menuItems = [
   { id: 'chat', label: 'AI Chat', icon: 'chat' },
   { id: 'gateways', label: 'Gateway Manager', icon: 'gateway' },
   { id: 'memory', label: 'Memory Manager', icon: 'memory' },
+  { id: 'skills', label: 'Skill Catalog', icon: 'puzzle' },
+  { id: 'library', label: 'Knowledge Library', icon: 'globe' },
+  { id: 'metrics', label: 'System Metrics', icon: 'zap' },
+  { id: 'cron', label: 'Cron Scheduler', icon: 'refresh' },
+  { id: 'terminal', label: 'Terminal Console', icon: 'code' },
   { id: 'config', label: 'Configuration', icon: 'config' },
   { id: 'projects', label: 'Project Debugger', icon: 'project' }
 ]

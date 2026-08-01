@@ -16,6 +16,20 @@ import { eventBus } from '../../utils/eventBus.js';
 import { setContext, buildContextHeader } from '../sessionContext.js';
 import { sendFile, sendText } from './sender.js';
 import { formatWhatsAppMessage } from './formatter.js';
+import { touchSession } from '../../core/sessionStore.js';
+import { TurnStateManager } from '../session.js';
+import { handleCronCommand } from '../cron/commands.js';
+import { getManager } from '../manager.js';
+
+export const turns = new TurnStateManager('whatsapp');
+const pendingApprovals = new Map(); // senderId -> { resolve }
+
+function splitWA(text, limit = 4000) {
+  if (text.length <= limit) return [text];
+  const chunks = [];
+  for (let i = 0; i < text.length; i += limit) chunks.push(text.slice(i, i + limit));
+  return chunks;
+}
 
 export const sessions = {};
 export let client = null;
@@ -107,9 +121,75 @@ try {
   console.error('[WA] LLM init failed');
 }
 
-async function askWithContext(sessionId, contextHeader, rawMessage) {
+async function askWithContext(sessionId, contextHeader, rawMessage, extra = {}) {
   const enriched = contextHeader ? `${contextHeader}\n${rawMessage}` : rawMessage;
-  return ask(llm, tools, sessionId, enriched);
+  return ask(llm, tools, sessionId, enriched, extra);
+}
+
+async function requestWhatsAppApproval(replyFn, senderId, toolName, args) {
+  const argsJson = JSON.stringify(args || {}, null, 2);
+  const trimmed = argsJson.length > 800 ? argsJson.slice(0, 800) + '\n…' : argsJson;
+  const content = `⚠️ *EMORA minta izin jalankan tool:* ${toolName}\n\`\`\`\n${trimmed}\n\`\`\`\nBalas */yes* atau */no*.`;
+  await replyFn(content);
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingApprovals.delete(senderId);
+      replyFn('⏱ Timeout menunggu approval, otomatis ditolak.').catch(() => {});
+      resolve(false);
+    }, 5 * 60 * 1000);
+
+    pendingApprovals.set(senderId, {
+      resolve: (val) => { clearTimeout(timeout); resolve(val); },
+    });
+  });
+}
+
+/** Return null kalau bukan perintah gateway baru, supaya lanjut ke handleCommand() bawaan. */
+async function handleGatewayCommand(senderId, text) {
+  if (!text.startsWith('/')) return null;
+  const [cmdRaw, ...args] = text.trim().split(/\s+/);
+  const cmd = cmdRaw.slice(1).toLowerCase();
+
+  switch (cmd) {
+    case 'status':
+      return `⎔ *EMORA Gateway (WhatsApp)*\nMode: ${turns.getMode(senderId)}\nSedang jalan: ${turns.isRunning(senderId) ? 'ya' : 'tidak'}\nTotal sesi aktif: ${turns.activeChatCount()}`;
+
+    case 'yes':
+    case 'no': {
+      const pending = pendingApprovals.get(senderId);
+      if (!pending) return 'ℹ Gak ada approval yang lagi nunggu.';
+      pendingApprovals.delete(senderId);
+      pending.resolve(cmd === 'yes');
+      return cmd === 'yes' ? '✔ Disetujui.' : '✘ Ditolak.';
+    }
+
+    case 'stop':
+      return turns.stop(senderId) ? '⏹ Proses dihentikan.' : 'ℹ Gak ada proses yang lagi jalan.';
+
+    case 'continue':
+      return 'ℹ EMORA jalan otomatis sampai selesai tiap giliran — gak ada proses yang perlu di-/continue.';
+
+    case 'mode': {
+      const val = (args[0] || '').toLowerCase();
+      if (val !== 'safe' && val !== 'autonomous') {
+        return `Mode saat ini: *${turns.getMode(senderId)}*. Pakai /mode safe atau /mode autonomous.`;
+      }
+      turns.setMode(senderId, val);
+      return `✔ Mode diganti ke *${val}*.`;
+    }
+
+    case 'cron': {
+      const mgr = getManager();
+      return handleCronCommand(mgr.cronStore, 'whatsapp', senderId, '', args, {
+        runNow: (job) => mgr.cronScheduler.runJobNow(job),
+        reload: () => mgr.cronScheduler.reload(),
+      });
+    }
+
+    default:
+      return null;
+  }
 }
 
 const bgLocks = {};
@@ -214,6 +294,12 @@ export const handler = async (sock, m) => {
 
   const prefix = '/';
   if (m.body?.startsWith(prefix)) {
+    const gwReply = await handleGatewayCommand(sender, m.body);
+    if (gwReply !== null) {
+      if (gwReply) await reply(gwReply);
+      return;
+    }
+
     const cmdResult = await handleCommand(m.body, localState);
     if (cmdResult) {
       sessions[sender] = localState.currentSession;
@@ -246,11 +332,22 @@ export const handler = async (sock, m) => {
     await reply(confirmation);
 
     try {
-      const result = await askWithContext(sessionId, contextHeader, analysisPrompt);
+      const signal = turns.beginTurn(sender);
+      const mode = turns.getMode(sender);
+      const onApproval = (toolName, args) => requestWhatsAppApproval(reply, sender, toolName, args);
+      const result = await askWithContext(sessionId, contextHeader, analysisPrompt, { onApproval, mode, signal });
       if (result?.trim()) await reply(formatWhatsAppMessage(result));
+      touchSession(sessionId).catch(() => {});
     } catch (err) {
-      console.error('[WA AI FILE]', err.message);
-      await reply(`⚠️ *Error Analisis File*\n━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${dl.filePath}`);
+      if (err?.aborted) {
+        await reply('⏹ Dihentikan.');
+      } else {
+        console.error('[WA AI FILE]', err.message);
+        await reply(`⚠️ *Error Analisis File*\n━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${dl.filePath}`);
+      }
+    } finally {
+      turns.endTurn(sender);
+      turns.touch(sender);
     }
     return;
   }
@@ -268,13 +365,27 @@ export const handler = async (sock, m) => {
   })();
 
   try {
-    const result = await askWithContext(sessionId, contextHeader, userInput);
+    const signal = turns.beginTurn(sender);
+    const mode = turns.getMode(sender);
+    const onApproval = (toolName, args) => requestWhatsAppApproval(reply, sender, toolName, args);
+    const result = await askWithContext(sessionId, contextHeader, userInput, { onApproval, mode, signal });
     await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-    await reply(formatWhatsAppMessage(result));
+    const safeResult = (result || '').trim()
+      ? result
+      : '⚠️ _Agent tidak menghasilkan balasan untuk pesan ini. Coba tanya ulang ya._';
+    await reply(formatWhatsAppMessage(safeResult));
+    touchSession(sessionId).catch(() => {});
   } catch (err) {
     await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-    console.error('[WA LLM]', err.message);
-    await reply(`❌ Maaf, terjadi kesalahan: ${err.message}`);
+    if (err?.aborted) {
+      await reply('⏹ Dihentikan.');
+    } else {
+      console.error('[WA LLM]', err.message);
+      await reply(`❌ Maaf, terjadi kesalahan: ${err.message}`);
+    }
+  } finally {
+    turns.endTurn(sender);
+    turns.touch(sender);
   }
 };
 

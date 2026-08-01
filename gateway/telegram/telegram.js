@@ -12,7 +12,7 @@ import path from "path";
 import fs, { mkdirSync, existsSync } from "fs";
 import { pipeline } from "stream/promises";
 
-import { Telegraf } from "telegraf";
+import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 
 import { createLLM } from "../../provider/index.js";
@@ -20,11 +20,15 @@ import tools from "../../core/tools.js";
 import { ask } from "../../core/chat.js";
 import { handleCommand } from "../../core/cmd.js";
 import { eventBus } from "../../utils/eventBus.js";
+import { touchSession } from "../../core/sessionStore.js";
 
 import { formatTelegramMessage } from "./formatter.js";
 import { sendSafeMessage, sendFile } from "./sender.js";
 import { getMemberStatus } from "./groupManager.js";
 import { setContext, buildContextHeader } from "../sessionContext.js";
+import { TurnStateManager } from "../session.js";
+import { handleCronCommand } from "../cron/commands.js";
+import { getManager } from "../manager.js";
 
 const ALLOWED_IDS = (process.env.TELEGRAM_ALLOWED_IDS || "")
   .split(",")
@@ -58,6 +62,8 @@ let llm = null;
 // ==========================================
 export const sessions = {};
 export let bot = null;
+export const turns = new TurnStateManager("telegram");
+const pendingApprovals = new Map(); // chatId -> { messageId, content, resolve }
 
 if (!token) {
   console.log("\n[TELEGRAM] Token tidak ditemukan. Gateway dibatalkan.");
@@ -126,11 +132,124 @@ if (!token) {
    * (platform/grup/admin) di depan pesan, biar agent selalu tau lagi
    * ngobrol di mana & posisinya apa sebelum mikirin balasan/tool call.
    */
-  async function askWithContext(ctx, sessionId, rawMessage) {
+  async function askWithContext(ctx, sessionId, rawMessage, extra = {}) {
     const context = await buildTelegramContext(ctx, sessionId);
     const enriched = buildContextHeader(context) + rawMessage;
-    return ask(llm, tools, sessionId, enriched);
+    return ask(llm, tools, sessionId, enriched, extra);
   }
+
+  /**
+   * Minta approval user lewat inline keyboard (Approve/Deny) sebelum agent
+   * menjalankan tool yang dianggap berisiko. Fallback teks `/yes` `/no`
+   * juga didukung lewat `pendingApprovals` (lihat handleGatewayCommand).
+   */
+  async function requestTelegramApproval(chatId, toolName, args) {
+    const argsJson = JSON.stringify(args || {}, null, 2);
+    const trimmed = argsJson.length > 800 ? argsJson.slice(0, 800) + "\n…" : argsJson;
+    const content = `⚠️ *EMORA minta izin jalankan tool:* \`${toolName}\`\n\`\`\`\n${trimmed}\n\`\`\`\nApprove?`;
+
+    let sent;
+    try {
+      sent = await bot.telegram.sendMessage(chatId, content, {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          Markup.button.callback("✔ Approve", "emora_approve"),
+          Markup.button.callback("✘ Deny", "emora_deny"),
+        ]),
+      });
+    } catch {
+      sent = await bot.telegram.sendMessage(chatId, content + "\n\n(Balas /yes atau /no)");
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingApprovals.delete(chatId);
+        bot.telegram.editMessageText(chatId, sent.message_id, undefined, content + "\n\n⏱ _Timeout, otomatis ditolak._", { parse_mode: "Markdown" }).catch(() => {});
+        resolve(false);
+      }, 5 * 60 * 1000);
+
+      pendingApprovals.set(chatId, {
+        messageId: sent.message_id,
+        content,
+        resolve: (val) => { clearTimeout(timeout); resolve(val); },
+      });
+    });
+  }
+
+  /**
+   * Perintah baru level-gateway (`/status`, `/mode`, `/yes`, `/no`, `/stop`,
+   * `/cron`). Return `null` kalau teksnya bukan salah satu perintah ini,
+   * supaya lanjut ke handleCommand() bawaan (/exit, /new, /sesi, dst) lalu
+   * ke agent seperti biasa.
+   */
+  async function handleGatewayCommand(chatId, text) {
+    if (!text.startsWith("/")) return null;
+    const [cmdRaw, ...args] = text.trim().split(/\s+/);
+    const cmd = cmdRaw.slice(1).toLowerCase();
+
+    switch (cmd) {
+      case "status":
+        return `⎔ *EMORA Gateway (Telegram)*\nMode: ${turns.getMode(chatId)}\nSedang jalan: ${turns.isRunning(chatId) ? "ya" : "tidak"}\nTotal chat aktif: ${turns.activeChatCount()}`;
+
+      case "yes":
+      case "no": {
+        const pending = pendingApprovals.get(chatId);
+        if (!pending) return "ℹ Gak ada approval yang lagi nunggu.";
+        pendingApprovals.delete(chatId);
+        pending.resolve(cmd === "yes");
+        await bot.telegram
+          .editMessageText(chatId, pending.messageId, undefined, pending.content + `\n\n${cmd === "yes" ? "✔ Disetujui" : "✘ Ditolak"} via /${cmd}`, { parse_mode: "Markdown" })
+          .catch(() => {});
+        return "";
+      }
+
+      case "stop":
+        return turns.stop(chatId) ? "⏹ Proses dihentikan." : "ℹ Gak ada proses yang lagi jalan.";
+
+      case "continue":
+        return "ℹ EMORA jalan otomatis sampai selesai tiap giliran — gak ada proses yang perlu di-`/continue`.";
+
+      case "mode": {
+        const val = (args[0] || "").toLowerCase();
+        if (val !== "safe" && val !== "autonomous") {
+          return `Mode saat ini: *${turns.getMode(chatId)}*. Pakai \`/mode safe\` atau \`/mode autonomous\`.`;
+        }
+        turns.setMode(chatId, val);
+        return `✔ Mode diganti ke *${val}*.`;
+      }
+
+      case "cron": {
+        const mgr = getManager();
+        return handleCronCommand(mgr.cronStore, "telegram", String(chatId), "", args, {
+          runNow: (job) => mgr.cronScheduler.runJobNow(job),
+          reload: () => mgr.cronScheduler.reload(),
+        });
+      }
+
+      default:
+        return null;
+    }
+  }
+
+  bot.action("emora_approve", async (actionCtx) => {
+    const chatId = actionCtx.chat.id;
+    const pending = pendingApprovals.get(chatId);
+    if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
+    pendingApprovals.delete(chatId);
+    pending.resolve(true);
+    await actionCtx.editMessageText(pending.content + "\n\n✔ Disetujui", { parse_mode: "Markdown" }).catch(() => {});
+    await actionCtx.answerCbQuery("Disetujui.");
+  });
+
+  bot.action("emora_deny", async (actionCtx) => {
+    const chatId = actionCtx.chat.id;
+    const pending = pendingApprovals.get(chatId);
+    if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
+    pendingApprovals.delete(chatId);
+    pending.resolve(false);
+    await actionCtx.editMessageText(pending.content + "\n\n✘ Ditolak", { parse_mode: "Markdown" }).catch(() => {});
+    await actionCtx.answerCbQuery("Ditolak.");
+  });
 
   // ✅ FIX #1: Map untuk track background jobs (clear setelah selesai, bukan selamanya)
   const bgJobs = new Map();
@@ -290,6 +409,12 @@ if (!token) {
       sessions[chatId] = crypto.randomUUID();
     }
 
+    const gwReply = await handleGatewayCommand(chatId, text);
+    if (gwReply !== null) {
+      if (gwReply) await sendSafeMessage(ctx, gwReply);
+      return;
+    }
+
     const localState = { currentSession: sessions[chatId] };
     const commandResult = await handleCommand(text, localState);
 
@@ -318,8 +443,12 @@ if (!token) {
     sendTyping();
     const typingInterval = setInterval(sendTyping, 4000);
 
+    const signal = turns.beginTurn(chatId);
+    const mode = turns.getMode(chatId);
+    const onApproval = (toolName, args) => requestTelegramApproval(chatId, toolName, args);
+
     try {
-      const result = await askWithContext(ctx, sessionId, text);
+      const result = await askWithContext(ctx, sessionId, text, { onApproval, mode, signal });
 
       isTyping = false;
       clearInterval(typingInterval);
@@ -328,9 +457,15 @@ if (!token) {
         ctx,
         formatTelegramMessage(result)
       );
+      touchSession(sessionId).catch(() => {});
     } catch (err) {
       isTyping = false;
       clearInterval(typingInterval);
+
+      if (err?.aborted) {
+        await ctx.reply("⏹ Dihentikan.");
+        return;
+      }
 
       const msg = err?.message || "Kesalahan internal.";
 
@@ -340,6 +475,9 @@ if (!token) {
         `⚠️ *Terjadi Kesalahan:*\n_${msg}_`,
         { parse_mode: "Markdown" }
       );
+    } finally {
+      turns.endTurn(chatId);
+      turns.touch(chatId);
     }
   });
 

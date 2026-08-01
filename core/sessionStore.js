@@ -195,19 +195,32 @@ export async function deleteSession(id) {
   return { deletedFiles };
 }
 
+export function generateTitleFromPrompt(prompt) {
+  if (!prompt || typeof prompt !== 'string') return null;
+  const clean = prompt.trim()
+    .replace(/^[\/\#\!\.\,\?\s]+/, '')
+    .replace(/\s+/g, ' ');
+  if (!clean || clean.length < 2) return null;
+  return clean.length > 38 ? clean.slice(0, 38) + '...' : clean;
+}
+
 /**
- * Tandai sesi sebagai baru saja aktif (dipanggil setelah chat berhasil)
- * supaya urutan daftar sesi mengikuti aktivitas terbaru meskipun sesi
- * tersebut dibuat dari channel lain (CLI/Telegram/WA) tanpa lewat
- * createSession().
+ * Tandai sesi sebagai baru saja aktif (dipanggil setelah chat berhasil).
+ * Jika sesi masih menggunakan nama default, otomatis buatkan judul bermakna dari prompt pertama.
  */
-export async function touchSession(id) {
+export async function touchSession(id, firstPrompt = null) {
   if (!UUID_RE.test(id)) return;
   const meta = await loadMeta();
   const now = Date.now();
 
+  let name = meta[id]?.name;
+  if ((!name || name.startsWith("Sesi ")) && firstPrompt) {
+    const autoTitle = generateTitleFromPrompt(firstPrompt);
+    if (autoTitle) name = autoTitle;
+  }
+
   meta[id] = {
-    name: meta[id]?.name || defaultName(id),
+    name: name || defaultName(id),
     createdAt: meta[id]?.createdAt || now,
     updatedAt: now,
   };

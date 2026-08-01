@@ -30,11 +30,12 @@ const C = {
 
 
 function parseArgs(argv) {
-  const args = { to: null, chatId: null, number: null, message: [], pipe: false };
+  const args = { to: null, chatId: null, number: null, channel: null, message: [], pipe: false };
   for (const a of argv) {
     if (a.startsWith("--to="))       args.to      = a.slice(5).toLowerCase();
     else if (a.startsWith("--chat-id=")) args.chatId = a.slice(10);
     else if (a.startsWith("--number=")) args.number  = a.slice(9);
+    else if (a.startsWith("--channel=")) args.channel = a.slice(10);
     else if (!a.startsWith("--"))      args.message.push(a);
   }
   return args;
@@ -69,6 +70,32 @@ async function sendTelegram(text, chatId) {
     });
     const body = await res.json();
     if (!res.ok) throw new Error(`Telegram API error: ${body.description}`);
+    sent++;
+  }
+  return sent;
+}
+
+async function sendDiscord(text, channelId) {
+  const token = process.env.DISCORD_TOKEN_BOT;
+  if (!token) throw new Error("DISCORD_TOKEN_BOT tidak di-set di .env");
+
+  const targets = channelId
+    ? [channelId]
+    : (process.env.DISCORD_ALLOWED_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (!targets.length) throw new Error("Tidak ada channel/user ID target. Gunakan --channel=xxx atau isi DISCORD_ALLOWED_IDS di .env");
+
+  let sent = 0;
+  for (const target of targets) {
+    const res = await fetch(`https://discord.com/api/v10/channels/${target}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bot ${token}` },
+      body: JSON.stringify({ content: text.slice(0, 2000) }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`Discord API error: ${body.message || res.statusText}`);
+    }
     sent++;
   }
   return sent;
@@ -143,13 +170,16 @@ export async function cmdSend(argv) {
   if (!platform) {
     const tgOk = process.env.TELEGRAM_GATEWAY === "true" && process.env.TELEGRAM_TOKEN_BOT;
     const waOk = process.env.WA_GATEWAY === "true" && process.env.WA_PHONE_NUMBER;
-    if (tgOk && !waOk) platform = "telegram";
-    else if (waOk && !tgOk) platform = "whatsapp";
-    else if (tgOk && waOk) {
-      console.error(C.red("  ✗ Dua gateway aktif. Tentukan dengan --to=telegram atau --to=whatsapp"));
+    const dcOk = process.env.DISCORD_GATEWAY === "true" && process.env.DISCORD_TOKEN_BOT;
+    const activeCount = [tgOk, waOk, dcOk].filter(Boolean).length;
+
+    if (activeCount === 1) {
+      platform = tgOk ? "telegram" : waOk ? "whatsapp" : "discord";
+    } else if (activeCount > 1) {
+      console.error(C.red("  ✗ Lebih dari satu gateway aktif. Tentukan dengan --to=telegram, --to=whatsapp, atau --to=discord"));
       process.exit(1);
     } else {
-      console.error(C.red("  ✗ Tidak ada gateway aktif. Jalankan emora setup dulu."));
+      console.error(C.red("  ✗ Tidak ada gateway aktif. Jalankan emora setup / emora gateway setup dulu."));
       process.exit(1);
     }
   }
@@ -161,8 +191,11 @@ export async function cmdSend(argv) {
     } else if (platform === "whatsapp") {
       await sendWhatsApp(text, args.number);
       console.log(C.green("  ✓ Terkirim via WhatsApp"));
+    } else if (platform === "discord") {
+      const n = await sendDiscord(text, args.channel);
+      console.log(C.green(`  ✓ Terkirim ke ${n} channel Discord`));
     } else {
-      throw new Error(`Platform tidak dikenal: ${platform}. Gunakan telegram atau whatsapp.`);
+      throw new Error(`Platform tidak dikenal: ${platform}. Gunakan telegram, whatsapp, atau discord.`);
     }
   } catch (err) {
     console.error(C.red(`  ✗ Gagal mengirim: ${err.message}`));

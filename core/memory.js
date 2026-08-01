@@ -21,13 +21,15 @@ if (!fsSync.existsSync(MEMORY_DIR)) {
 // sesi yang sedang "hangat" (baru dipakai) langsung terbaca dari RAM,
 // menghilangkan 1 disk read + JSON.parse di setiap turn chat.
 // ==========================================
-const sessionCache = new Map(); // sessionId -> messages[]
-const MAX_CACHE_SESSIONS = 200; // batas wajar, mencegah memory leak kalau sesi sangat banyak
+const sessionCache = new Map(); // sessionId -> { data: messages[], timestamp: number }
+const MAX_CACHE_SESSIONS = 50; // batas ramah perangkat seluler (Termux)
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 menit
 
 function touchCache(sessionId, data) {
-  // LRU sederhana: hapus dulu lalu set ulang supaya entry ini jadi "paling baru"
   sessionCache.delete(sessionId);
-  sessionCache.set(sessionId, data);
+  sessionCache.set(sessionId, { data, timestamp: Date.now() });
+  
+  // Evict entry tertua jika melebihi batas
   if (sessionCache.size > MAX_CACHE_SESSIONS) {
     const oldestKey = sessionCache.keys().next().value;
     sessionCache.delete(oldestKey);
@@ -35,9 +37,12 @@ function touchCache(sessionId, data) {
 }
 
 export async function loadSession(sessionId) {
-  if (sessionCache.has(sessionId)) {
-    // Kembalikan copy supaya pemanggil bebas push/mutate tanpa merusak cache
-    return [...sessionCache.get(sessionId)];
+  const cached = sessionCache.get(sessionId);
+  if (cached) {
+    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return [...cached.data];
+    }
+    sessionCache.delete(sessionId);
   }
 
   try {

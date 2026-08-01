@@ -6,6 +6,7 @@
 
 import { escapeHtml } from "../dom.js";
 import { formatRelative, shortId } from "../format.js";
+import { icons } from "../utils/icons.js";
 
 export function createSessionList(container, handlers) {
   let editingId = null;
@@ -44,8 +45,8 @@ export function createSessionList(container, handlers) {
           </span>
         </button>
         <span class="session-item__actions">
-          <button type="button" class="icon-btn" data-action="rename" data-id="${session.id}" title="Ganti nama">✎</button>
-          <button type="button" class="icon-btn icon-btn--danger" data-action="delete" data-id="${session.id}" title="Hapus sesi">✕</button>
+          <button type="button" class="icon-btn" data-action="rename" data-id="${session.id}" title="Ganti nama">${icons.edit}</button>
+          <button type="button" class="icon-btn icon-btn--danger" data-action="delete" data-id="${session.id}" title="Hapus sesi">${icons.trash}</button>
         </span>
       </li>`;
   }
@@ -66,7 +67,7 @@ export function createSessionList(container, handlers) {
     container.innerHTML = `
       <div class="session-sidebar__header">
         <span class="eyebrow">Sesi (${sessions.length})</span>
-        <button type="button" class="btn btn-primary" data-action="new-session">+ Baru</button>
+        <button type="button" class="btn btn-primary" data-action="new-session">${icons.plus} Baru</button>
       </div>
       <ul class="session-list">
         ${

@@ -1,0 +1,8 @@
+{
+  "name": "frontend-icons-cdn",
+  "description": "Guidance for consistently using open-source icon libraries via trusted CDNs in web projects. Prefers Lucide Icons while supporting Bootstrap Icons, Remix Icon, and Font Awesome Free.",
+  "source_pattern": null,
+  "created_at": "2026-07-26T00:00:00.000Z",
+  "has_script": false,
+  "version": "1.0.0"
+}

@@ -1,0 +1,44 @@
+# Star Graphics Generator - Python Dependencies
+# No external dependencies required for core functionality
+# This file is for reference and future enhancements
+
+# Core Requirements
+Python>=3.6
+
+# Optional: For enhanced features (not required for basic functionality)
+# Uncomment if you want to use these features:
+
+# For GUI version (future)
+# tkinter  (usually comes with Python)
+
+# For web version (future)
+# flask==2.3.0
+# flask-cors==4.0.0
+
+# For data processing (future)
+# numpy==1.24.0
+# matplotlib==3.7.0
+
+# For testing (development)
+# pytest==7.0.0
+# pytest-cov==4.0.0
+
+# For code quality (development)
+# pylint==2.16.0
+# black==23.0.0
+# flake8==6.0.0
+
+# For documentation (development)
+# sphinx==6.0.0
+# sphinx-rtd-theme==1.2.0
+
+# For package distribution (development)
+# setuptools>=65.0
+# wheel>=0.38.0
+# twine>=4.0.0
+
+# Notes:
+# - No external dependencies needed for the current version
+# - All patterns use only Python standard library (math, sys, time)
+# - Unicode support is built-in to Python 3
+# - Cross-platform compatibility is built-in

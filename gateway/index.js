@@ -2,7 +2,19 @@
  * gateway/index.js
  * Entry point terpusat untuk semua gateway EMORA.
  * Tidak auto‑load saat diimpor. Panggil initGateways() secara eksplisit.
+ *
+ * Sejak penambahan Manager baru (gateway/manager.js) + dukungan Discord,
+ * modul ini juga mendaftarkan adapter tiap platform ke registry Manager
+ * (import di bawah cukup untuk trigger registerAdapter() masing-masing —
+ * tidak ada yang auto-start dari situ). Semua fungsi lama di bawah tetap
+ * dipertahankan persis karena dipakai langsung oleh tools/*.js.
  */
+import "./telegram/adapter.js";
+import "./whatsapp/adapter.js";
+import "./discord/index.js";
+import "./slack/index.js";
+import "./matrix/index.js";
+import { getManager } from "./manager.js";
 
 const activeGateways = [];
 
@@ -145,4 +157,4 @@ export async function handleGroupCommand(sessionId, command) {
   return "❌ Sesi ini tidak ditemukan di gateway manapun.";
 }
 
-export { activeGateways };
+export { activeGateways, getManager };

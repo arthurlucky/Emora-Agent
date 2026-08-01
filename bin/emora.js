@@ -4,11 +4,11 @@
  *
  * Entrypoint utama binary `emora`. Semua subcommand di-route dari sini.
  *
- * emora            → start CLI agent (main.js)
+ * emora            → start TUI agent (tui/index.js)
  * emora setup      → interactive setup wizard
  * emora model      → ganti model/provider
- * emora gateway    → start gateway only (no CLI loop)
- * emora send       → kirim pesan one-shot ke Telegram/WhatsApp
+ * emora gateway    → kontrol gateway Telegram/WhatsApp/Discord (status/start/stop/run/setup/cron/service)
+ * emora send       → kirim pesan one-shot ke Telegram/WhatsApp/Discord
  * emora status     → status dashboard
  * emora skills     → skill manager
  * emora mcp        → MCP server manager
@@ -69,11 +69,12 @@ function printHelp() {
   console.log(cyan("  │  ") + dim("─".repeat(60)));
 
   const cmds = [
-    ["emora",           "Jalankan CLI agent (default)"],
+    ["emora",           "Jalankan TUI agent (default)"],
+    ["emora tui",       "Alias buat 'emora' tanpa argumen"],
     ["emora setup",     "Interactive setup wizard (provider, gateway, dll)"],
     ["emora model",     "Ganti model / provider AI"],
-    ["emora gateway",   "Jalankan gateway Telegram/WhatsApp saja (tanpa CLI)"],
-    ["emora send",      "Kirim pesan one-shot ke Telegram/WhatsApp"],
+    ["emora gateway",   "Kontrol gateway Telegram/WhatsApp/Discord (status/start/stop/run/setup/cron/service)"],
+    ["emora send",      "Kirim pesan one-shot ke Telegram/WhatsApp/Discord"],
     ["emora status",    "Tampilkan status semua komponen EMORA"],
     ["emora skills",    "Browse & kelola skill"],
     ["emora mcp",       "Manage MCP server & jalankan EMORA sebagai MCP server"],
@@ -135,9 +136,10 @@ switch (subCmd) {
 }
   
   case undefined:
+  case "tui":
   case "--debug": {
-    // Normal start: import dan run main.js
-    await import("../main.js");
+    const { runTUI } = await import("../tui/index.js");
+    await runTUI();
     break;
   }
 

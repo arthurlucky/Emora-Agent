@@ -2,6 +2,7 @@ import { icons } from '../utils/icons.js'
 import { store } from '../state.js'
 import { projectApi, connectPMStream } from '../api.js'
 import { showToast } from '../utils/helpers.js'
+import { escapeHtml } from '../dom.js'
 
 export function ProjectDebugger() {
   const el = document.createElement('div')
@@ -49,20 +50,39 @@ export function ProjectDebugger() {
   }
   
   function renderProjects(projects) {
-    if (projects.length === 0) { projectsList.innerHTML = `<div style="color:var(--text-muted);font-size:14px;">No projects found</div>`; return }
-    projectsList.innerHTML = projects.map(p => `
-      <button class="project-btn" data-name="${p}" style="width:100%;text-align:left;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:14px;cursor:pointer;transition:all 0.2s;font-family:inherit;">
-        ${icons.project} ${p}
-      </button>
-    `).join('')
-    projectsList.querySelectorAll('.project-btn').forEach(btn => btn.addEventListener('click', () => loadPlan(btn.dataset.name)))
+    if (!projects || projects.length === 0) {
+      projectsList.innerHTML = `<div style="color:var(--text-muted);font-size:14px;padding:12px;">Belum ada rencana proyek.</div>`
+      return
+    }
+    projectsList.innerHTML = projects.map(p => {
+      const name = typeof p === 'string' ? p : (p.name || p.project_name || 'Project')
+      return `
+        <button class="project-btn" data-name="${escapeHtml(name)}" style="width:100%;text-align:left;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:14px;cursor:pointer;transition:all 0.2s;font-family:inherit;display:flex;align-items:center;gap:10px;">
+          ${icons.project} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(name)}</span>
+        </button>
+      `
+    }).join('')
+
+    projectsList.querySelectorAll('.project-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        projectsList.querySelectorAll('.project-btn').forEach(b => b.style.borderColor = 'var(--border)')
+        btn.style.borderColor = 'var(--accent-cyan)'
+        loadPlan(btn.dataset.name)
+      })
+    })
   }
   
   async function loadPlan(name) {
+    planView.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);"><div class="loading-dots" style="justify-content:center;margin-bottom:12px;"><span></span><span></span><span></span></div>Memuat rencana proyek '${escapeHtml(name)}'...</div>`
     try {
       const response = await projectApi.get(name)
-      if (response.success) { currentPlan = response.plan; renderPlan() }
-    } catch (error) { showToast('Failed to load plan', 'error') }
+      if (response.success) {
+        currentPlan = response.project || response.plan
+        renderPlan()
+      } else {
+        showToast('Gagal memuat rencana proyek', 'error')
+      }
+    } catch (error) { showToast('Gagal memuat rencana proyek', 'error') }
   }
   
   function renderPlan() {

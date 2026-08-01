@@ -5,8 +5,9 @@ import { z } from "zod";
 
 const ROOT_DIR = path.resolve(process.cwd());
 
-// Base URL dari environment, fallback ke Replit app
-const BASE_URL = process.env.EMORA_HUB+"/api"
+// Base URL dari environment, fallback ke default local/remote API
+const rawHubUrl = process.env.EMORA_HUB || "http://127.0.0.1:3000";
+const BASE_URL = rawHubUrl.endsWith("/api") ? rawHubUrl : `${rawHubUrl.replace(/\/$/, "")}/api`;
 
 export const emoraHubTool = new DynamicStructuredTool({
   name: "emora_hub",

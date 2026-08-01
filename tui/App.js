@@ -1,0 +1,99 @@
+/**
+ * tui/App.js
+ *
+ * Root component Ink. Ditulis pakai React.createElement langsung (bukan
+ * JSX) karena EMORA dijalankan langsung lewat `node bin/emora.js` tanpa
+ * build step — nulis JSX di sini akan gagal di-parse Node apa adanya.
+ *
+ * Ink cuma dipakai buat lifecycle (alt-screen, raw stdin, resize, render
+ * loop); seluruh tata letak & warna dihitung sebagai string oleh
+ * tui/screen.js, mirip pendekatan lipgloss di versi Go-nya.
+ */
+import React, { useReducer, useRef, useEffect, useMemo } from "react";
+import { Box, Text, useInput, useStdout, useApp } from "ink";
+
+import { createInitialState, reducer } from "./state.js";
+import { computeScreen } from "./screen.js";
+import { createAgentController } from "./agentController.js";
+import { handleKey } from "./keys.js";
+
+const h = React.createElement;
+
+export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, onQuit }) {
+  const { stdout } = useStdout();
+  const { exit } = useApp();
+
+  const [state, dispatch] = useReducer(
+    reducer,
+    createInitialState({
+      sessionId,
+      sessionTitle,
+      provider,
+      columns: stdout?.columns || 80,
+      rows: stdout?.rows || 24,
+    })
+  );
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const llmRef = useRef(llm);
+
+  const controller = useMemo(
+    () =>
+      createAgentController({
+        dispatch,
+        getState: () => stateRef.current,
+        getLLM: () => llmRef.current,
+        tools,
+      }),
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Spinner tick buat animasi "sedang berpikir..."
+  useEffect(() => {
+    const id = setInterval(() => dispatch({ type: "SPINNER_TICK" }), 120);
+    return () => clearInterval(id);
+  }, []);
+
+  // Resize terminal
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = () => {
+      dispatch({ type: "SET_TERMINAL_SIZE", columns: stdout.columns, rows: stdout.rows });
+    };
+    stdout.on("resize", onResize);
+    return () => stdout.off("resize", onResize);
+  }, [stdout]);
+
+  // Pickup LLM baru kalau wizard baru aja ganti provider (lihat tui/keys.js)
+  useEffect(() => {
+    if (globalThis.__EMORA_TUI_LLM__) {
+      llmRef.current = globalThis.__EMORA_TUI_LLM__;
+      globalThis.__EMORA_TUI_LLM__ = null;
+    }
+  });
+
+  // Kirim initial query (dari `emora "pertanyaan"`) sekali di awal
+  const firedInitial = useRef(false);
+  useEffect(() => {
+    if (initialQuery && !firedInitial.current) {
+      firedInitial.current = true;
+      controller.submit(initialQuery);
+    }
+  }, [initialQuery, controller]);
+
+  useInput((input, key) => {
+    handleKey({ state: stateRef.current, dispatch, controller, input, key });
+  });
+
+  useEffect(() => {
+    if (state.quit) {
+      onQuit?.();
+      exit();
+    }
+  }, [state.quit, exit, onQuit]);
+
+  const screenText = computeScreen(state);
+  return h(Box, { flexDirection: "column" }, h(Text, null, screenText));
+}

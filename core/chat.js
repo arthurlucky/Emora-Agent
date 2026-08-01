@@ -53,6 +53,7 @@ async function buildSkillCatalog() {
   const lines = [];
   for (const e of entries) {
     if (!e.isDirectory()) continue;
+    if (e.name.endsWith(".disabled")) continue; // di-nonaktifkan lewat TUI skills manager (/skills)
 
     let description = null;
     try {
@@ -135,6 +136,10 @@ async function getSystemPrompt() {
 
  ${agent}
 
+[DYNAMIC RESPONSE LENGTH GUIDELINES]
+- Untuk salam/sapaan sederhana, konfirmasi singkat, atau pertanyaan kasual (contoh: "hai", "siapa kamu", "terima kasih", "ok"): Jawab secara LANGSUNG, SINGKAT, dan RAMAH dalam 1-3 kalimat. Jangan bertele-tele atau membuat penjelasan panjang yang tidak diminta.
+- Untuk pertanyaan teknis, instruksi pembuatan kode, analisis data, atau tugas proyek (contoh: "buatkan script", "jelaskan cara kerja", "debug error"): Jawab secara LENGKAP, TERSTRUKTUR, dan RINCI dengan blok kode & penjelasan jelas.
+
 [AVAILABLE SKILLS]
 ${skillCatalog}
 
@@ -192,7 +197,47 @@ function memoryToMessages(memory) {
     .filter(Boolean);
 }
 
-async function executeTool(toolCall, tools) {
+// ==========================================
+// APPROVAL GATE (dipakai TUI & gateway platform commands)
+// ==========================================
+// Tool yang selalu aman (read-only / memang didesain jalan diam-diam,
+// lihat instruksi "silently call knowledge_library" di system prompt).
+// Sengaja TIDAK termasuk tool yang mengubah state / punya efek samping.
+const ALWAYS_SAFE_TOOLS = new Set([
+  "read_file", "list_files", "search_text", "find_folder",
+  "datetime", "system_monitor", "knowledge_library", "read_skill",
+]);
+
+// Tool "ringan" yang di mode autonomous boleh auto-approve (mirip
+// write_file/edit_file di versi Go). Di mode "safe" tetap wajib approval.
+const LIGHT_WRITE_TOOLS = new Set(["write_file", "create_folder"]);
+
+/**
+ * Putuskan apakah sebuah tool call butuh persetujuan user sebelum
+ * dieksekusi. Kembalikan { allowed, autoApproved, reason }.
+ * `onApproval(name, args, mode) => boolean|Promise<boolean>` hanya
+ * dipanggil kalau benar-benar perlu — supaya TUI/gateway tidak
+ * menampilkan prompt untuk tool yang jelas aman.
+ */
+async function resolveApproval(name, args, mode, onApproval) {
+  if (!onApproval) return { allowed: true, autoApproved: false };
+  if (ALWAYS_SAFE_TOOLS.has(name)) return { allowed: true, autoApproved: false };
+
+  if (mode !== "safe" && LIGHT_WRITE_TOOLS.has(name)) {
+    return { allowed: true, autoApproved: true, reason: `Auto-approved (mode autonomous): ${name}` };
+  }
+
+  const approved = await onApproval(name, args, mode);
+  return { allowed: !!approved, autoApproved: false };
+}
+
+function abortError() {
+  const err = new Error("Dibatalkan oleh user.");
+  err.aborted = true;
+  return err;
+}
+
+async function executeTool(toolCall, tools, { signal } = {}) {
   const tool = tools.find((t) => t.name === toolCall.name);
 
   if (!tool) {
@@ -206,7 +251,7 @@ async function executeTool(toolCall, tools) {
   }
 
   try {
-    const result = await tool.invoke(toolCall.args);
+    const result = await tool.invoke(toolCall.args, signal ? { signal } : undefined);
     return new ToolMessage({
       tool_call_id: toolCall.id,
       content: typeof result === "string" ? result : JSON.stringify(result, null, 2),
@@ -222,12 +267,16 @@ async function executeTool(toolCall, tools) {
   }
 }
 
-async function invokeWithRetry(llm, messages, maxRetries = 3) {
+async function invokeWithRetry(llm, messages, { signal, maxRetries = 3 } = {}) {
   let attempt = 0;
   while (attempt < maxRetries) {
+    if (signal?.aborted) throw abortError();
     try {
-      return await llm.invoke(messages);
+      const timeoutSignal = AbortSignal.timeout(35000);
+      const activeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+      return await llm.invoke(messages, { signal: activeSignal });
     } catch (err) {
+      if (err?.name === "AbortError" || signal?.aborted) throw abortError();
       attempt++;
       const isToolError = err?.status === 400 || err?.code === 'tool_use_failed';
 
@@ -264,8 +313,9 @@ function isLikelyShortChat(input) {
   return false;
 }
 
-export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
+export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, mode = "autonomous", signal } = {}) {
   const t0 = Date.now();
+  if (signal?.aborted) throw abortError();
   const systemPrompt = await getSystemPrompt();
   const memory = await loadSession(sessionId);
 
@@ -289,8 +339,20 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
   let response;
 
   try {
-    response = await invokeWithRetry(llm, messages);
+    response = await invokeWithRetry(llm, messages, { signal });
   } catch (err) {
+    if (err?.aborted) throw err;
+    if (err?.status === 401 || err?.message?.includes("Invalid API Key") || err?.code === "invalid_api_key") {
+      return (
+        `⚠️ **[ERROR AUTHENTICATION - 401 Invalid API Key]**\n\n` +
+        `API key yang dikonfigurasi di file \`.env\` untuk provider **${process.env.MODEL_PROVIDER || 'AI'}** tidak valid atau sudah tidak aktif.\n\n` +
+        `💡 **Cara Mengatasi:**\n` +
+        `1. Ketik **\`emora model\`** atau **\`emora setup\`** di terminal untuk memasukkan API Key baru.\n` +
+        `2. Atau buat API Key gratis baru dari:\n` +
+        `   - **Groq:** https://console.groq.com\n` +
+        `   - **Google Gemini:** https://aistudio.google.com/app/apikey`
+      );
+    }
     console.error("\n[LLM ERROR]");
     console.dir(err, { depth: null });
     throw err;
@@ -302,11 +364,26 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
   const toolsUsedThisTurn = [];
 
   while (response?.tool_calls?.length) {
+    if (signal?.aborted) throw abortError();
     messages.push(response);
 
     for (const toolCall of response.tool_calls) {
+      if (signal?.aborted) throw abortError();
+
       if (toolCall.name !== "skill_factory") {
         toolsUsedThisTurn.push(toolCall.name);
+      }
+
+      // ── Approval gate (no-op unless caller passed onApproval) ─────────
+      const decision = await resolveApproval(toolCall.name, toolCall.args, mode, onApproval);
+
+      if (!decision.allowed) {
+        if (onEvent) onEvent({ type: "tool_denied", name: toolCall.name, args: toolCall.args });
+        messages.push(new ToolMessage({
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({ success: false, error: "Ditolak oleh user." }),
+        }));
+        continue;
       }
 
       // ── Real-time event callback ──────────────────────────────────────
@@ -314,11 +391,11 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
         if (toolCall.name === "skill_factory" && toolCall.args?.action === "read_skill") {
           onEvent({ type: "skill_read", name: toolCall.args.skill_name_target || "?" });
         } else {
-          onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
+          onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args, autoApproved: decision.autoApproved });
         }
       }
 
-      const toolResult = await executeTool(toolCall, tools);
+      const toolResult = await executeTool(toolCall, tools, { signal });
 
       // Emit result event so CLI can show output preview + timing
       if (onEvent && toolCall.name !== "skill_factory") {
@@ -333,9 +410,12 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
       messages.push(toolResult);
     }
 
+    if (signal?.aborted) throw abortError();
+
     try {
-      response = await invokeWithRetry(llm, messages);
+      response = await invokeWithRetry(llm, messages, { signal });
     } catch (err) {
+      if (err?.aborted) throw err;
       console.error("\n[LLM ERROR DURING TOOL RESPONSE]");
       console.dir(err, { depth: null });
       throw err;
@@ -346,6 +426,47 @@ export async function ask(llm, tools, sessionId, input, { onEvent } = {}) {
   // SKILL FACTORY: Cek pola & inject notifikasi jika threshold tercapai
   // ==========================================
   let finalContent = response.content;
+
+  // Normalisasi: LangChain (tergantung provider) kadang balikin content
+  // sebagai array of content block (mis. gaya Anthropic [{type:"text",
+  // text:"..."}]) alih-alih string polos. Kalau ini gak dinormalisasi,
+  // `finalContent` bisa lolos ke caller (TUI/Telegram/WhatsApp/Discord)
+  // sebagai non-string dan berujung "kosong" pas ditampilkan/dikirim.
+  if (Array.isArray(finalContent)) {
+    finalContent = finalContent
+      .map((c) => (typeof c === "string" ? c : c?.text || ""))
+      .join("")
+      .trim();
+  } else if (typeof finalContent !== "string") {
+    finalContent = finalContent == null ? "" : String(finalContent);
+  }
+
+  // Kadang provider/model balikin completion BENAR-BENAR kosong (quirk
+  // yang kadang muncul, terutama abis serangkaian tool call) walau
+  // tool_calls-nya juga sudah habis. Daripada kirim pesan kosong ke user
+  // di Telegram/WhatsApp/Discord/TUI, coba re-invoke SEKALI dengan nudge,
+  // dan kalau masih kosong juga pakai fallback message yang jujur —
+  // never return an empty string from ask().
+  if (!finalContent.trim()) {
+    try {
+      if (signal?.aborted) throw abortError();
+      const nudgeMessages = [
+        ...messages,
+        new HumanMessage("(Sistem: responsmu barusan kosong. Tolong berikan jawaban singkat untuk pesan user sebelumnya.)"),
+      ];
+      const retryResponse = await invokeWithRetry(llm, nudgeMessages, { signal });
+      let retryContent = retryResponse?.content;
+      if (Array.isArray(retryContent)) {
+        retryContent = retryContent.map((c) => (typeof c === "string" ? c : c?.text || "")).join("").trim();
+      }
+      finalContent = (typeof retryContent === "string" && retryContent.trim())
+        ? retryContent
+        : "Maaf, aku belum nemu jawaban yang jelas buat pesan ini. Coba tanya ulang dengan kalimat yang beda ya?";
+    } catch (err) {
+      if (err?.aborted) throw err;
+      finalContent = "Maaf, aku belum nemu jawaban yang jelas buat pesan ini. Coba tanya ulang dengan kalimat yang beda ya?";
+    }
+  }
 
   if (toolsUsedThisTurn.length >= 2) {
     try {

@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "platforms": {
+    "telegram": {
+      "type": "telegram",
+      "enabled": true,
+      "token": "8958883438:AAEQyNOZvkZGuPI_2jDTIiGLZIv__ffrny4",
+      "appId": "",
+      "allowedUsers": [
+        "6372583109"
+      ],
+      "maxUsers": 0,
+      "extra": {}
+    }
+  }
+}

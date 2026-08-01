@@ -1,23 +1,38 @@
 /* ============================================
-   EMORA WebUI - Global Styles
-   Modern, Clean, Minimalist Design
+   EMORA WebUI - Global Styles & Cyber Aesthetics
    ============================================ */
 
 :root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #f1f5f9;
-  --bg-card: rgba(255, 255, 255, 0.8);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --accent: #10b981;
-  --accent-light: #d1fae5;
-  --accent-dark: #059669;
-  --border: #e2e8f0;
-  --border-light: #f1f5f9;
-  --shadow: 0 1px 3px rgba(0,0,0,0.1);
-  --shadow-lg: 0 10px 40px rgba(0,0,0,0.1);
+  --bg-base: #0a0e12;
+  --bg-primary: #0a0e12;
+  --bg-secondary: #10151c;
+  --bg-tertiary: #161d26;
+  --bg-card: rgba(16, 21, 28, 0.85);
+  --bg-surface: #10151c;
+  --bg-surface-raised: #161d26;
+  --bg-hover: #1c2530;
+  --bg-input: #0d1218;
+
+  --text-primary: #e6edf3;
+  --text-secondary: #a9b6c2;
+  --text-muted: #5e6b7a;
+  --text-dim: #5e6b7a;
+
+  --accent: #4fd8c4;
+  --accent-cyan: #4fd8c4;
+  --accent-cyan-dim: rgba(79, 216, 196, 0.12);
+  --accent-green: #5fd97a;
+  --accent-amber: #e8b339;
+  --accent-red: #e5566b;
+  --accent-light: rgba(79, 216, 196, 0.15);
+  --accent-dark: #3bb8a5;
+
+  --border: #232b36;
+  --border-light: #1c2530;
+  --border-strong: #313c4a;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.5);
+
   --radius: 12px;
   --radius-sm: 8px;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -27,20 +42,16 @@
 }
 
 [data-theme="dark"] {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --bg-card: rgba(30, 41, 59, 0.8);
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #64748b;
-  --accent: #34d399;
-  --accent-light: #064e3b;
-  --accent-dark: #6ee7b7;
-  --border: #334155;
-  --border-light: #1e293b;
-  --shadow: 0 1px 3px rgba(0,0,0,0.3);
-  --shadow-lg: 0 10px 40px rgba(0,0,0,0.4);
+  --bg-base: #0a0e12;
+  --bg-primary: #0a0e12;
+  --bg-secondary: #10151c;
+  --bg-tertiary: #161d26;
+  --bg-card: rgba(16, 21, 28, 0.85);
+  --text-primary: #e6edf3;
+  --text-secondary: #a9b6c2;
+  --text-muted: #5e6b7a;
+  --accent: #4fd8c4;
+  --border: #232b36;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
