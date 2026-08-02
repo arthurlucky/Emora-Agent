@@ -380,7 +380,6 @@ app.post('/api/gateways', async (req, res) => {
 });
 
 // ── 3.5 CRON SCHEDULE API ──────────────────────────────────────────────────
-import { getManager } from '../gateway/manager.js';
 
 app.get('/api/cron', (req, res) => {
   try {
