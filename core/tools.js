@@ -28,6 +28,7 @@ import { systemMonitorTool } from "../tools/system_monitor.js";
 import { gitManagerTool } from "../tools/git_manager.js";
 import knowledgeLibraryTool from "../tools/knowledge_library.js";
 import { loadMCPTools } from "../tools/mcp_bridge.js";
+import { swarmDelegateTool } from "../tools/swarm_delegate.js";
 
 const tools = [
   SearchWebTool,
@@ -59,8 +60,7 @@ const tools = [
   
   groupManagerTool,
   knowledgeLibraryTool,
-  
-  
+  swarmDelegateTool
 ];
 
 // ─────────────────────────────────────────────

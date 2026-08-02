@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SKILL_DIR = path.join(ROOT_DIR, 'skill');
 
-let cachedSystemPrompt = null;
+let cachedSystemPrompts = {};
 
 // Dipanggil oleh Web UI setelah AGENT.md / SOUL.md disimpan, supaya
 // system prompt yang sedang di-cache di memori langsung ke-refresh
@@ -33,7 +33,7 @@ let cachedSystemPrompt = null;
 // setiap kali skill baru dibuat, supaya katalog skill (lihat
 // buildSkillCatalog di bawah) langsung ke-refresh tanpa restart juga.
 export function invalidateSystemPromptCache() {
-  cachedSystemPrompt = null;
+  cachedSystemPrompts = {};
 }
 
 /**
@@ -103,14 +103,14 @@ async function buildLibrarySummary() {
 }
 
 async function getSystemPrompt() {
-  if (cachedSystemPrompt) {
-    return cachedSystemPrompt;
+  const agentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
+  if (cachedSystemPrompts[agentPath]) {
+    return cachedSystemPrompts[agentPath];
   }
 
   try {
     const name = process.env.NAME || "Emora";
     const soulPath = process.env.EMORA_SOUL_PATH || path.join(ROOT_DIR, 'SOUL.md');
-    const agentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
 
     // ==========================================
     // PERF #1: I/O paralel.
@@ -151,8 +151,8 @@ ${librarySummary}
 MANDATORY LIBRARY WORKFLOW: Before answering any factual question about topics that could exist in the library, SILENTLY call knowledge_library (action: check) first. If relevant knowledge exists → read it and use it to answer. If not found → answer from your own knowledge, but mention the library doesn't have this topic yet and offer to collect+save it. Never load the entire library at once — only read specific files that are relevant.
  `;
 
-    cachedSystemPrompt = Context;
-    return cachedSystemPrompt;
+    cachedSystemPrompts[agentPath] = Context;
+    return Context;
   } catch (err) {
     console.error(`[CHAT ERROR] Failed to load system prompt: ${err.message}`);
     console.error(`[CHAT ERROR] Looking for SOUL.md and AGENT.md in: ${ROOT_DIR}`);

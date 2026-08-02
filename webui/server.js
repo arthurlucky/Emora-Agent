@@ -34,7 +34,7 @@ import { getManager } from '../gateway/manager.js';
 import { loadGatewayConfig, saveGatewayConfig } from '../gateway/config.js';
 import { resolveWorkspacePath } from '../utils/workspace.js';
 import { eventBus } from '../utils/eventBus.js';
-import { createContainer, startContainer, stopContainer, listContainers } from '../swarm/manager.js';
+import { createContainer, startContainer, stopContainer, listContainers, deleteContainer, getContainerConfig, updateContainerConfig } from '../swarm/manager.js';
 
 const app = express();
 const DEFAULT_PORT = parseInt(process.env.WEBUI_PORT) || 3000;
@@ -841,6 +841,89 @@ app.post('/api/swarm/stop', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/delete', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'Container ID is required' });
+    const result = await deleteContainer(id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/swarm/config/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const config = await getContainerConfig(id);
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/config/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const config = req.body;
+    const result = await updateContainerConfig(id, config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/chat', async (req, res) => {
+  const { id, message } = req.body;
+  if (!id || !message) return res.status(400).json({ error: 'id and message required' });
+
+  const CONTAINERS_DIR = path.join(ROOT_DIR, '.emora', 'containers');
+  const backup = {
+    EMORA_MEMORY_DIR: process.env.EMORA_MEMORY_DIR,
+    EMORA_AGENT_PATH: process.env.EMORA_AGENT_PATH,
+    EMORA_SOUL_PATH: process.env.EMORA_SOUL_PATH,
+    MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+    MODEL_NAME: process.env.MODEL_NAME,
+    MODEL_URL: process.env.MODEL_URL,
+    MODEL_API: process.env.MODEL_API,
+    NAME: process.env.NAME
+  };
+
+  try {
+    const dir = path.join(CONTAINERS_DIR, id);
+    const config = await getContainerConfig(id);
+
+    process.env.EMORA_MEMORY_DIR = path.join(dir, "memory");
+    process.env.EMORA_AGENT_PATH = path.join(dir, "AGENT.md");
+    process.env.EMORA_SOUL_PATH = path.join(dir, "SOUL.md");
+    process.env.NAME = `Emora-${id}`;
+    if (config.model_provider) process.env.MODEL_PROVIDER = config.model_provider;
+    if (config.model_name) process.env.MODEL_NAME = config.model_name;
+    if (config.model_url) process.env.MODEL_URL = config.model_url;
+    if (config.model_api) process.env.MODEL_API = config.model_api;
+
+    invalidateSystemPromptCache();
+
+    const opts = {
+      apiKey: config.model_api,
+      model: config.model_name,
+      url: config.model_url
+    };
+    const llm = await createLLM(tools, config.model_provider || 'gemini', opts);
+    const sessionId = `swarm_${id}`;
+
+    await touchSession(sessionId, message);
+    const result = await ask(llm, tools, sessionId, message);
+
+    res.json({ type: 'swarm_chat', content: result, sessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    Object.assign(process.env, backup);
+    invalidateSystemPromptCache();
   }
 });
 

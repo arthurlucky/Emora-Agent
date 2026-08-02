@@ -159,5 +159,9 @@ export const swarmApi = {
   list: () => request('/api/swarm/list'),
   create: (id) => request('/api/swarm/create', { method: 'POST', body: JSON.stringify({ id }) }),
   start: (id) => request('/api/swarm/start', { method: 'POST', body: JSON.stringify({ id }) }),
-  stop: (id) => request('/api/swarm/stop', { method: 'POST', body: JSON.stringify({ id }) })
+  stop: (id) => request('/api/swarm/stop', { method: 'POST', body: JSON.stringify({ id }) }),
+  delete: (id) => request('/api/swarm/delete', { method: 'POST', body: JSON.stringify({ id }) }),
+  getConfig: (id) => request(`/api/swarm/config/${id}`),
+  saveConfig: (id, config) => request(`/api/swarm/config/${id}`, { method: 'POST', body: JSON.stringify(config) }),
+  chat: (id, message) => request('/api/swarm/chat', { method: 'POST', body: JSON.stringify({ id, message }) })
 }

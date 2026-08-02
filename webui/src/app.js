@@ -45,7 +45,7 @@ export function initApp() {
   
   const pageContainer = document.createElement('div')
   pageContainer.id = 'page-container'
-  pageContainer.style.cssText = 'flex:1;overflow:hidden;'
+  pageContainer.style.cssText = 'flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;'
   main.appendChild(pageContainer)
   
   container.appendChild(main)

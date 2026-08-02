@@ -68,6 +68,12 @@ export async function startContainer(id) {
     }
   } catch(e) {}
 
+  let config = {};
+  try {
+    const raw = await fs.readFile(path.join(paths.dir, "config.json"), "utf8");
+    config = JSON.parse(raw);
+  } catch (e) {}
+
   const env = {
     ...process.env,
     NAME: `Emora-${id}`,
@@ -79,6 +85,11 @@ export async function startContainer(id) {
     EMORA_PID_FILE: path.join(paths.dir, "gateway.pid"),
     EMORA_TUI_LOCK_FILE: path.join(paths.dir, "tui.lock")
   };
+
+  if (config.model_provider) env.MODEL_PROVIDER = config.model_provider;
+  if (config.model_name) env.MODEL_NAME = config.model_name;
+  if (config.model_url) env.MODEL_URL = config.model_url;
+  if (config.model_api) env.MODEL_API = config.model_api;
 
   const logOut = await import("fs").then(m => m.openSync(path.join(paths.dir, "out.log"), "a"));
   const logErr = await import("fs").then(m => m.openSync(path.join(paths.dir, "err.log"), "a"));
@@ -151,4 +162,53 @@ export async function listContainers() {
     });
   }
   return result;
+}
+
+export async function deleteContainer(id) {
+  await stopContainer(id).catch(() => {});
+  const dir = path.join(CONTAINERS_DIR, id);
+  await fs.rm(dir, { recursive: true, force: true });
+  return { success: true, message: `Container ${id} deleted.` };
+}
+
+export async function getContainerConfig(id) {
+  const configFile = path.join(CONTAINERS_DIR, id, "config.json");
+  try {
+    const raw = await fs.readFile(configFile, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return {
+      model_provider: "gemini",
+      model_name: "gemini-1.5-flash",
+      model_url: "",
+      model_api: "",
+      gateway_enabled: false,
+      telegram_token: ""
+    };
+  }
+}
+
+export async function updateContainerConfig(id, config) {
+  const dir = path.join(CONTAINERS_DIR, id);
+  await fs.mkdir(dir, { recursive: true });
+  const configFile = path.join(dir, "config.json");
+  await fs.writeFile(configFile, JSON.stringify(config, null, 2));
+
+  // Also update gateways.config.json
+  const gatewayConfig = path.join(dir, "gateways.config.json");
+  const gateways = {
+    enabled: !!config.gateway_enabled,
+    platforms: {
+      telegram: {
+        type: "telegram",
+        enabled: !!config.gateway_enabled,
+        token: config.telegram_token || "",
+        allowedUsers: [],
+        maxUsers: 0,
+        extra: {}
+      }
+    }
+  };
+  await fs.writeFile(gatewayConfig, JSON.stringify(gateways, null, 2));
+  return { success: true };
 }
