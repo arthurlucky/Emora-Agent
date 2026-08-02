@@ -87,7 +87,7 @@ export function SchedulerDashboard() {
         renderJobs()
       }
     } catch (e) {
-      tbody.innerHTML = \`<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--accent-red);">Gagal memuat: \${e.message}</td></tr>\`
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--accent-red);">Gagal memuat: ${e.message}</td></tr>`
     }
   }
 
@@ -99,26 +99,26 @@ export function SchedulerDashboard() {
 
     tbody.innerHTML = currentJobs.map((job, idx) => {
       const statusBadge = job.enabled 
-        ? \`<span style="color:var(--accent-green);background:rgba(95,217,122,0.1);padding:4px 8px;border-radius:4px;font-size:11px;">Aktif</span>\` 
-        : \`<span style="color:var(--text-muted);background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:4px;font-size:11px;">Nonaktif</span>\`
+        ? `<span style="color:var(--accent-green);background:rgba(95,217,122,0.1);padding:4px 8px;border-radius:4px;font-size:11px;">Aktif</span>` 
+        : `<span style="color:var(--text-muted);background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:4px;font-size:11px;">Nonaktif</span>`
       
-      const lastRunStr = job.lastRun ? \`\\n(Terakhir: \${formatRelative(job.lastRun)})\` : ''
+      const lastRunStr = job.lastRun ? `\n(Terakhir: ${formatRelative(job.lastRun)})` : ''
 
-      return \`
+      return `
         <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:12px 16px;">\${statusBadge}</td>
-          <td style="padding:12px 16px;font-weight:600;">\${escapeHtml(job.name)}</td>
-          <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--accent-cyan);">\${escapeHtml(job.schedule)}</td>
-          <td style="padding:12px 16px;text-transform:capitalize;">\${escapeHtml(job.platform)}</td>
-          <td style="padding:12px 16px;color:var(--text-secondary);">\${job.runCount || 0} \${lastRunStr}</td>
+          <td style="padding:12px 16px;">${statusBadge}</td>
+          <td style="padding:12px 16px;font-weight:600;">${escapeHtml(job.name)}</td>
+          <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--accent-cyan);">${escapeHtml(job.schedule)}</td>
+          <td style="padding:12px 16px;text-transform:capitalize;">${escapeHtml(job.platform)}</td>
+          <td style="padding:12px 16px;color:var(--text-secondary);">${job.runCount || 0} ${lastRunStr}</td>
           <td style="padding:12px 16px;">
-            <button class="btn btn-secondary btn-sm toggle-btn" data-idx="\${idx}" style="margin-right:6px;">
-              \${job.enabled ? 'Disable' : 'Enable'}
+            <button class="btn btn-secondary btn-sm toggle-btn" data-idx="${idx}" style="margin-right:6px;">
+              ${job.enabled ? 'Disable' : 'Enable'}
             </button>
-            <button class="btn btn-secondary btn-sm delete-btn" data-idx="\${idx}" style="color:var(--accent-red);">Hapus</button>
+            <button class="btn btn-secondary btn-sm delete-btn" data-idx="${idx}" style="color:var(--accent-red);">Hapus</button>
           </td>
         </tr>
-      \`
+      `
     }).join('')
 
     tbody.querySelectorAll('.toggle-btn').forEach(btn => {
@@ -128,7 +128,7 @@ export function SchedulerDashboard() {
         try {
           await cronApi.save(job)
           loadJobs()
-          showToast(\`Job \${job.name} \${job.enabled ? 'diaktifkan' : 'dinonaktifkan'}\`)
+          showToast(`Job ${job.name} ${job.enabled ? 'diaktifkan' : 'dinonaktifkan'}`)
         } catch (err) { showToast('Gagal update job', 'error') }
       })
     })
@@ -136,7 +136,7 @@ export function SchedulerDashboard() {
     tbody.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const job = currentJobs[e.target.dataset.idx]
-        if (!confirm(\`Hapus job '\${job.name}'?\`)) return
+        if (!confirm(`Hapus job '${job.name}'?`)) return
         try {
           await cronApi.delete(job.name)
           loadJobs()
