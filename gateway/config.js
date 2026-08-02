@@ -13,7 +13,7 @@
 import fs from "fs";
 import path from "path";
 
-const CONFIG_PATH = path.resolve("./gateway/gateways.config.json");
+const CONFIG_PATH = process.env.EMORA_GATEWAY_CONFIG ? path.resolve(process.env.EMORA_GATEWAY_CONFIG) : path.resolve("./gateway/gateways.config.json");
 
 function splitList(raw) {
   return (raw || "")

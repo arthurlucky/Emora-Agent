@@ -179,6 +179,13 @@ switch (subCmd) {
     break;
   }
 
+  case "swarm":
+  case "container": {
+    const { cmdSwarm } = await import("../cli/cmd-swarm.js");
+    await cmdSwarm(rest);
+    break;
+  }
+
   case "skills":
   case "skill": {
     const { cmdSkills } = await import("../cli/cmd-skills.js");

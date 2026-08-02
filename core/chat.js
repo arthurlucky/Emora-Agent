@@ -109,8 +109,8 @@ async function getSystemPrompt() {
 
   try {
     const name = process.env.NAME || "Emora";
-    const soulPath = path.join(ROOT_DIR, 'SOUL.md');
-    const agentPath = path.join(ROOT_DIR, 'AGENT.md');
+    const soulPath = process.env.EMORA_SOUL_PATH || path.join(ROOT_DIR, 'SOUL.md');
+    const agentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
 
     // ==========================================
     // PERF #1: I/O paralel.

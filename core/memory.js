@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const MEMORY_DIR = path.join(__dirname, '..', 'memory');
+const MEMORY_DIR = process.env.EMORA_MEMORY_DIR || path.join(__dirname, '..', 'memory');
 
 // Pastikan folder memory ada
 import fsSync from 'fs';

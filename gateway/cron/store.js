@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 
-const JOBS_FILE = path.resolve("./gateway/cron/jobs.json");
+const JOBS_FILE = process.env.EMORA_CRON_FILE ? path.resolve(process.env.EMORA_CRON_FILE) : path.resolve("./gateway/cron/jobs.json");
 
 function readAll() {
   try {

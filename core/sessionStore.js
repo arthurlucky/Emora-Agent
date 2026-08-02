@@ -21,7 +21,7 @@ import path from "path";
 import crypto from "crypto";
 import { invalidateSessionCache } from "./memory.js";
 
-const MEMORY_DIR = path.resolve("./memory");
+const MEMORY_DIR = process.env.EMORA_MEMORY_DIR ? path.resolve(process.env.EMORA_MEMORY_DIR) : path.resolve("./memory");
 const META_FILE = path.join(MEMORY_DIR, "sessions.meta.json");
 
 // ==========================================
