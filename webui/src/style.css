@@ -938,6 +938,131 @@ select {
 }
 
 /* ---------------------------------------------------------------------
+   Swarm / Container Dashboard
+   --------------------------------------------------------------------- */
+
+.page--swarm {
+  overflow-y: auto;
+}
+
+.swarm-create-form {
+  margin-bottom: 20px;
+}
+.swarm-create-form__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.swarm-create-form__row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.swarm-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.swarm-card {
+  padding: 16px;
+  transition: border-color 0.15s ease;
+}
+.swarm-card:hover {
+  border-color: var(--border-strong);
+}
+
+.swarm-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.swarm-card__info {
+  flex: 1;
+  min-width: 0;
+}
+.swarm-card__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swarm-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.swarm-card__pid {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.swarm-card__actions {
+  flex-shrink: 0;
+}
+
+.swarm-card__logs {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Skeleton loading state */
+.swarm-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.swarm-skeleton__row {
+  height: 96px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  animation: swarm-pulse 1.8s ease-in-out infinite;
+}
+@keyframes swarm-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* Error + empty hint text */
+.swarm-error-detail,
+.swarm-empty-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  max-width: 36ch;
+}
+
+/* Mobile responsive */
+@media (max-width: 520px) {
+  .swarm-create-form__row {
+    flex-direction: column;
+  }
+  .swarm-card__head {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .swarm-card__actions {
+    align-self: flex-end;
+  }
+}
+
+/* ---------------------------------------------------------------------
    Settings page
    --------------------------------------------------------------------- */
 

@@ -1,104 +1,159 @@
+// webui/src/components/SwarmDashboard.js
+// Swarm / Container Agents Dashboard
+
+import { icons } from '../utils/icons.js'
 import { swarmApi } from '../api.js'
+import { showToast } from '../utils/helpers.js'
 import { escapeHtml } from '../dom.js'
 
 function statusBadge(status) {
-  if (status === "running") return `<span class="badge is-on" style="background:var(--success);color:#fff;padding:2px 8px;border-radius:12px;font-size:0.8rem">RUNNING</span>`
-  return `<span class="badge is-off" style="background:var(--surface-3);padding:2px 8px;border-radius:12px;font-size:0.8rem">STOPPED</span>`
+  if (status === 'running') {
+    return `<span class="badge is-on"><span class="status-dot is-on"></span>Running</span>`
+  }
+  return `<span class="badge is-off"><span class="status-dot is-off"></span>Stopped</span>`
+}
+
+function containerCard(c) {
+  const logText = c.logs && c.logs.filter(Boolean).length
+    ? escapeHtml(c.logs.filter(Boolean).join('\n'))
+    : 'No output yet.'
+
+  const actionBtn = c.status === 'running'
+    ? `<button class="btn btn-danger swarm-action" data-action="stop" data-id="${escapeHtml(c.id)}" aria-label="Stop container ${escapeHtml(c.id)}">Stop</button>`
+    : `<button class="btn btn-primary swarm-action" data-action="start" data-id="${escapeHtml(c.id)}" aria-label="Start container ${escapeHtml(c.id)}">Start</button>`
+
+  return `
+    <article class="card swarm-card" aria-label="Container ${escapeHtml(c.id)}">
+      <div class="swarm-card__head">
+        <div class="swarm-card__info">
+          <h3 class="swarm-card__title">${escapeHtml(c.id)}</h3>
+          <div class="swarm-card__meta">
+            ${statusBadge(c.status)}
+            ${c.pid ? `<span class="swarm-card__pid">PID ${c.pid}</span>` : ''}
+          </div>
+        </div>
+        <div class="swarm-card__actions">${actionBtn}</div>
+      </div>
+      <div class="swarm-card__logs" role="log" aria-label="Container logs for ${escapeHtml(c.id)}">${logText}</div>
+    </article>`
+}
+
+function skeleton() {
+  return `
+    <div class="swarm-skeleton" aria-busy="true" aria-label="Loading containers">
+      <div class="swarm-skeleton__row"></div>
+      <div class="swarm-skeleton__row"></div>
+      <div class="swarm-skeleton__row"></div>
+    </div>`
+}
+
+function errorState(message) {
+  return `
+    <div class="empty-state" role="alert">
+      <span class="glyph">⚠</span>
+      <span>Gagal memuat container</span>
+      <span class="swarm-error-detail">${escapeHtml(message)}</span>
+      <button class="btn" id="swarm-retry">Coba Lagi</button>
+    </div>`
+}
+
+function emptyState() {
+  return `
+    <div class="empty-state" role="status">
+      <span class="glyph">⬡</span>
+      <span>Belum ada container</span>
+      <span class="swarm-empty-hint">Buat container baru di form di atas untuk menjalankan agen terisolasi.</span>
+    </div>`
 }
 
 export function SwarmDashboard() {
   const el = document.createElement('div')
-  el.className = 'page-content'
-  
+  el.className = 'page page--swarm fade-in'
+
   el.innerHTML = `
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">Swarm / Container Agents</h2>
-        <p class="page-desc">Manage isolated agent sandboxes running in the background.</p>
+    <div class="page__header">
+      <span class="eyebrow">Swarm</span>
+      <h2>Container Agents</h2>
+      <p class="page__lede">Kelola agen-agen mandiri yang berjalan terisolasi di background. Setiap container punya memory, config, dan gateway sendiri.</p>
+    </div>
+
+    <form class="swarm-create-form" id="swarm-create-form" aria-label="Create new container">
+      <label for="new-container-id" class="field-label">Nama Container</label>
+      <div class="swarm-create-form__row">
+        <input
+          type="text"
+          id="new-container-id"
+          class="input"
+          placeholder="mis. sales-bot"
+          required
+          pattern="[a-zA-Z0-9_-]+"
+          title="Gunakan huruf, angka, dash, atau underscore"
+          autocomplete="off"
+        />
+        <button type="submit" class="btn btn-primary">${icons.plus} Create</button>
       </div>
-    </div>
-    
-    <div class="panel" style="margin-bottom:1rem;background:var(--surface-2);padding:1rem;border-radius:8px">
-      <form id="create-container-form" style="display:flex;gap:0.5rem">
-        <input type="text" id="new-container-id" class="input" placeholder="Container Name (e.g., sales-bot)" required style="flex:1" />
-        <button type="submit" class="btn btn-primary">Create Sandbox</button>
-      </form>
-    </div>
-    
-    <div id="swarm-list" style="display:flex;flex-direction:column;gap:1rem">
-      <div class="empty-state">Loading containers...</div>
+    </form>
+
+    <div id="swarm-list" role="region" aria-label="Container list" aria-live="polite">
+      ${skeleton()}
     </div>
   `
 
   const listEl = el.querySelector('#swarm-list')
-  const form = el.querySelector('#create-container-form')
+  const form = el.querySelector('#swarm-create-form')
   const input = el.querySelector('#new-container-id')
-  
+
   let refreshInterval = null
+  let lastData = null
 
   async function load() {
     try {
       const list = await swarmApi.list()
+      lastData = list
       render(list)
     } catch (err) {
-      console.error(err)
+      // Only show error state if we have no cached data
+      if (!lastData) {
+        listEl.innerHTML = errorState(err.message || 'Connection error')
+        const retryBtn = listEl.querySelector('#swarm-retry')
+        if (retryBtn) retryBtn.addEventListener('click', load)
+      }
     }
   }
 
   function render(list) {
     if (!list.length) {
-      listEl.innerHTML = `<div class="empty-state">No containers available. Create one above.</div>`
+      listEl.innerHTML = emptyState()
       return
     }
 
-    listEl.innerHTML = list.map(c => `
-      <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;background:var(--surface-2);padding:1rem;border-radius:8px">
-        <div style="flex:1;min-width:0;margin-right:1rem">
-          <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.5rem">
-            <h3 style="margin:0;font-size:1.1rem;color:var(--text-1)">${escapeHtml(c.id)}</h3>
-            ${statusBadge(c.status)}
-            ${c.pid ? `<span style="font-size:0.8rem;color:var(--text-3)">PID: ${c.pid}</span>` : ''}
-          </div>
-          <div style="background:var(--surface-1);padding:0.75rem;border-radius:4px;font-family:monospace;font-size:0.8rem;color:var(--text-2);max-height:150px;overflow-y:auto;white-space:pre-wrap">
-${c.logs && c.logs.length ? escapeHtml(c.logs.join('\\n')) : 'No logs yet.'}
-          </div>
-        </div>
-        <div style="display:flex;gap:0.5rem;flex-shrink:0">
-          ${c.status === 'running'
-            ? `<button class="btn btn-secondary action-stop" data-id="${escapeHtml(c.id)}">Stop</button>`
-            : `<button class="btn btn-primary action-start" data-id="${escapeHtml(c.id)}">Start</button>`}
-        </div>
-      </div>
-    `).join('')
+    listEl.innerHTML = `<div class="swarm-grid">${list.map(containerCard).join('')}</div>`
+    bindActions()
+  }
 
-    listEl.querySelectorAll('.action-start').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const id = e.target.dataset.id
-        btn.disabled = true
-        btn.textContent = '...'
-        try {
-          await swarmApi.start(id)
-          load()
-        } catch(err) {
-          alert('Error: ' + (err.message || 'Failed to start'))
-          btn.disabled = false
-          btn.textContent = 'Start'
-        }
-      })
-    })
+  function bindActions() {
+    listEl.querySelectorAll('.swarm-action').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id
+        const action = btn.dataset.action
+        const label = action === 'start' ? 'Start' : 'Stop'
 
-    listEl.querySelectorAll('.action-stop').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const id = e.target.dataset.id
         btn.disabled = true
-        btn.textContent = '...'
+        btn.textContent = '…'
+
         try {
-          await swarmApi.stop(id)
-          load()
-        } catch(err) {
-          alert('Error: ' + (err.message || 'Failed to stop'))
+          if (action === 'start') {
+            await swarmApi.start(id)
+            showToast(`Container ${id} berhasil dijalankan`)
+          } else {
+            await swarmApi.stop(id)
+            showToast(`Container ${id} dihentikan`)
+          }
+          await load()
+        } catch (err) {
+          showToast(err.message || `Gagal ${label.toLowerCase()} container`, 'error')
           btn.disabled = false
-          btn.textContent = 'Stop'
+          btn.textContent = label
         }
       })
     })
@@ -108,28 +163,29 @@ ${c.logs && c.logs.length ? escapeHtml(c.logs.join('\\n')) : 'No logs yet.'}
     e.preventDefault()
     const id = input.value.trim()
     if (!id) return
-    const btn = form.querySelector('button')
+
+    const btn = form.querySelector('button[type="submit"]')
     btn.disabled = true
+
     try {
       await swarmApi.create(id)
+      showToast(`Container ${id} berhasil dibuat`)
       input.value = ''
-      load()
-    } catch(err) {
-      alert('Error: ' + (err.message || 'Failed to create'))
+      await load()
+    } catch (err) {
+      showToast(err.message || 'Gagal membuat container', 'error')
     } finally {
       btn.disabled = false
     }
   })
 
-  // Poll for logs and status
+  // Initial load + auto-refresh
   load()
   refreshInterval = setInterval(load, 5000)
 
-  // Cleanup on unmount (assuming the framework provides a way to unmount)
-  // For this vanilla JS structure, we rely on the user navigating away. 
-  // Ideally, app.js should call a destroy() method if it existed, but we'll 
-  // attach it to the element so a clever router could find it.
-  el._cleanup = () => clearInterval(refreshInterval)
+  el._cleanup = () => {
+    if (refreshInterval) clearInterval(refreshInterval)
+  }
 
   return el
 }

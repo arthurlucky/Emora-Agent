@@ -8,8 +8,8 @@
 import fs from "fs";
 import path from "path";
 
-const PID_FILE = path.resolve("./.gateway.pid");
-const TUI_LOCK_FILE = path.resolve("./.tui-gateway.lock");
+const PID_FILE = process.env.EMORA_PID_FILE ? path.resolve(process.env.EMORA_PID_FILE) : path.resolve("./.gateway.pid");
+const TUI_LOCK_FILE = process.env.EMORA_TUI_LOCK_FILE ? path.resolve(process.env.EMORA_TUI_LOCK_FILE) : path.resolve("./.tui-gateway.lock");
 
 function processAlive(pid) {
   if (!pid) return false;
