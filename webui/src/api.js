@@ -15,6 +15,13 @@ export const chatApi = {
   }),
   sendStream: (sessionId, message, { onEvent, onToken, onDone, onError }) => {
     const controller = new AbortController();
+    let timeoutId = null;
+    const resetTimeout = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => controller.abort(new Error('Timeout: Tidak ada respon dari server.')), 60000);
+    };
+    resetTimeout();
+    
     fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -28,6 +35,7 @@ export const chatApi = {
 
       while (true) {
         const { done, value } = await reader.read();
+        resetTimeout();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
@@ -42,14 +50,25 @@ export const chatApi = {
               else if (data.type === 'done') onDone && onDone(data);
               else if (data.type === 'error') onError && onError(data.content);
               else onEvent && onEvent(data);
-            } catch (e) {}
+            } catch (e) {
+              console.error('[Stream Parse Error]', e);
+            }
           }
         }
       }
+      clearTimeout(timeoutId);
     }).catch(err => {
-      if (err.name !== 'AbortError') onError && onError(err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError' || err.message.includes('Timeout')) {
+        onError && onError('Koneksi terputus atau timeout.');
+      } else {
+        onError && onError(err.message);
+      }
     });
-    return () => controller.abort();
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   },
   upload: (file) => {
     const formData = new FormData()

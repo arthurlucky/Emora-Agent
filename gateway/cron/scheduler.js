@@ -79,7 +79,7 @@ export class CronScheduler {
       return;
     }
     const task = cron.schedule(job.schedule, () => {
-      this.runJobNow(job).catch(() => {});
+      this.runJobNow(job).catch((err) => { console.error('[Ignored Error]', err.message); });
     });
     this.tasks.set(job.name, task);
   }

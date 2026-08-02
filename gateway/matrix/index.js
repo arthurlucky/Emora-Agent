@@ -78,7 +78,7 @@ class MatrixGateway {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.pendingApprovals.delete(roomId);
-        this.sendText(roomId, "⏱ *Timeout — aksi otomatis ditolak.*").catch(() => {});
+        this.sendText(roomId, "⏱ *Timeout — aksi otomatis ditolak.*").catch((err) => { console.error('[Ignored Error]', err.message); });
         resolve(false);
       }, APPROVAL_TIMEOUT_MS);
 
@@ -155,7 +155,7 @@ class MatrixGateway {
       for (const chunk of splitMessage(finalResponse)) {
         await this.sendText(roomId, chunk);
       }
-      touchSession(sessionId).catch(() => {});
+      touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
     } catch (err) {
       if (err?.aborted) await this.sendText(roomId, "⏹ Dihentikan.");
       else await this.sendText(roomId, `✘ Error: ${err.message}`);

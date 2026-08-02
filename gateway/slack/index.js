@@ -154,7 +154,7 @@ class SlackGateway {
       for (const chunk of splitMessage(finalResponse)) {
         await say(chunk);
       }
-      touchSession(sessionId).catch(() => {});
+      touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
     } catch (err) {
       if (err?.aborted) await say("⏹ Dihentikan.");
       else await say(`✘ Error: ${err.message}`);

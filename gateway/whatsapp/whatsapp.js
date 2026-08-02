@@ -364,7 +364,7 @@ async function requestWhatsAppApproval(sock, m, senderId, toolName, args) {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       pendingApprovals.delete(senderId);
-      reply(sock, m, "⏱ Timeout menunggu approval, otomatis ditolak.").catch(() => {});
+      reply(sock, m, "⏱ Timeout menunggu approval, otomatis ditolak.").catch((err) => { console.error('[Ignored Error]', err.message); });
       resolve(false);
     }, 5 * 60 * 1000);
 
@@ -645,7 +645,7 @@ async function connect(retryCount = 0) {
 
       // Status broadcast → read saja, tidak diproses
       if (raw.key?.remoteJid === "status@broadcast") {
-        await sock.readMessages([raw.key]).catch(() => {});
+        await sock.readMessages([raw.key]).catch((err) => { console.error('[Ignored Error]', err.message); });
         return;
       }
 
@@ -670,7 +670,7 @@ async function connect(retryCount = 0) {
       if (m.key.fromMe) return;
 
       // ── Presence: typing indicator ───────────────────────────────────────
-      await sock.sendPresenceUpdate("composing", m.chat).catch(() => {});
+      await sock.sendPresenceUpdate("composing", m.chat).catch((err) => { console.error('[Ignored Error]', err.message); });
 
       // ── Session management ───────────────────────────────────────────────
       // Key sesi pakai senderId bukan chatId, supaya satu orang satu sesi lintas grup
@@ -727,11 +727,11 @@ async function connect(retryCount = 0) {
 
       try {
         const result = await ask(llm, tools, sessionId, userInput, { onApproval, mode, signal });
-        await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
+        await sock.sendPresenceUpdate("paused", m.chat).catch((err) => { console.error('[Ignored Error]', err.message); });
         await reply(sock, m, result);
-        touchSession(sessionId).catch(() => {});
+        touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
       } catch (err) {
-        await sock.sendPresenceUpdate("paused", m.chat).catch(() => {});
+        await sock.sendPresenceUpdate("paused", m.chat).catch((err) => { console.error('[Ignored Error]', err.message); });
         if (err?.aborted) {
           await reply(sock, m, "⏹ Dihentikan.");
         } else {

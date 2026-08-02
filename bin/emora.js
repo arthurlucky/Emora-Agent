@@ -39,7 +39,14 @@ process.chdir(PKG_ROOT);
 const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, "package.json"), "utf8"));
 const VERSION = pkg.version || "1.0.0";
 
-// ── Color helpers ─────────────────────────────────────────────────────────────
+// ── Global Error Handlers (Mencegah Crash di Termux) ────────────────────────
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(chalk.red('[ UNHANDLED REJECTION ]'), reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error(chalk.red('[ UNCAUGHT EXCEPTION ]'), err);
+});
+
 // ── Color helpers ─────────────────────────────────────────────────────────────
 const dim    = chalk.hex("#6e7681");
 const cyan   = chalk.hex("#58a6ff");

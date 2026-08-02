@@ -164,7 +164,7 @@ if (!token) {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         pendingApprovals.delete(chatId);
-        bot.telegram.editMessageText(chatId, sent.message_id, undefined, content + "\n\n⏱ _Timeout, otomatis ditolak._", { parse_mode: "Markdown" }).catch(() => {});
+        bot.telegram.editMessageText(chatId, sent.message_id, undefined, content + "\n\n⏱ _Timeout, otomatis ditolak._", { parse_mode: "Markdown" }).catch((err) => { console.error('[Ignored Error]', err.message); });
         resolve(false);
       }, 5 * 60 * 1000);
 
@@ -199,7 +199,7 @@ if (!token) {
         pending.resolve(cmd === "yes");
         await bot.telegram
           .editMessageText(chatId, pending.messageId, undefined, pending.content + `\n\n${cmd === "yes" ? "✔ Disetujui" : "✘ Ditolak"} via /${cmd}`, { parse_mode: "Markdown" })
-          .catch(() => {});
+          .catch((err) => { console.error('[Ignored Error]', err.message); });
         return "";
       }
 
@@ -237,7 +237,7 @@ if (!token) {
     if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
     pendingApprovals.delete(chatId);
     pending.resolve(true);
-    await actionCtx.editMessageText(pending.content + "\n\n✔ Disetujui", { parse_mode: "Markdown" }).catch(() => {});
+    await actionCtx.editMessageText(pending.content + "\n\n✔ Disetujui", { parse_mode: "Markdown" }).catch((err) => { console.error('[Ignored Error]', err.message); });
     await actionCtx.answerCbQuery("Disetujui.");
   });
 
@@ -247,7 +247,7 @@ if (!token) {
     if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
     pendingApprovals.delete(chatId);
     pending.resolve(false);
-    await actionCtx.editMessageText(pending.content + "\n\n✘ Ditolak", { parse_mode: "Markdown" }).catch(() => {});
+    await actionCtx.editMessageText(pending.content + "\n\n✘ Ditolak", { parse_mode: "Markdown" }).catch((err) => { console.error('[Ignored Error]', err.message); });
     await actionCtx.answerCbQuery("Ditolak.");
   });
 
@@ -436,7 +436,7 @@ if (!token) {
 
     const sendTyping = () => {
       if (isTyping) {
-        ctx.sendChatAction("typing").catch(() => {});
+        ctx.sendChatAction("typing").catch((err) => { console.error('[Ignored Error]', err.message); });
       }
     };
 
@@ -457,7 +457,7 @@ if (!token) {
         ctx,
         formatTelegramMessage(result)
       );
-      touchSession(sessionId).catch(() => {});
+      touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
     } catch (err) {
       isTyping = false;
       clearInterval(typingInterval);

@@ -178,7 +178,7 @@ export async function deleteSession(id) {
 
   for (const file of files) {
     if (file === `${id}.json` || file.startsWith(`${id}_bg_`)) {
-      await fs.unlink(path.join(MEMORY_DIR, file)).catch(() => {});
+      await fs.unlink(path.join(MEMORY_DIR, file)).catch((err) => { console.error('[Ignored Error]', err.message); });
       fileCache.delete(file);
       deletedFiles++;
     }

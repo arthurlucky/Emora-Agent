@@ -85,7 +85,7 @@ class DiscordGateway {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.pendingApprovals.delete(channel.id);
-        sent.edit({ content: content + "\n\n⏱ *Timeout — otomatis ditolak.*", components: [] }).catch(() => {});
+        sent.edit({ content: content + "\n\n⏱ *Timeout — otomatis ditolak.*", components: [] }).catch((err) => { console.error('[Ignored Error]', err.message); });
         resolve(false);
       }, APPROVAL_TIMEOUT_MS);
 
@@ -126,7 +126,7 @@ class DiscordGateway {
         }
         this.pendingApprovals.delete(channelKey);
         pending.resolve(cmd === "yes");
-        await pending.message.edit({ content: pending.content + `\n\n${cmd === "yes" ? "✔ Disetujui" : "✘ Ditolak"} via /${cmd}`, components: [] }).catch(() => {});
+        await pending.message.edit({ content: pending.content + `\n\n${cmd === "yes" ? "✔ Disetujui" : "✘ Ditolak"} via /${cmd}`, components: [] }).catch((err) => { console.error('[Ignored Error]', err.message); });
         return;
       }
       case "stop": {
@@ -171,7 +171,7 @@ class DiscordGateway {
     const mode = this.turns.getMode(channelKey);
     const sessionId = this._sessionIdFor(channelKey);
 
-    await message.channel.sendTyping().catch(() => {});
+    await message.channel.sendTyping().catch((err) => { console.error('[Ignored Error]', err.message); });
     const progressLines = [];
     let progressMsg = null;
 
@@ -183,9 +183,9 @@ class DiscordGateway {
 
       const text = "🔧 " + progressLines.slice(-8).join("\n");
       if (!progressMsg) {
-        message.channel.send(text).then((m) => { progressMsg = m; }).catch(() => {});
+        message.channel.send(text).then((m) => { progressMsg = m; }).catch((err) => { console.error('[Ignored Error]', err.message); });
       } else {
-        progressMsg.edit(text.slice(0, 1900)).catch(() => {});
+        progressMsg.edit(text.slice(0, 1900)).catch((err) => { console.error('[Ignored Error]', err.message); });
       }
     };
 
@@ -200,7 +200,7 @@ class DiscordGateway {
       for (const chunk of splitMessage(text)) {
         await message.reply(chunk);
       }
-      touchSession(sessionId).catch(() => {});
+      touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
     } catch (err) {
       if (err?.aborted) {
         await message.reply("⏹ Dihentikan.");
@@ -264,7 +264,7 @@ class DiscordGateway {
 
       const pending = this.pendingApprovals.get(interaction.channelId);
       if (!pending || pending.nonce !== nonce) {
-        await interaction.reply({ content: "Request approval ini sudah kadaluarsa.", ephemeral: true }).catch(() => {});
+        await interaction.reply({ content: "Request approval ini sudah kadaluarsa.", ephemeral: true }).catch((err) => { console.error('[Ignored Error]', err.message); });
         return;
       }
       this.pendingApprovals.delete(interaction.channelId);
@@ -272,7 +272,7 @@ class DiscordGateway {
       await interaction.update({
         content: pending.content + `\n\n${approved ? "✔ Disetujui" : "✘ Ditolak"} oleh ${interaction.user.username}`,
         components: [],
-      }).catch(() => {});
+      }).catch((err) => { console.error('[Ignored Error]', err.message); });
       pending.resolve(approved);
     });
 

@@ -1667,3 +1667,23 @@ select {
 .emora-audio-player::-webkit-media-controls-time-remaining-display {
   color: var(--text-primary);
 }
+
+/* ---------------------------------------------------------------------
+   Mobile & Responsive Adjustments
+   --------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+  /* Prevent modal from being too small when keyboard is open */
+  #session-switcher-modal .card {
+    max-height: 100dvh !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+  
+  /* Make chat input resizing smooth */
+  .chat-input-wrapper textarea {
+    transition: height 0.1s ease-out;
+  }
+}
+

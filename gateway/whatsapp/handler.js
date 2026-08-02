@@ -135,7 +135,7 @@ async function requestWhatsAppApproval(replyFn, senderId, toolName, args) {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       pendingApprovals.delete(senderId);
-      replyFn('⏱ Timeout menunggu approval, otomatis ditolak.').catch(() => {});
+      replyFn('⏱ Timeout menunggu approval, otomatis ditolak.').catch((err) => { console.error('[Ignored Error]', err.message); });
       resolve(false);
     }, 5 * 60 * 1000);
 
@@ -313,7 +313,7 @@ export const handler = async (sock, m) => {
     }
   }
 
-  await sock.sendPresenceUpdate('composing', jid).catch(() => {});
+  await sock.sendPresenceUpdate('composing', jid).catch((err) => { console.error('[Ignored Error]', err.message); });
 
   const contextHeader = await buildContextAndEnrich(sock, sessionId, m);
   const hasMedia = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'].includes(m.mtype);
@@ -337,7 +337,7 @@ export const handler = async (sock, m) => {
       const onApproval = (toolName, args) => requestWhatsAppApproval(reply, sender, toolName, args);
       const result = await askWithContext(sessionId, contextHeader, analysisPrompt, { onApproval, mode, signal });
       if (result?.trim()) await reply(formatWhatsAppMessage(result));
-      touchSession(sessionId).catch(() => {});
+      touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
     } catch (err) {
       if (err?.aborted) {
         await reply('⏹ Dihentikan.');
@@ -369,14 +369,14 @@ export const handler = async (sock, m) => {
     const mode = turns.getMode(sender);
     const onApproval = (toolName, args) => requestWhatsAppApproval(reply, sender, toolName, args);
     const result = await askWithContext(sessionId, contextHeader, userInput, { onApproval, mode, signal });
-    await sock.sendPresenceUpdate('paused', jid).catch(() => {});
+    await sock.sendPresenceUpdate('paused', jid).catch((err) => { console.error('[Ignored Error]', err.message); });
     const safeResult = (result || '').trim()
       ? result
       : '⚠️ _Agent tidak menghasilkan balasan untuk pesan ini. Coba tanya ulang ya._';
     await reply(formatWhatsAppMessage(safeResult));
-    touchSession(sessionId).catch(() => {});
+    touchSession(sessionId).catch((err) => { console.error('[Ignored Error]', err.message); });
   } catch (err) {
-    await sock.sendPresenceUpdate('paused', jid).catch(() => {});
+    await sock.sendPresenceUpdate('paused', jid).catch((err) => { console.error('[Ignored Error]', err.message); });
     if (err?.aborted) {
       await reply('⏹ Dihentikan.');
     } else {

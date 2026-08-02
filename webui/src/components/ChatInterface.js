@@ -126,6 +126,9 @@ export function ChatInterface() {
       card.innerHTML = `
         <div class="attachment-card-icon">📎</div>
         <div class="attachment-card-name" title="${file.name}">${file.name}</div>
+        <div class="attachment-upload-status" id="upload-status-${index}" style="display:none;margin-right:4px;">
+          <div class="loading-dots"><span></span><span></span><span></span></div>
+        </div>
         <button class="attachment-remove-btn" data-index="${index}" title="Batal upload">✖</button>
       `
       previewContainer.appendChild(card)
@@ -227,8 +230,12 @@ export function ChatInterface() {
 
     let finalContent = content
     if (pendingAttachments.length > 0) {
-      const uploadPromises = pendingAttachments.map(async (file) => {
-        showToast(`Mengunggah ${file.name}...`, 'info')
+      const uploadPromises = pendingAttachments.map(async (file, index) => {
+        const statusEl = previewContainer.querySelector(`#upload-status-${index}`)
+        const removeBtn = previewContainer.querySelector(`button[data-index="${index}"]`)
+        if (statusEl) statusEl.style.display = 'block'
+        if (removeBtn) removeBtn.style.display = 'none' // Prevent removal during upload
+        
         const result = await chatApi.upload(file)
         if (result && (result.filename || result.path)) {
           return `[${result.filename || file.name}](${window.location.origin}/uploads/${result.filename || result.path})`
@@ -256,9 +263,12 @@ export function ChatInterface() {
       <div class="message-bubble bot-bubble">
         <!-- Live Real-Time Thinking & Badges Box -->
         <div class="live-activity-box" style="margin-bottom:10px;padding:10px 12px;background:var(--bg-surface-raised);border:1px solid var(--border);border-radius:8px;">
-          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);font-weight:600;">
-            <span class="pulse-dot"></span>
-            <span class="thinking-text">EMORA sedang berpikir...</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);font-weight:600;">
+              <span class="pulse-dot"></span>
+              <span class="thinking-text">EMORA sedang berpikir...</span>
+            </div>
+            <button class="btn btn-secondary btn-sm stop-stream-btn" style="padding:2px 8px;font-size:11px;color:var(--accent-red);border-color:var(--accent-red);background:transparent;">⏹ Stop</button>
           </div>
           <div class="badges-row" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div>
         </div>
@@ -279,11 +289,12 @@ export function ChatInterface() {
     const bubbleContent = botRow.querySelector('.bubble-content')
     const bubbleFooter = botRow.querySelector('.bubble-footer')
     const activityBox = botRow.querySelector('.live-activity-box')
+    const stopBtn = botRow.querySelector('.stop-stream-btn')
 
     let accumulatedText = ''
     const currentId = store.get('sessionId')
 
-    chatApi.sendStream(currentId, content, {
+    const abortStream = chatApi.sendStream(currentId, content, {
       onEvent: (event) => {
         if (event.type === 'thinking') {
           thinkingTextEl.textContent = event.text
@@ -325,8 +336,22 @@ export function ChatInterface() {
       onError: (err) => {
         store.set('isLoading', false)
         activityBox.style.display = 'none'
-        bubbleContent.innerHTML = `<div style="color:var(--accent-red);">❌ Error: ${escapeHtml(err)}</div>`
-        showToast('Gagal memproses pesan', 'error')
+        bubbleContent.innerHTML += `<div style="color:var(--accent-red);margin-top:10px;font-size:12px;padding:8px;background:rgba(255,100,100,0.1);border-radius:6px;">❌ ${escapeHtml(err)}</div>`
+        if (accumulatedText) {
+          bubbleFooter.style.display = 'flex'
+          store.addMessage({ role: 'assistant', content: accumulatedText, timestamp: Date.now() })
+        }
+      }
+    })
+    
+    stopBtn.addEventListener('click', () => {
+      abortStream()
+      store.set('isLoading', false)
+      activityBox.style.display = 'none'
+      bubbleContent.innerHTML += `<div style="color:var(--accent-amber);margin-top:10px;font-size:12px;">(Dihentikan oleh pengguna)</div>`
+      if (accumulatedText) {
+        bubbleFooter.style.display = 'flex'
+        store.addMessage({ role: 'assistant', content: accumulatedText, timestamp: Date.now() })
       }
     })
   }
@@ -373,8 +398,7 @@ export function ChatInterface() {
       switchSession(newId, res.session?.name || 'Sesi Baru')
       showToast('Sesi obrolan baru dimulai')
     } catch (e) {
-      const newId = `session_${Date.now()}`
-      switchSession(newId, 'Sesi Baru')
+      showToast('Gagal membuat sesi di server', 'error')
     }
   }
 
