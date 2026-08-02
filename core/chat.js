@@ -159,13 +159,14 @@ MANDATORY LIBRARY WORKFLOW: Before answering any factual question about topics t
     
     // Fallback prompt if files not found
     const name = process.env.NAME || "Emora";
-    cachedSystemPrompt = `
+    const fallback = `
  user identity
  name: ${name}
 
  You are ${name}, an AI assistant.
  `;
-    return cachedSystemPrompt;
+    cachedSystemPrompts[agentPath] = fallback;
+    return fallback;
   }
 }
 
