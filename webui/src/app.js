@@ -10,6 +10,7 @@ import { TerminalConsole } from './components/TerminalConsole.js'
 import { ConfigEditor } from './components/ConfigEditor.js'
 import { ProjectDebugger } from './components/ProjectDebugger.js'
 import { SchedulerDashboard } from './components/SchedulerDashboard.js'
+import { SwarmDashboard } from './components/SwarmDashboard.js'
 import { store } from './state.js'
 
 const pages = {
@@ -17,7 +18,8 @@ const pages = {
   memory: MemoryManager, skills: SkillBrowser,
   library: LibraryBrowser, metrics: SystemMonitor,
   terminal: TerminalConsole, config: ConfigEditor,
-  projects: ProjectDebugger, cron: SchedulerDashboard
+  projects: ProjectDebugger, cron: SchedulerDashboard,
+  swarm: SwarmDashboard
 }
 
 export function initApp() {
@@ -65,6 +67,9 @@ function renderPage(pageId) {
   if (!container) return
   const PageComponent = pages[pageId] || pages.chat
   try {
+    if (container.firstElementChild && container.firstElementChild._cleanup) {
+      container.firstElementChild._cleanup()
+    }
     container.innerHTML = ''
     container.appendChild(PageComponent())
   } catch (err) {

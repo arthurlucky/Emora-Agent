@@ -34,6 +34,7 @@ import { getManager } from '../gateway/manager.js';
 import { loadGatewayConfig, saveGatewayConfig } from '../gateway/config.js';
 import { resolveWorkspacePath } from '../utils/workspace.js';
 import { eventBus } from '../utils/eventBus.js';
+import { createContainer, startContainer, stopContainer, listContainers } from '../swarm/manager.js';
 
 const app = express();
 const DEFAULT_PORT = parseInt(process.env.WEBUI_PORT) || 3000;
@@ -791,6 +792,53 @@ app.post('/api/analyze-file', upload.single('file'), async (req, res) => {
     const llm = await getLLM();
     const result = await ask(llm, tools, sessionId, analysisPrompt);
     res.json({ type: 'file_analysis', content: result, fileInfo: { filename, storedName: req.file.filename, size: size+'KB', mimetype, path: filePath }, sessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── SWARM API ───────────────────────────────────────────────────────────────
+
+app.get('/api/swarm/list', async (req, res) => {
+  try {
+    const list = await listContainers();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/create', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'Container ID is required' });
+    const result = await createContainer(id);
+    if (!result.success) return res.status(400).json({ error: result.message });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/start', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'Container ID is required' });
+    const result = await startContainer(id);
+    if (!result.success) return res.status(400).json({ error: result.message });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/stop', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'Container ID is required' });
+    const result = await stopContainer(id);
+    if (!result.success) return res.status(400).json({ error: result.message });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

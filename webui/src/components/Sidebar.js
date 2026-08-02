@@ -3,6 +3,7 @@ import { store } from '../state.js'
 
 const menuItems = [
   { id: 'chat', label: 'AI Chat', icon: 'chat' },
+  { id: 'swarm', label: 'Swarm Manager', icon: 'bot' },
   { id: 'gateways', label: 'Gateway Manager', icon: 'gateway' },
   { id: 'memory', label: 'Memory Manager', icon: 'memory' },
   { id: 'skills', label: 'Skill Catalog', icon: 'puzzle' },

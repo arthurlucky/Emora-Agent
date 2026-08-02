@@ -154,3 +154,10 @@ export const cronApi = {
   save: (data) => request('/api/cron', { method: 'POST', body: JSON.stringify(data) }),
   delete: (name) => request(`/api/cron/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
+
+export const swarmApi = {
+  list: () => request('/api/swarm/list'),
+  create: (id) => request('/api/swarm/create', { method: 'POST', body: JSON.stringify({ id }) }),
+  start: (id) => request('/api/swarm/start', { method: 'POST', body: JSON.stringify({ id }) }),
+  stop: (id) => request('/api/swarm/stop', { method: 'POST', body: JSON.stringify({ id }) })
+}
