@@ -9,11 +9,8 @@
  * tidak ada yang auto-start dari situ). Semua fungsi lama di bawah tetap
  * dipertahankan persis karena dipakai langsung oleh tools/*.js.
  */
-import "./telegram/adapter.js";
-import "./whatsapp/adapter.js";
-import "./discord/index.js";
-import "./slack/index.js";
-import "./matrix/index.js";
+// Adapter di-load secara dinamis oleh gateway/manager.js saat dibutuhkan.
+// Ini mencegah crash pada startup jika salah satu SDK bermasalah.
 import { getManager } from "./manager.js";
 
 const activeGateways = [];

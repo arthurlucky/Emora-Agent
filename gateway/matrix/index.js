@@ -4,7 +4,9 @@
  * Adapter Matrix untuk EMORA gateway.
  * Menggunakan matrix-js-sdk.
  */
-import sdk from "matrix-js-sdk";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const sdk = require("matrix-js-sdk");
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";

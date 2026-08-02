@@ -26,9 +26,11 @@ async function ensureAdaptersRegistered() {
   if (adaptersLoaded) return;
   adaptersLoaded = true;
   await Promise.all([
-    import("./telegram/adapter.js"),
-    import("./whatsapp/adapter.js"),
-    import("./discord/index.js"),
+    import("./telegram/adapter.js").catch(e => console.warn("[Manager] Gagal meload Telegram adapter:", e.message)),
+    import("./whatsapp/adapter.js").catch(e => console.warn("[Manager] Gagal meload WhatsApp adapter:", e.message)),
+    import("./discord/index.js").catch(e => console.warn("[Manager] Gagal meload Discord adapter:", e.message)),
+    import("./slack/index.js").catch(e => console.warn("[Manager] Gagal meload Slack adapter:", e.message)),
+    import("./matrix/index.js").catch(e => console.warn("[Manager] Gagal meload Matrix adapter:", e.message)),
   ]);
 }
 
