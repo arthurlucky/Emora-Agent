@@ -19,6 +19,7 @@ export const PROVIDERS = {
   openrouter:     { label: "OpenRouter",        tier: "free",   type: "standard" },
   nvidia:         { label: "NVIDIA NIM",        tier: "free",   type: "standard" },
   openai:         { label: "OpenAI",            tier: "paid",   type: "standard" },
+  deepseek:       { label: "DeepSeek",          tier: "free",   type: "standard" },
   ollama:         { label: "Ollama (Local)",    tier: "free",   type: "standard" },
   anthropic:      { label: "Anthropic Claude",  tier: "paid",   type: "async",   installHint: "npm install @langchain/anthropic" },
   huggingface:    { label: "HuggingFace",       tier: "free",   type: "standard" },
@@ -32,6 +33,7 @@ const PROVIDER_PATHS = {
   openrouter: "./openrouter/index.js",
   nvidia:     "./nvidia/index.js",
   openai:     "./openai/index.js",
+  deepseek:   "./deepseek/index.js",
   ollama:     "./ollama/index.js",
   anthropic:  "./anthropic/index.js",
   huggingface:"./huggingface/index.js",
@@ -55,6 +57,7 @@ export function detectProvider() {
   if (url.includes("openrouter.ai"))             return "openrouter";
   if (url.includes("nvidia.com"))                return "nvidia";
   if (url.includes("openai.com"))                return "openai";
+  if (url.includes("api.deepseek.com"))          return "deepseek";
   if (url.includes("anthropic.com"))             return "anthropic";
   if (url.includes("huggingface.co"))            return "huggingface";
   if (url.includes("localhost") ||

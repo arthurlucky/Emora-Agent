@@ -1,162 +1,177 @@
 // provider/deepseek/index.js
+//
+// Dua jalur:
+// 1. API RESMI (prioritas) — api.deepseek.com, OpenAI-compatible via
+//    ChatOpenAI. Tool calling penuh, stabil. Butuh DEEPSEEK_API_KEY
+//    (https://platform.deepseek.com/api_keys) — harga sangat murah.
+// 2. SCRAPE (fallback gratis) — aichat.org, tanpa API key tapi rapuh &
+//    tanpa tool calling. Dipakai otomatis kalau API key tidak ada.
+//
+// Pilihan jalur: otomatis (ada key → API), atau paksa via DEEPSEEK_MODE=api|scrape.
+
+import fsSync from "fs";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import axios from "axios";
-import cheerio from "cheerio";
-import { wrapper } from "axios-cookiejar-support";
-import { CookieJar } from "tough-cookie";
+import { AIMessage } from "@langchain/core/messages";
+import { ChatOpenAI } from "@langchain/openai";
 
 export const PROVIDER_ID    = "deepseek";
-export const PROVIDER_LABEL = "DeepSeek (Scrape)";
-export const PROVIDER_TIER  = "free";
-export const KEY_URL        = null; // tidak perlu API key
-export const BASE_URL       = "https://aichat.org";
+export const PROVIDER_LABEL = "DeepSeek";
+export const PROVIDER_TIER  = "free"; // scrape gratis; API sangat murah
+export const KEY_URL        = "https://platform.deepseek.com/api_keys";
+export const BASE_URL       = "https://api.deepseek.com/v1";
+const SCRAPE_BASE           = "https://aichat.org";
 
 export const MODELS = [
+  // ── API RESMI (butuh DEEPSEEK_API_KEY) ──
   {
-    id:      "deepseek-chat-v3-0324",
-    label:   "DeepSeek V3 (via aichat.org) — gratis, tanpa tool calling",
+    id:      "deepseek-chat",
+    label:   "DeepSeek V3 (API resmi)  — tool calling OK, sangat murah [API]",
+    context: 65536,
+    tier:    "paid", // murah, bukan gratis
+  },
+  {
+    id:      "deepseek-reasoner",
+    label:   "DeepSeek R1 (API resmi) — reasoning kuat, tanpa tool calling [API]",
+    context: 65536,
+    tier:    "paid",
+  },
+  // ── SCRAPE (gratis, tanpa key) ──
+  {
+    id:      "deepseek-chat-v3-0324-scrape",
+    label:   "DeepSeek V3 (scrape)     — gratis, TANPA tool calling [FALLBACK]",
     context: 65536,
     tier:    "free",
   },
 ];
 
-export const DEFAULT_MODEL = "deepseek-chat-v3-0324";
+export const DEFAULT_MODEL = "deepseek-chat";
 
-// ── Custom Chat Model ──────────────────────────────────────────────────────
+/** Jalur mana yang dipakai: api kalau ada key & tidak dipaksa scrape. */
+function resolveMode(model) {
+  const forced = (process.env.DEEPSEEK_MODE || "").toLowerCase();
+  if (forced === "scrape") return "scrape";
+  if (forced === "api") return "api";
+  const hasKey = !!(process.env.DEEPSEEK_API_KEY || process.env.MODEL_API);
+  // Model scrape eksplisit → scrape walau ada key.
+  if (String(model).endsWith("-scrape")) return hasKey ? "api" : "scrape";
+  return hasKey ? "api" : "scrape";
+}
+
+/**
+ * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts
+ */
+export function createLLM({ apiKey, model, tools = [] } = {}) {
+  const chosenModel = model || process.env.MODEL_NAME || DEFAULT_MODEL;
+  const mode = resolveMode(chosenModel);
+
+  if (mode === "api") {
+    // Normalisasi: "-scrape" suffix → id API asli.
+    const cleanModel = chosenModel.replace(/-scrape$/, "");
+    const llm = new ChatOpenAI({
+      apiKey: apiKey || process.env.DEEPSEEK_API_KEY || process.env.MODEL_API,
+      model: cleanModel,
+      configuration: { baseURL: BASE_URL },
+      temperature: 0.2,
+      maxTokens: 4096,
+    });
+    return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
+  }
+
+  // Fallback scrape — tanpa tool calling.
+  return new DeepSeekScrapeChatModel({
+    model: chosenModel,
+    sessionFile: null, // histori dikelola memory EMORA, bukan file scraper
+  });
+}
+
+// ── SCRAPE FALLBACK (aichat.org) ─────────────────────────────────────────────
 class DeepSeekScrapeChatModel extends BaseChatModel {
   constructor(options = {}) {
     super(options);
     this.model = options.model || DEFAULT_MODEL;
-    this.sessionFile = options.sessionFile || null; // opsional untuk menyimpan histori
   }
 
   _llmType() {
     return "deepseek-scrape";
   }
 
-  async _generate(messages, options, runManager) {
-    // Ambil prompt terakhir dari user
-    const lastUserMsg = messages.filter(m => m._getType() === "human").pop();
-    if (!lastUserMsg) {
-      throw new Error("Tidak ada pesan user.");
-    }
-    const prompt = lastUserMsg.content;
+  async _generate(messages) {
+    // Gabungkan seluruh konteks percakapan (bukan cuma pesan terakhir)
+    // supaya agent tetap sadar riwayat dalam batas wajar.
+    const convo = messages.slice(-12).map((m) => ({
+      role:
+        m._getType() === "human" ? "user" :
+        m._getType() === "ai" ? "assistant" : "user",
+      content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+    })).filter((m) => m.content);
 
-    // Jalankan scraping
-    const result = await deepseekChat(prompt, this.sessionFile);
+    if (!convo.length) throw new Error("Tidak ada pesan user.");
+
+    const result = await deepseekChat(convo);
     const parsed = JSON.parse(result);
-    const content = parsed.content || "";
-
     return {
-      generations: [{ text: content, message: new AIMessage(content) }],
+      generations: [{ text: parsed.content, message: new AIMessage(parsed.content) }],
     };
   }
 }
 
-// ── Fungsi scraping (diadaptasi dari kode yang diberikan) ──────────────
-async function deepseekChat(prompt, sessionFile = null) {
+async function deepseekChat(messages) {
+  // Lazy import — deps scraper hanya dibutuhkan kalau fallback ini dipakai.
+  const axios = (await import("axios")).default;
+  const cheerio = (await import("cheerio")).default;
+  const { wrapper } = await import("axios-cookiejar-support");
+  const { CookieJar } = await import("tough-cookie");
   const jar = new CookieJar();
   const client = wrapper(axios.create({ jar, withCredentials: true }));
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
-  // 1. Ambil CSRF token
-  const initialRes = await client.get("https://aichat.org/chat", {
+  // 1. CSRF token
+  const initialRes = await client.get(`${SCRAPE_BASE}/chat`, {
     headers: {
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-      "accept": "*/*",
-      "accept-language": "en-US,en;q=0.9",
-      "referer": "https://aichat.org/chat",
-      "origin": "https://aichat.org",
+      "user-agent": UA,
+      accept: "*/*",
+      referer: `${SCRAPE_BASE}/chat`,
+      origin: SCRAPE_BASE,
     },
   });
   const $ = cheerio.load(initialRes.data);
   const csrfToken = $('meta[name="csrf-token"]').attr("content");
-  if (!csrfToken) throw new Error("Gagal mendapatkan CSRF Token.");
+  if (!csrfToken) throw new Error("Gagal mendapatkan CSRF Token dari aichat.org (site berubah?).");
 
-  // 2. Baca session (kalau ada)
-  let messages = [];
-  if (sessionFile && fs.existsSync(sessionFile)) {
-    try {
-      const fileData = fs.readFileSync(sessionFile, "utf-8");
-      messages = fileData ? JSON.parse(fileData) : [];
-    } catch (_) { messages = []; }
-  }
-  messages.push({ role: "user", content: prompt });
-
-  // 3. Kirim request streaming
+  // 2. Kirim request streaming
   const res = await client.post(
-    "https://aichat.org/api/chat",
-    {
-      model: "deepseek/deepseek-chat-v3-0324",
-      messages: messages,
-    },
+    `${SCRAPE_BASE}/api/chat`,
+    { model: "deepseek/deepseek-chat-v3-0324", messages },
     {
       headers: {
-        "user-agent": "Mozilla/5.0...",
-        "accept": "*/*",
+        "user-agent": UA,
+        accept: "text/event-stream",
         "x-csrf-token": csrfToken,
         "content-type": "application/json",
-        "accept": "text/event-stream",
       },
       responseType: "stream",
-    }
+      timeout: 60_000,
+    },
   );
 
-  // 4. Proses stream
+  // 3. Proses stream
   return new Promise((resolve, reject) => {
     let result = "";
-    let tokenUsage = null;
-    res.data.on("data", chunk => {
-      const lines = chunk.toString().split("\n");
-      for (const line of lines) {
+    res.data.on("data", (chunk) => {
+      for (const line of chunk.toString().split("\n")) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith(":")) continue;
-        if (trimmed.startsWith("data: ")) {
-          const dataStr = trimmed.replace("data: ", "").trim();
-          if (dataStr === "[DONE]") {
-            if (sessionFile && result.trim()) {
-              messages.push({ role: "assistant", content: result.trim() });
-              fs.writeFileSync(sessionFile, JSON.stringify(messages, null, 2), "utf-8");
-            }
-            resolve(JSON.stringify({ content: result.trim(), token_usage: tokenUsage }));
-            return;
-          }
-          try {
-            const dataJson = JSON.parse(dataStr);
-            if (dataJson.usage) {
-              tokenUsage = {
-                prompt_tokens: dataJson.usage.prompt_tokens,
-                completion_tokens: dataJson.usage.completion_tokens,
-                total_tokens: dataJson.usage.total_tokens,
-              };
-            }
-            const delta = dataJson.choices?.[0]?.delta;
-            const content = delta?.content || "";
-            if (content) result += content;
-          } catch (_) {}
-        }
+        if (!trimmed.startsWith("data: ")) continue;
+        const dataStr = trimmed.replace("data: ", "").trim();
+        if (dataStr === "[DONE]") continue;
+        try {
+          const delta = JSON.parse(dataStr).choices?.[0]?.delta;
+          if (delta?.content) result += delta.content;
+        } catch {}
       }
     });
-    res.data.on("end", () => {
-      if (sessionFile && result.trim() && !messages.find(h => h.content === result.trim() && h.role === "assistant")) {
-        messages.push({ role: "assistant", content: result.trim() });
-        fs.writeFileSync(sessionFile, JSON.stringify(messages, null, 2), "utf-8");
-      }
-      resolve(JSON.stringify({ content: result.trim(), token_usage: tokenUsage }));
-    });
+    res.data.on("end", () => resolve(JSON.stringify({ content: result.trim() })));
     res.data.on("error", reject);
   });
 }
 
-// ── Factory untuk EMORA ──────────────────────────────────────────────────
-export function createLLM({ tools = [], ...opts } = {}) {
-  // tools tidak didukung, abaikan
-  return new DeepSeekScrapeChatModel({
-    model: opts.model || process.env.MODEL_NAME || DEFAULT_MODEL,
-    sessionFile: opts.sessionFile || null,
-  });
-}
-
-// Ekspor tambahan
-export const KNOWN_MODELS = MODELS;
 export default { createLLM, MODELS, DEFAULT_MODEL };
