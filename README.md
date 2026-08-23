@@ -1,5 +1,11 @@
 # 🌟 EMORA — Autonomous AI Agent
 
+![CI](https://github.com/arthurlucky/Emora-Agent/actions/workflows/ci.yml/badge.svg)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG.md-orange)](./CHANGELOG.md)
+
+
 ## 1. Penjelasan EMORA
 
 EMORA adalah AI agent **autonomous** dan **self-hosted**: jalan di mesin/server milikmu sendiri (bukan layanan cloud pihak ketiga), bisa terhubung ke banyak channel komunikasi sekaligus (Telegram, WhatsApp, Discord, Slack, Matrix), punya sistem skill & plugin yang bisa terus berkembang, dan bisa disambungkan ke tool eksternal lewat **MCP (Model Context Protocol)** — standar terbuka yang sama dipakai Claude Desktop/Claude Code.

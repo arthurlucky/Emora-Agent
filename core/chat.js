@@ -430,6 +430,11 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
     response = await invokeWithRetry(llm, messages, { signal });
   } catch (err) {
     if (err?.aborted) throw err;
+    // Log ke file untuk diagnosa (emora doctor membaca ini).
+    try {
+      const { logLine } = await import("../utils/logger.js");
+      logLine("error", `LLM invoke gagal: ${err.message}`);
+    } catch {}
     if (err?.status === 401 || err?.message?.includes("Invalid API Key") || err?.code === "invalid_api_key") {
       return (
         `⚠️ **[ERROR AUTHENTICATION - 401 Invalid API Key]**\n\n` +

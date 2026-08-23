@@ -35,10 +35,10 @@ export const MODELS = [
     context: 65536,
     tier:    "paid",
   },
-  // ── SCRAPE (gratis, tanpa key) ──
+  // ── SCRAPE (gratis, eksperimental — situs pihak ketiga bisa berubah kapan saja) ──
   {
     id:      "deepseek-chat-v3-0324-scrape",
-    label:   "DeepSeek V3 (scrape)     — gratis, TANPA tool calling [FALLBACK]",
+    label:   "DeepSeek V3 (scrape)     — EKSPERIMENTAL, gratis, TANPA tool calling",
     context: 65536,
     tier:    "free",
   },

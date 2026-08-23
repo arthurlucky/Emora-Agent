@@ -92,7 +92,19 @@ export async function cmdDoctor() {
     warn("Test suite tidak bisa dijalankan (folder test tidak ada?)");
   }
 
-  // 8. Platform info
+  // 8. Riwayat error terakhir (dari utils/logger.js)
+  try {
+    const { readRecentErrors } = await import("../utils/logger.js");
+    const errs = readRecentErrors(5);
+    if (errs.length) {
+      warn(`Riwayat error/warn terakhir (${errs.length}):`);
+      for (const l of errs) console.log("     " + l.slice(0, 100));
+    } else {
+      ok("Tidak ada error tercatat di log");
+    }
+  } catch {}
+
+  // 9. Platform info
   ok(`Platform: ${os.platform()} ${os.arch()} · ${os.cpus().length} core · ${(os.totalmem() / 1e9).toFixed(1)}GB RAM`);
 
   console.log("\n  Jalankan tanpa flag ini kapan saja untuk cek ulang.\n");
