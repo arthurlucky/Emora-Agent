@@ -35,6 +35,7 @@ import titleGeneratorTool from "../tools/title_generator.js";
 import { artifactTool } from "../tools/artifact_tool.js";
 import { sessionMemoryTool } from "../tools/session_memory.js";
 import pluginManager from "./pluginManager.js";
+import fsSync from "fs";
 import { patchTool } from "../tools/patch.js";
 import { undoTool, redoTool } from "../tools/undo.js";
 import { verifyTool } from "../tools/verify.js";
@@ -177,6 +178,20 @@ try {
   filteredTools = await applyToolset(allTools);
 } catch (err) {
   console.error(`  ⚠️  Toolset filter gagal, pakai semua tool: ${err.message}`);
+}
+
+// ─────────────────────────────────────────────
+// Obsidian MANUAL mode — tool filesystem vault.
+// Aktif hanya kalau OBSIDIAN_VAULT_PATH dikonfigurasi di .env
+// (di-set lewat `emora obsidian setup` → mode manual).
+// ─────────────────────────────────────────────
+if (process.env.OBSIDIAN_VAULT_PATH && fsSync.existsSync(process.env.OBSIDIAN_VAULT_PATH)) {
+  try {
+    const { obsidianManualTool } = await import("../tools/obsidian_manual.js");
+    filteredTools.push(obsidianManualTool);
+  } catch (err) {
+    console.error(`  ⚠️  Obsidian manual tool gagal dimuat: ${err.message}`);
+  }
 }
 
 // ─────────────────────────────────────────────

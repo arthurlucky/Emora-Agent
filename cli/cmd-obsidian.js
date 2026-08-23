@@ -86,9 +86,60 @@ async function testMcpConnection({ protocol, host, port, apiKey }) {
 }
 
 async function runSetup() {
-  sectionHeader("OBSIDIAN SETUP", "Hubungkan EMORA ke vault Obsidian lewat MCP");
-  infoLine("Prasyarat", "Plugin community \"Local REST API\" sudah aktif di Obsidian, dan Obsidian sedang terbuka");
+  sectionHeader("OBSIDIAN SETUP", "Pilih cara EMORA mengakses vault Obsidian");
   console.log();
+
+  const mode = await select("Mode koneksi:", [
+    { label: "🔌 MCP (Local REST API) — butuh plugin Obsidian, fitur penuh", value: "mcp" },
+    { label: "📁 MANUAL (filesystem) — tanpa plugin, akses file vault langsung", value: "manual" },
+  ]);
+
+  if (mode === "manual") return runSetupManual();
+  return runSetupMcp();
+}
+
+// ── MODE MANUAL: pilih vault via folder picker interaktif ───────────────────
+async function runSetupManual() {
+  sectionHeader("OBSIDIAN — MODE MANUAL", "Akses vault lewat filesystem langsung");
+  infoLine("Cara kerja", "EMORA baca/tulis file .md di folder vault — tidak perlu Obsidian terbuka", "cyan");
+  console.log();
+
+  const { pickVaultFolder } = await import("./vaultPicker.js");
+  const picked = await pickVaultFolder();
+  if (!picked) {
+    warnLine("Dibatalkan. Jalankan `emora obsidian setup` lagi kalau berubah pikiran.");
+    sectionFooter();
+    return;
+  }
+
+  // Simpan ke .env
+  upsertEnvVar("OBSIDIAN_VAULT_PATH", picked);
+  upsertEnvVar("OBSIDIAN_MODE", "manual");
+
+  const noteCount = countNotes(picked);
+  console.log();
+  successLine(`Vault manual terkonfigurasi: ${picked}`);
+  infoLine("Notes terdeteksi", `${noteCount} file .md`, noteCount ? "green" : "yellow");
+  if (!noteCount) warnLine("Folder ini tidak berisi file .md — pastikan ini folder vault yang benar.");
+  infoLine("Tool aktif", "obsidian_vault (search/read/write/append/list/tree)", "cyan");
+  infoLine("Nonaktifkan", "emora obsidian remove — hapus OBSIDIAN_VAULT_PATH dari .env", "dim");
+  sectionFooter();
+}
+
+function countNotes(dir) {
+  let n = 0;
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory() && !e.name.startsWith(".")) n += countNotes(path.join(dir, e.name));
+      else if (e.name.endsWith(".md")) n++;
+    }
+  } catch {}
+  return n;
+}
+
+// ── MODE MCP: wizard Local REST API (perilaku lama) ─────────────────────────
+async function runSetupMcp() {
+  sectionHeader("OBSIDIAN SETUP (MCP)", "Hubungkan via plugin \"Local REST API\" di Obsidian");
 
   const protocol = await select("Protokol:", [
     { label: "https — direkomendasikan (port default 27124, sertifikat self-signed OK)", value: "https" },
@@ -209,7 +260,20 @@ async function runRemove() {
   const before = (cfg.servers || []).length;
   cfg.servers = (cfg.servers || []).filter((s) => s.name !== SERVER_NAME);
   writeMcpConfig(cfg);
-  if (cfg.servers.length < before) successLine("Konfigurasi Obsidian dihapus dari mcp/mcp.config.json.");
+
+  // Hapus juga config mode manual kalau ada.
+  let removedManual = false;
+  let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
+  for (const key of ["OBSIDIAN_VAULT_PATH", "OBSIDIAN_MODE"]) {
+    if (new RegExp(`^${key}=.*$`, "m").test(content)) {
+      content = content.replace(new RegExp(`^${key}=.*$`, "m"), "").replace(/\n{2,}/g, "\n");
+      removedManual = true;
+    }
+  }
+  if (removedManual) fs.writeFileSync(ENV_PATH, content.trimEnd() + "\n");
+
+  if (cfg.servers.length < before) successLine("Konfigurasi MCP Obsidian dihapus.");
+  else if (removedManual) successLine("Konfigurasi manual (vault path) dihapus dari .env.");
   else warnLine("Tidak ada konfigurasi Obsidian untuk dihapus.");
 }
 
