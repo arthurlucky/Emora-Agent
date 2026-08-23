@@ -112,3 +112,61 @@ Daftar singkat semua skill yang tersedia saat ini (lihat folder masing-masing un
 - **bulk_file_organizer**: Mengorganisir sekumpulan file secara massal: rename berdasarkan pola, pindahkan ke subfolder berdasarkan ekstensi/tanggal/konten, dan hapus duplikat atau file sampah.
 - **website_health_check**: Cek kesehatan website atau endpoint API: apakah dapat diakses, berapa response time-nya, apakah SSL-nya masih valid, dan apa ada error yang terdeteksi.
 - **group_broadcast_announcer**: Menyusun dan mengirimkan pengumuman/broadcast yang terstruktur ke grup Telegram atau WhatsApp aktif, dengan format yang disesuaikan per platform.
+- **obsidian_vault**: Baca, cari, buat, atau ubah catatan di vault Obsidian user lewat tool MCP `mcp_obsidian__*` (butuh `emora obsidian setup` dulu — lihat bagian 15 di bawah).
+- **guide-emora**: Panduan MASTER cara pakai EMORA — semua perintah CLI, TUI, gateway, sistem skill/plugin, MCP, cron, artifact, dan troubleshooting. Pakai kalau user nanya "gimana cara pakai kamu" atau bingung soal fitur apa saja yang ada.
+
+---
+
+## 🔌 Skill & Command dari Plugin (format standar Claude Code / Hermes Agent)
+
+Selain skill bawaan di folder ini, EMORA juga membaca skill & command yang datang dari **plugin** (`./plugins/<id>/`), memakai layout yang SAMA dengan yang dipakai Claude Code, Hermes Agent, dan CLI agent lain — jadi plugin dari luar bisa langsung dipasang tanpa ditulis ulang:
+
+```txt
+plugins/<id>/
+├── .claude-plugin/plugin.json   (manifest standar — atau plugin.json di root, legacy)
+├── skills/<nama>/SKILL.md       (sama persis konsepnya dengan skill.md di atas)
+├── commands/<nama>.md           (satu file = satu slash command, boleh pakai $ARGUMENTS)
+├── hooks/hooks.json             (opsional, dicatat tapi belum dieksekusi)
+├── .mcp.json                    (MCP server bawaan plugin, otomatis disambungkan)
+└── index.js                     (opsional, legacy: tool LangChain EMORA-native)
+```
+
+Plugin skill & command otomatis masuk katalog `[AVAILABLE SKILLS]` (LLM bisa pakai otomatis) DAN bisa dipanggil manual — lihat bagian 15.
+
+### Hooks — "selalu aktif setiap turn" (bukan cuma command manual)
+
+Beberapa plugin (mis. **ponytail**) gak cuma nambah command — mereka juga punya `hooks/hooks.json` yang bikin perilakunya AKTIF TERUS di setiap turn tanpa perlu dipanggil manual (mis. mode yang disuntik ke context di SETIAP prompt). EMORA menjalankan hook ini persis sesuai kontrak Claude Code:
+
+- `SessionStart` — jalan sekali di awal sesi.
+- `UserPromptSubmit` — jalan di SETIAP prompt user.
+- Command hook dijalankan lewat shell, boleh pakai `${CLAUDE_PLUGIN_ROOT}`/`${PLUGIN_ROOT}` (di-substitusi ke path absolut folder plugin), dapat input JSON lewat stdin (`hook_event_name`, `session_id`, `cwd`, `prompt`), dan output-nya (JSON `hookSpecificOutput.additionalContext`, ATAU teks polos) disuntik ke system prompt turn itu.
+
+**PENTING — soal keamanan:** hook = command shell arbitrary yang jalan OTOMATIS. EMORA TIDAK PERNAH menjalankan hook plugin manapun sampai user secara eksplisit **trust** plugin itu — muncul prompt konfirmasi otomatis (menampilkan persis command apa yang bakal jalan) saat `emora plugin install`, atau kelola manual lewat:
+```
+emora plugin trust-hooks <id>
+emora plugin untrust-hooks <id>
+emora plugin list-hooks
+```
+Plugin yang belum di-trust TETAP bisa dipakai skill/command/tool-nya secara normal — cuma hook-nya aja yang gak jalan sampai di-trust.
+
+---
+
+## 15. ⌨️ Menjalankan Skill/Command Secara Manual — `/<nama>`
+
+SEMUA skill (bawaan ATAU dari plugin) dan command (dari plugin) bisa dijalankan langsung oleh user, tanpa menunggu EMORA memutuskan sendiri.
+
+**Skill bawaan** (folder `./skill/`) — cukup nama polos, gak perlu prefix apa-apa, karena sumbernya cuma satu jadi gak mungkin tabrakan nama:
+```
+/<nama_skill> [argumen opsional]
+```
+Contoh: `/obsidian_vault cari semua note soal onboarding`.
+
+**Command/skill dari PLUGIN** — begitu plugin selesai diinstall (`emora plugin install <url>` / `/plugin install <url>`), SEMUA command & skill di dalamnya LANGSUNG bisa dipanggil, tanpa restart, dengan format **namespaced** persis seperti Claude Code / Antigravity CLI / OpenClaw:
+```
+/<id_plugin>:<nama_command_atau_skill> [argumen opsional]
+```
+Contoh: install plugin dari `github.com/DietrichGebert/ponytail` (jadi `plugins/ponytail/`, punya `commands/ponytail-audit.md`) → langsung bisa dipanggil `/ponytail:ponytail-audit`.
+
+Bentuk pendek `/<nama>` (tanpa prefix `plugin:`) JUGA jalan untuk command/skill dari plugin, SELAMA namanya unik di antara semua plugin yang terpasang. Kalau ada 2+ plugin yang kebetulan punya command/skill dengan nama sama, EMORA gak akan menebak salah satu — dia balas daftar pilihan dan minta pakai bentuk lengkap `/plugin:nama` untuk memperjelas. Bentuk namespaced (`plugin:nama`) SELALU jalan dan gak pernah ambigu, jadi itu yang paling aman dipakai kalau ragu.
+
+Ini berlaku di **SEMUA antarmuka** — TUI, Telegram, WhatsApp, Discord, Slack, dan Matrix — dengan mekanisme yang sama: EMORA mendeteksi `/<nama>` (atau `/plugin:nama`) yang cocok dengan entry di katalog skill/command (lihat `core/skillRegistry.js`, dibaca langsung dari disk tiap kali — jadi plugin baru langsung "kebaca" tanpa restart), lalu menyuntikkan isi skill/command tersebut sebagai instruksi WAJIB-dijalankan-sekarang ke giliran itu (bukan sekadar hint seperti katalog otomatis) — argumen setelah nama disisipkan ke placeholder `$ARGUMENTS` kalau command-nya punya, atau ditambahkan sebagai konteks tambahan kalau tidak. Kalau `/<nama>` tidak cocok dengan skill/command manapun, EMORA memperlakukannya sebagai pesan chat biasa.

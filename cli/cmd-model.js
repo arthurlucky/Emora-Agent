@@ -14,7 +14,61 @@ const ENV_PATH = "./.env";
 function getEnv(k) { const m = (fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH,"utf8") : "").match(new RegExp(`^${k}=(.*)$`,"m")); return m?m[1].trim():""; }
 function setEnv(k,v) { let c=fs.existsSync(ENV_PATH)?fs.readFileSync(ENV_PATH,"utf8"):""; const re=new RegExp(`^${k}=.*$`,"m"); c=re.test(c)?c.replace(re,`${k}=${v}`):c+(c.endsWith("\n")||c===""?"":"\n")+`${k}=${v}`; fs.writeFileSync(ENV_PATH,c.trim()+"\n"); }
 
-export async function cmdModel() {
+export async function cmdModel(args = []) {
+  const { saveProfile, useProfile, removeProfile, listProfiles, formatList } =
+    await import("../core/modelProfiles.js");
+
+  // ── Profile multi-konfigurasi ─────────────────────────────────────────
+  if (args[0] === "list") {
+    console.log(formatList(await listProfiles()));
+    return;
+  }
+  if (args[0] === "save") {
+    try {
+      await saveProfile(args[1]);
+      console.log(`  ✓ Profile "${args[1]}" tersimpan (dari konfigurasi aktif).`);
+    } catch (e) { console.error(`  ✗ ${e.message}`); }
+    return;
+  }
+  if (args[0] === "use") {
+    try {
+      const p = await useProfile(args[1], setEnv);
+      console.log(`  ✓ Beralih ke "${args[1]}": ${p.provider}/${p.model}`);
+      console.log("     Restart TUI/gateway agar session baru memakai config ini.");
+    } catch (e) { console.error(`  ✗ ${e.message}`); }
+    return;
+  }
+  if (args[0] === "rm" || args[0] === "remove") {
+    try {
+      await removeProfile(args[1]);
+      console.log(`  ✓ Profile "${args[1]}" dihapus.`);
+    } catch (e) { console.error(`  ✗ ${e.message}`); }
+    return;
+  }
+
+  // ── Hermes-style shortcut: `emora model set <provider> [model]` — tanpa wizard.
+  if (args[0] === "set") {
+    const provider = args[1], model = args.slice(2).join(" ");
+    if (!provider) {
+      console.error("  ✗ Gunakan: emora model set <provider> [model]");
+      console.error(`     Provider: ${Object.keys(PROVIDERS).join(", ")}`);
+      process.exit(1);
+    }
+    if (!PROVIDERS[provider]) {
+      console.error(`  ✗ Provider tidak dikenal: ${provider}`);
+      process.exit(1);
+    }
+    setEnv("MODEL_PROVIDER", provider);
+    try {
+      const mod = await import(`../provider/${provider === "custom" ? "customEndpoint" : provider}/index.js`);
+      if (mod.BASE_URL && provider !== "ollama" && provider !== "custom") setEnv("MODEL_URL", mod.BASE_URL);
+      if (!model && mod.DEFAULT_MODEL) setEnv("MODEL_NAME", mod.DEFAULT_MODEL);
+    } catch {}
+    if (model) setEnv("MODEL_NAME", model);
+    console.log(`  ✓ Provider: ${provider}  →  Model: ${getEnv("MODEL_NAME") || "(belum diset)"}`);
+    return;
+  }
+
   const curProvider = getEnv("MODEL_PROVIDER") || "ollama";
   const curModel    = getEnv("MODEL_NAME") || "—";
 

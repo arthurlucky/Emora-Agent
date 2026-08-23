@@ -5,7 +5,7 @@
  * berdasar status/view saat ini — approval prompt & tiap alternate view
  * (history/skills/wizard/dst) punya keybinding sendiri-sendiri.
  */
-import { AVAILABLE_COMMANDS, runSlashCommand, renameSession, deleteSession } from "./slashCommands.js";
+import { AVAILABLE_COMMANDS, runSlashCommand, renameSession, deleteSession, getSkillSuggestionCache, refreshSkillSuggestionCache } from "./slashCommands.js";
 import { toggleSkill } from "./skillsMenu.js";
 import { loadSession } from "../core/memory.js";
 import {
@@ -19,22 +19,70 @@ function updateSuggestions(dispatch, value) {
     dispatch({ type: "CLEAR_SUGGESTIONS" });
     return;
   }
-  const matches = AVAILABLE_COMMANDS.filter((c) => c.startsWith(value));
+  // Gabung command bawaan TUI DENGAN nama skill/command (bawaan + plugin,
+  // termasuk bentuk namespaced "/plugin:nama") — dulu dropdown ini cuma
+  // berisi 21 command bawaan, jadi skill/plugin sama sekali gak nongol di
+  // sini walau bisa dipanggil manual. Dedup pakai Set karena nama skill
+  // bawaan bisa saja tabrakan persis sama command bawaan (jarang, tapi aman).
+  const combined = [...new Set([...AVAILABLE_COMMANDS, ...getSkillSuggestionCache()])];
+  const matches = combined.filter((c) => c.startsWith(value));
   dispatch({ type: matches.length ? "SET_SUGGESTIONS" : "CLEAR_SUGGESTIONS", suggestions: matches.length ? matches : undefined });
 }
 
 // ── Text input editing (dipakai di banyak tempat: chat box, wizard text step) ──
+// Navigasi ala nano/readline: Home/End, Ctrl+A/E (awal/akhir), Ctrl+K
+// (potong ke akhir), Ctrl+U (potong semua), Ctrl+W (hapus kata sebelum
+// kursor), Alt+B/F / Ctrl+Left/Right (lompat per kata).
 function editBuffer(value, cursorPos, input, key) {
   if (key.backspace || key.delete) {
+    // Alt+Backspace = hapus kata sebelum kursor.
+    if (key.meta) {
+      const newPos = wordJumpBack(value, cursorPos);
+      return { value: value.slice(0, newPos) + value.slice(cursorPos), cursorPos: newPos };
+    }
     if (cursorPos <= 0) return { value, cursorPos };
     return { value: value.slice(0, cursorPos - 1) + value.slice(cursorPos), cursorPos: cursorPos - 1 };
   }
-  if (key.leftArrow) return { value, cursorPos: Math.max(0, cursorPos - 1) };
-  if (key.rightArrow) return { value, cursorPos: Math.min(value.length, cursorPos + 1) };
+  if (key.leftArrow) {
+    if (key.ctrl || key.meta || key.alt) return { value, cursorPos: wordJumpBack(value, cursorPos) }; // Ctrl+Left = kata
+    return { value, cursorPos: Math.max(0, cursorPos - 1) };
+  }
+  if (key.rightArrow) {
+    if (key.ctrl || key.meta || key.alt) return { value, cursorPos: wordJumpFwd(value, cursorPos) }; // Ctrl+Right = kata
+    return { value, cursorPos: Math.min(value.length, cursorPos + 1) };
+  }
   if (input && !key.ctrl && !key.meta) {
     return { value: value.slice(0, cursorPos) + input + value.slice(cursorPos), cursorPos: cursorPos + input.length };
   }
+  // Ctrl-chords yang datang lewat `input` char (Ink tidak selalu expose sebagai key.*).
+  if (key.ctrl && input) {
+    switch (input.toLowerCase()) {
+      case "a": return { value, cursorPos: 0 };
+      case "e": return { value, cursorPos: value.length };
+      case "k": return { value: value.slice(0, cursorPos), cursorPos };           // potong ke akhir
+      case "u": return { value: value.slice(cursorPos), cursorPos: 0 };           // potong ke awal
+      case "w": { const p = wordJumpBack(value, cursorPos); return { value: value.slice(0, p) + value.slice(cursorPos), cursorPos: p }; }
+      case "b": return { value, cursorPos: Math.max(0, cursorPos - 1) };
+      case "f": return { value, cursorPos: Math.min(value.length, cursorPos + 1) };
+    }
+  }
   return { value, cursorPos };
+}
+
+// Lompat awal kata SEBELUM kursor (ala nano Alt+B).
+function wordJumpBack(value, pos) {
+  let i = pos;
+  while (i > 0 && /\s/.test(value[i - 1])) i--;
+  while (i > 0 && !/\s/.test(value[i - 1])) i--;
+  return i;
+}
+
+// Lompat awal kata SETELAH kursor (ala nano Alt+F).
+function wordJumpFwd(value, pos) {
+  let i = pos;
+  while (i < value.length && /\s/.test(value[i])) i++;
+  while (i < value.length && !/\s/.test(value[i])) i++;
+  return i;
 }
 
 // ── Chat view ────────────────────────────────────────────────────────────────
@@ -92,6 +140,11 @@ async function submitText(text, { state, dispatch, controller }) {
       dispatch({ type: "SET_INPUT", value: "" });
       if (result.type === "notice") dispatch({ type: "SET_NOTICE", message: result.message });
       if (result.type === "error") dispatch({ type: "SET_ERROR", message: result.message });
+      // Fire-and-forget: command apa pun bisa saja mengubah daftar skill
+      // (install/reload plugin, /learn skill baru, dll) — refresh cache
+      // autocomplete di background daripada nebak-nebak command mana aja
+      // yang perlu di-whitelist.
+      refreshSkillSuggestionCache();
       return;
     }
   }
@@ -137,7 +190,7 @@ async function handleSkillsKeys({ state, dispatch, key, input }) {
 
   if (input === " ") {
     const skill = state.skills.list[state.skills.index];
-    if (!skill) return;
+    if (!skill || skill.toggleable === false) return; // skill/command dari plugin: dikelola lewat /plugin, bukan di sini
     dispatch({ type: "TOGGLE_SKILL_LOCAL" });
     try { await toggleSkill(skill); } catch { /* biarin, UI udah keburu keliatan toggle */ }
   }

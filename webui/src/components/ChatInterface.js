@@ -7,13 +7,36 @@ import { renderMarkdown, renderWidgets } from '../format.js'
 // Voice recognition setup (Chrome/Android only)
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
 
+function newUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+function loadPersistedSession() {
+  try { return localStorage.getItem('emora_active_session') } catch { return null }
+}
+
+function persistSession(id) {
+  try { localStorage.setItem('emora_active_session', id) } catch {}
+}
+
 export function ChatInterface() {
   const el = document.createElement('div')
   el.className = 'chat-wrapper'
   el.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);overflow:hidden;'
   
-  const currentSessionId = store.get('sessionId') || `session_${Date.now()}`
-  if (!store.get('sessionId')) store.set('sessionId', currentSessionId)
+  let currentSessionId = store.get('sessionId') || loadPersistedSession()
+  if (!currentSessionId) {
+    currentSessionId = newUuid()
+    store.set('sessionId', currentSessionId)
+    persistSession(currentSessionId)
+  } else if (!store.get('sessionId')) {
+    store.set('sessionId', currentSessionId)
+  }
 
   el.innerHTML = `
     <!-- Sub-header status bar -->
@@ -237,8 +260,9 @@ export function ChatInterface() {
         if (removeBtn) removeBtn.style.display = 'none' // Prevent removal during upload
         
         const result = await chatApi.upload(file)
-        if (result && (result.filename || result.path)) {
-          return `[${result.filename || file.name}](${window.location.origin}/uploads/${result.filename || result.path})`
+        if (result && (result.filename || result.storedName)) {
+          const servedName = result.storedName || result.path || result.filename
+          return `[${result.filename || file.name}](${window.location.origin}/uploads/${servedName})`
         }
         return `[Gagal upload: ${file.name}]`
       })
@@ -293,23 +317,45 @@ export function ChatInterface() {
 
     let accumulatedText = ''
     const currentId = store.get('sessionId')
+    const activeBadges = new Set()
 
     const abortStream = chatApi.sendStream(currentId, content, {
       onEvent: (event) => {
         if (event.type === 'thinking') {
           thinkingTextEl.textContent = event.text
-        } else if (event.type === 'skill_read') {
-          const badge = document.createElement('span')
-          badge.className = 'badge fade-in'
-          badge.style.cssText = 'background:rgba(163,113,247,0.18);color:var(--accent-purple);border:1px solid var(--accent-purple);font-size:11px;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;'
-          badge.innerHTML = `${icons.puzzle} skill: <strong>${escapeHtml(event.name || event.skill)}</strong>`
-          badgesRow.appendChild(badge)
+        } else if (event.type === 'skill_use' || event.type === 'skill_read') {
+          const skillName = event.skill || event.name || '?'
+          if (!activeBadges.has(`s:${skillName}`)) {
+            activeBadges.add(`s:${skillName}`)
+            const badge = document.createElement('span')
+            badge.className = 'badge fade-in'
+            badge.style.cssText = 'background:rgba(163,113,247,0.18);color:var(--accent-purple);border:1px solid var(--accent-purple);font-size:11px;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;'
+            badge.innerHTML = `${icons.puzzle} skill: <strong>${escapeHtml(skillName)}</strong>`
+            badgesRow.appendChild(badge)
+          }
         } else if (event.type === 'tool_use') {
-          const badge = document.createElement('span')
-          badge.className = 'badge fade-in'
-          badge.style.cssText = 'background:rgba(79,216,196,0.18);color:var(--accent-cyan);border:1px solid var(--accent-cyan);font-size:11px;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;'
-          badge.innerHTML = `${icons.zap} tool: <strong>${escapeHtml(event.name || event.tool)}</strong>`
-          badgesRow.appendChild(badge)
+          const toolName = event.tool || event.name || '?'
+          if (!activeBadges.has(`t:${toolName}`)) {
+            activeBadges.add(`t:${toolName}`)
+            const badge = document.createElement('span')
+            badge.className = 'badge fade-in'
+            badge.style.cssText = 'background:rgba(79,216,196,0.18);color:var(--accent-cyan);border:1px solid var(--accent-cyan);font-size:11px;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;'
+            badge.innerHTML = `${icons.zap} tool: <strong>${escapeHtml(toolName)}</strong>`
+            badgesRow.appendChild(badge)
+          }
+        } else if (event.type === 'command') {
+          // Balasan perintah slash (/clear, /new, /sesi, /help, dsb).
+          const cmdText = event.content || ''
+          if (event.newSessionId && event.newSessionId !== store.get('sessionId')) {
+            store.set('sessionId', event.newSessionId)
+            persistSession(event.newSessionId)
+            activeSessionLabel.textContent = `Sesi: ${event.newSessionId.slice(0, 8)}...`
+          }
+          bubbleContent.innerHTML = renderMarkdown(cmdText)
+          store.set('isLoading', false)
+          activityBox.style.display = 'none'
+          bubbleFooter.style.display = 'flex'
+          store.addMessage({ role: 'assistant', content: cmdText, timestamp: Date.now() })
         }
         messagesContainer.scrollTop = messagesContainer.scrollHeight
       },
@@ -322,15 +368,19 @@ export function ChatInterface() {
         store.set('isLoading', false)
         activityBox.style.display = 'none'
         bubbleFooter.style.display = 'flex'
-        if (data.content) {
-          bubbleContent.innerHTML = renderMarkdown(data.content)
+        const finalText = data?.content || accumulatedText
+        if (finalText) {
+          bubbleContent.innerHTML = renderMarkdown(finalText)
           renderWidgets(bubbleContent)
-          store.addMessage({ role: 'assistant', content: data.content, timestamp: Date.now() })
+          store.addMessage({ role: 'assistant', content: finalText, timestamp: Date.now() })
         }
-        botRow.querySelector('.copy-btn').addEventListener('click', () => {
-          copyToClipboard(data.content || accumulatedText)
-          showToast('Teks berhasil disalin')
-        })
+        const copyBtn = botRow.querySelector('.copy-btn')
+        if (copyBtn) {
+          copyBtn.addEventListener('click', () => {
+            copyToClipboard(finalText)
+            showToast('Teks berhasil disalin')
+          })
+        }
         messagesContainer.scrollTop = messagesContainer.scrollHeight
       },
       onError: (err) => {
@@ -457,6 +507,7 @@ export function ChatInterface() {
 
   async function switchSession(id, name = null) {
     store.set('sessionId', id)
+    persistSession(id)
     activeSessionLabel.textContent = `Sesi: ${(name || id).slice(0, 16)}...`
     messagesContainer.innerHTML = `<div style="text-align:center;padding:50px;color:var(--text-muted);"><div class="loading-dots" style="justify-content:center;margin-bottom:12px;"><span></span><span></span><span></span></div>Memuat riwayat obrolan...</div>`
 
@@ -546,6 +597,12 @@ export function ChatInterface() {
       input.disabled = value
     }
   })
+
+  // Muat riwayat sesi persisten saat pertama render (setelah refresh page),
+  // supaya percakapan sebelumnya tidak hilang. Sesui baru tetap welcome hero.
+  if (loadPersistedSession() && currentSessionId) {
+    switchSession(currentSessionId)
+  }
   
   return el
 }

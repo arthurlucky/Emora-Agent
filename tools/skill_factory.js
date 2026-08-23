@@ -158,7 +158,7 @@ async function appendToSkillIndex(safeName, description) {
 export const skillFactoryTool = new DynamicStructuredTool({
   name: "skill_factory",
   description:
-    "Mengelola Skill Factory EMORA: lihat pola tool yang terdeteksi, evaluasi hasil project yang sudah selesai dari project_manager, buat skill otomatis dari pola atau dari project yang hasilnya bagus, dan kelola skill yang sudah ada. Actions: list_patterns, list_projects, read_project, skip_project, create_skill, list_skills, read_skill, delete_pattern, reset_pattern.",
+    "Mengelola Skill Factory EMORA: lihat pola tool yang terdeteksi, evaluasi hasil project yang sudah selesai dari project_manager, buat skill otomatis dari pola atau dari project yang hasilnya bagus, dan kelola skill yang sudah ada — list_skills & read_skill mencakup skill/command bawaan MAUPUN yang datang dari plugin (format standar Claude Code/Hermes Agent). Actions: list_patterns, list_projects, read_project, skip_project, create_skill, list_skills, read_skill, delete_pattern, reset_pattern.",
   schema: z.object({
     action: z
       .enum([
@@ -408,8 +408,40 @@ export const skillFactoryTool = new DynamicStructuredTool({
           const skillDir = path.join(SKILL_DIR, safeName);
           await fs.mkdir(skillDir, { recursive: true });
 
-          // Simpan dokumen skill utama (selalu gunakan lowercase)
-          await writeSkillMd(skillDir, skill_content);
+          // ── HERMES-STYLE SKILL FORMAT ──
+          // Frontmatter YAML otomatis di-depan body: name + description +
+          // categories selalu konsisten & terbaca katalog (skillRegistry).
+          // Kalau content dari LLM sudah punya frontmatter, replace dengan
+          // versi kanonik (description di meta = sumber kebenaran).
+          let body = String(skill_content);
+          const fmMatch = body.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+          if (fmMatch) body = body.slice(fmMatch[0].length);
+
+          // Kategori auto-guess sederhana dari kata kunci deskripsi.
+          // ponytail: naive keyword match. Upgrade: biarkan LLM isi param
+          // categories eksplisit kalau presisi penting.
+          const descLower = (skill_description || "").toLowerCase();
+          const CAT_MAP = [
+            ["design",      /ui|ux|design|frontend|css|visual|dashboard/],
+            ["devops",      /deploy|server|docker|nginx|backup|monitor|log/],
+            ["github",      /git|commit|pr|pull request|github/],
+            ["note-taking", /obsidian|catatan|note|knowledge/],
+            ["productivity",/organize|file|rapikan|automasi|workflow/],
+            ["research",    /research|cari|analisis|web|scrape/],
+          ];
+          const cats = CAT_MAP.filter(([, re]) => re.test(descLower)).map(([c]) => c).slice(0, 2);
+
+          const finalContent =
+`---
+name: ${safeName}
+description: ${skill_description || "(no description)"}
+${cats.length ? `categories: ${cats.join(", ")}` : ""}
+---
+
+${body.trimStart()}
+`;
+
+          await writeSkillMd(skillDir, finalContent);
 
           // Simpan script otomasi jika ada
           if (skill_script) {
@@ -461,6 +493,8 @@ export const skillFactoryTool = new DynamicStructuredTool({
           // katalog [AVAILABLE SKILLS] (lihat core/chat.js) sampai proses
           // EMORA di-restart manual, karena system prompt di-cache.
           invalidateSystemPromptCache();
+          const { invalidateSkillCache } = await import("../core/skillRegistry.js");
+          invalidateSkillCache();
 
           return JSON.stringify({
             success: true,
@@ -516,8 +550,30 @@ export const skillFactoryTool = new DynamicStructuredTool({
               has_script: meta.has_script || false,
               source_pattern: meta.source_pattern || null,
               created_at: meta.created_at || null,
+              source: "builtin",
             });
           }
+
+          // Sertakan juga skill & command dari plugin (format standar
+          // Claude Code — lihat core/skillRegistry.js) supaya action ini
+          // jadi satu sumber kebenaran yang lengkap, bukan cuma bawaan.
+          try {
+            const { default: skillRegistry } = await import("../core/skillRegistry.js");
+            const pluginEntries = await skillRegistry.listAll();
+            for (const p of pluginEntries) {
+              if (p.source === "builtin") continue;
+              skills.push({
+                name: p.slashName,
+                description: p.description || "(tanpa deskripsi)",
+                version: "?",
+                has_script: false,
+                source_pattern: null,
+                created_at: null,
+                source: p.source,
+                kind: p.kind,
+              });
+            }
+          } catch { /* plugins/ belum ada dsb, gak fatal */ }
 
           return JSON.stringify({
             success: true,
@@ -537,28 +593,54 @@ export const skillFactoryTool = new DynamicStructuredTool({
             });
           }
           const safeName = toSafeName(skill_name_target);
-          
+
           // Baca skill.md secara case-insensitive
           const content = await readSkillMdContent(
             path.join(SKILL_DIR, safeName)
           );
 
-          if (!content) {
+          if (content) {
+            const script = await readFileSafe(
+              path.join(SKILL_DIR, safeName, "run.sh")
+            );
             return JSON.stringify({
-              success: false,
-              error: `Skill '${safeName}' tidak ditemukan`,
+              success: true,
+              skill_name: safeName,
+              content,
+              script: script || null,
             });
           }
 
-          const script = await readFileSafe(
-            path.join(SKILL_DIR, safeName, "run.sh")
-          );
+          // Gak ketemu di skill/ bawaan -> coba skillRegistry (mencakup
+          // skill DAN command dari plugin, format standar Claude Code —
+          // lihat core/skillRegistry.js). Ini bikin read_skill transparan:
+          // LLM gak perlu tahu/peduli apakah suatu entry itu bawaan atau
+          // dari plugin, katalog [AVAILABLE SKILLS] & tool ini konsisten.
+          const { default: skillRegistry } = await import("../core/skillRegistry.js");
+          const candidates = await skillRegistry.resolveCandidates(skill_name_target);
 
-          return JSON.stringify({ 
-            success: true, 
-            skill_name: safeName, 
-            content, 
-            script: script || null 
+          if (candidates.length > 1) {
+            return JSON.stringify({
+              success: false,
+              error: `Nama "${skill_name_target}" ada di lebih dari satu plugin. Panggil ulang read_skill dengan skill_name_target dalam bentuk "plugin:nama", pilih salah satu: ${candidates.map((c) => c.slashName).join(", ")}`,
+            });
+          }
+
+          if (candidates.length === 1) {
+            const entry = candidates[0];
+            const { content: pluginContent } = await skillRegistry.readContent(entry, "");
+            return JSON.stringify({
+              success: true,
+              skill_name: entry.slashName,
+              source: entry.source,
+              content: pluginContent,
+              script: null,
+            });
+          }
+
+          return JSON.stringify({
+            success: false,
+            error: `Skill '${safeName}' tidak ditemukan (dicek di skill bawaan maupun skill/command plugin)`,
           });
         }
 

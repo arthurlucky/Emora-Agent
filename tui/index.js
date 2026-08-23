@@ -12,6 +12,7 @@ import tools from "../core/tools.js";
 import { createLLM, getProviderMeta, detectProvider } from "../provider/index.js";
 import { createSession } from "../core/sessionStore.js";
 import App from "./App.js";
+import { refreshSkillSuggestionCache } from "./slashCommands.js";
 
 const red = chalk.hex("#f85149");
 const cyan = chalk.hex("#58a6ff");
@@ -20,7 +21,9 @@ const dim = chalk.hex("#8b949e");
 const ALT_SCREEN_ON = "\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l";
 const ALT_SCREEN_OFF = "\x1b[?25h\x1b[?1049l";
 
-export async function runTUI(initialQuery = "") {
+export async function runTUI(options = {}) {
+  const { initialQuery = "", resumeSession = null } = options;
+
   if (!process.stdout.isTTY) {
     console.error(red("\n  ✗ TUI EMORA butuh terminal interaktif (TTY)."));
     console.error(dim("  Kalau lagi jalan lewat pipe/script, pakai 'emora send' atau 'emora gateway' sebagai gantinya.\n"));
@@ -40,7 +43,31 @@ export async function runTUI(initialQuery = "") {
 
   const meta = getProviderMeta(detectProvider());
   const modelName = process.env.MODEL_NAME || "default";
-  const session = await createSession("Sesi baru");
+
+  // Mode operasi dari .emora/mode.json (disimpan via /mode atau emora config)
+  // — dulu TUI selalu mulai di autonomous walau user terakhir set plan/safe.
+  let startMode = "autonomous";
+  try {
+    const { getMode } = await import("../tools/change_mode.js");
+    startMode = await getMode();
+  } catch {}
+
+  let session;
+  if (resumeSession) {
+    const { getSession } = await import("../core/sessionStore.js");
+    session = await getSession(resumeSession);
+    if (!session) {
+      console.error(red(`\n  ✗ Session tidak ditemukan: ${resumeSession}\n`));
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    session = await createSession("Sesi baru");
+  }
+
+  // Fire-and-forget: isi cache autocomplete skill/plugin di background,
+  // gak perlu nge-block startup TUI nunggu scan disk selesai.
+  refreshSkillSuggestionCache();
 
   process.stdout.write(ALT_SCREEN_ON);
 
@@ -58,8 +85,9 @@ export async function runTUI(initialQuery = "") {
   const app = render(
     React.createElement(App, {
       sessionId: session.id,
-      sessionTitle: session.title,
+      sessionTitle: session.name || session.title || "Sesi baru",
       provider: { name: meta.label, model: modelName },
+      initialMode: startMode,
       llm,
       tools,
       initialQuery,

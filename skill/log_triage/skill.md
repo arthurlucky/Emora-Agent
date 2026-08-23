@@ -1,3 +1,9 @@
+---
+name: log_triage
+description: Membaca dan menganalisis file log (error log, server log, dll) untuk menemukan pola error berulang, meringkas root cause, dan menyarankan perbaikan.
+categories: devops
+---
+
 # log_triage
 
 **Metadata**

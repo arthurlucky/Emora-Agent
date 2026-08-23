@@ -10,7 +10,8 @@ export function Header() {
     memory: 'Memory Manager', skills: 'Skill Catalog',
     library: 'Knowledge Library', metrics: 'System Metrics',
     terminal: 'Terminal Console', config: 'Configuration',
-    projects: 'Project Debugger'
+    projects: 'Project Debugger', cron: 'Cron Scheduler',
+    swarm: 'Swarm Manager'
   }
   
   el.innerHTML = `

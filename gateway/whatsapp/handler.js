@@ -24,6 +24,16 @@ import { getManager } from '../manager.js';
 export const turns = new TurnStateManager('whatsapp');
 const pendingApprovals = new Map(); // senderId -> { resolve }
 
+// Sama seperti fix di gateway/telegram/telegram.js: commandResult.action ===
+// "help" dulu gak pernah dirender (falls-through tanpa balasan).
+const WHATSAPP_HELP_TEXT =
+  "⎔ *Perintah EMORA (WhatsApp)*\n\n" +
+  "*Gateway:* /status /stop /mode <safe|autonomous> /cron ...\n" +
+  "*Sesi:* /new /sesi [id] /clear /sesilist /sesiinfo <id> /sesidel <id>\n" +
+  "*Plugin & Artifact:* /plugin list|disable|enable|reload|install · /artifact list|get|delete\n" +
+  "*Skill:* /learn <nama> (susun skill baru dari sesi ini) · /<nama_skill_atau_command> (jalankan skill/command apa pun — bawaan atau dari plugin — langsung)\n\n" +
+  "Ketik pesan biasa untuk ngobrol dengan EMORA.";
+
 function splitWA(text, limit = 4000) {
   if (text.length <= limit) return [text];
   const chunks = [];
@@ -308,6 +318,9 @@ export const handler = async (sock, m) => {
       }
       if (cmdResult.action === 'exit') {
         await reply('❌ Command /exit tidak tersedia di WhatsApp.');
+      }
+      if (cmdResult.action === 'help') {
+        await reply(WHATSAPP_HELP_TEXT);
       }
       return;
     }

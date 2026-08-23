@@ -18,6 +18,7 @@ import fs from "fs";
 import path from "path";
 import { ask } from "../../core/chat.js";
 import tools from "../../core/tools.js";
+import skillRegistry from "../../core/skillRegistry.js";
 import { createLLM } from "../../provider/index.js";
 import { registerAdapter } from "../manager.js";
 import { TurnStateManager } from "../session.js";
@@ -158,11 +159,20 @@ class DiscordGateway {
       }
       case "help":
         await message.reply(
-          "⎔ *Perintah EMORA (Discord)*\n`/status` `/reset` `/mode <safe|autonomous>`\n`/stop` `/yes` `/no`\n`/cron ...` (lihat `/cron` buat detail)"
+          "⎔ *Perintah EMORA (Discord)*\n`/status` `/reset` `/mode <safe|autonomous>`\n`/stop` `/yes` `/no`\n`/cron ...` (lihat `/cron` buat detail)\n`/<nama_skill>` — jalankan skill/command apa pun (bawaan/plugin) langsung"
         );
         return;
-      default:
-        await message.reply(`ℹ Perintah \`/${cmd}\` gak dikenal. Ketik \`/help\` buat lihat daftar perintah.`);
+      default: {
+        // Bukan salah satu command bawaan gateway di atas — cek apakah ini
+        // skill/command (bawaan ATAU dari plugin) yang bisa dipanggil manual
+        // lewat "/<nama>" atau "/<plugin>:<nama>" (lihat core/skillRegistry.js
+        // & skill/SKILL.md #15). Pakai resolveCandidates supaya kasus ambigu
+        // TETAP diteruskan ke ask() (yang akan kasih pesan disambiguasi),
+        // bukan langsung dibalas "gak dikenal".
+        const candidates = await skillRegistry.resolveCandidates(cmd);
+        if (candidates.length) { await this._handlePrompt(message, channelKey); return; }
+        await message.reply(`ℹ Perintah \`/${cmd}\` gak dikenal. Ketik \`/help\` buat lihat daftar perintah, atau cek skill yang tersedia dulu.`);
+      }
     }
   }
 

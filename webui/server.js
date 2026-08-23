@@ -84,6 +84,7 @@ if (fs.existsSync(distPath)) {
 
 const UPLOAD_DIR = path.join(ROOT_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR, { fallthrough: false }));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -240,14 +241,15 @@ app.post('/api/chat', async (req, res) => {
     await touchSession(sessionId, message);
 
     const state = { currentSession: sessionId };
-    const commandResult = handleCommand(message, state);
+    const commandResult = await handleCommand(message, state);
     if (commandResult) {
+      const newSessionId = state.currentSession !== sessionId ? state.currentSession : undefined;
       if (commandResult.action === 'exit') {
         const newSession = await createSession();
         return res.json({ type: 'command', action: 'clear', content: 'Session cleared.', newSessionId: newSession.id });
       }
       if (commandResult.action === 'reply') {
-        return res.json({ type: 'command', action: 'reply', content: commandResult.message });
+        return res.json({ type: 'command', action: 'reply', content: commandResult.message, newSessionId });
       }
     }
 
@@ -276,15 +278,16 @@ app.post('/api/chat/stream', async (req, res) => {
     await touchSession(sessionId, message);
 
     const state = { currentSession: sessionId };
-    const commandResult = handleCommand(message, state);
+    const commandResult = await handleCommand(message, state);
     if (commandResult) {
+      const newSessionId = state.currentSession !== sessionId ? state.currentSession : undefined;
       if (commandResult.action === 'exit') {
         const newSession = await createSession();
         sendEvent({ type: 'command', action: 'clear', content: 'Session cleared.', newSessionId: newSession.id });
         return res.end();
       }
       if (commandResult.action === 'reply') {
-        sendEvent({ type: 'command', action: 'reply', content: commandResult.message });
+        sendEvent({ type: 'command', action: 'reply', content: commandResult.message, newSessionId });
         return res.end();
       }
     }
@@ -928,6 +931,34 @@ app.post('/api/swarm/chat', async (req, res) => {
 });
 
 app.get('/api/bg-tasks', (req, res) => res.json({ active: [] }));
+
+// ── PROJECT MANAGER SSE STREAM (/stream-pm) ───────────────────────────────
+// Dipakai Project Debugger (webui) buat melihat event project manager secara
+// live. Server cuma me-relay event yang dipancarkan lewat eventBus global.
+app.get('/stream-pm', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (payload) => {
+    try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch {}
+  };
+
+  send({ type: 'connected', message: 'Terhubung ke stream project manager.', timestamp: Date.now() });
+
+  const emitEvent = ({ job_id, session_id, prompt }) => {
+    send({ type: 'bg_task', message: `[bg-task] ${session_id || ''} #${job_id || '?'}: ${prompt || ''}`, timestamp: Date.now() });
+  };
+  eventBus.on('execute_bg_task', emitEvent);
+
+  const heartbeat = setInterval(() => send({ type: 'heartbeat', timestamp: Date.now() }), 5000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    eventBus.off('execute_bg_task', emitEvent);
+  });
+});
 
 // Background task handler
 const bgLocks = {};

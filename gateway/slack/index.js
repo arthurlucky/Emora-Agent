@@ -10,12 +10,18 @@ import fs from "fs";
 import path from "path";
 import { ask } from "../../core/chat.js";
 import tools from "../../core/tools.js";
+import skillRegistry from "../../core/skillRegistry.js";
 import { createLLM } from "../../provider/index.js";
 import { registerAdapter } from "../manager.js";
 import { TurnStateManager } from "../session.js";
 import { touchSession } from "../../core/sessionStore.js";
 import { handleCronCommand } from "../cron/commands.js";
 import { splitMessage, formatToolLine, buildApprovalRow, approvalContent } from "../discord/presenter.js"; // Reuse Discord presenter tools for text formatting
+
+// Command bawaan gateway ini — kalau user ketik "/<salah satu ini>", JANGAN
+// dicek ke skillRegistry dulu (biar skill dgn nama sama gak "menutupi"
+// command gateway inti).
+const RESERVED_GATEWAY_COMMANDS = new Set(["status", "reset", "mode", "help"]);
 
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 const SESSION_MAP_FILE = path.resolve("./gateway/slack/session-map.json");
@@ -124,7 +130,7 @@ class SlackGateway {
         return;
       }
       case "help":
-        await say("⎔ *Perintah EMORA (Slack)*\\n`/status` `/reset` `/mode <safe|autonomous>`\\nKetik pesan biasa untuk ngobrol dengan EMORA.");
+        await say("⎔ *Perintah EMORA (Slack)*\n`/status` `/reset` `/mode <safe|autonomous>`\n`/<nama_skill>` — jalankan skill/command apa pun (bawaan/plugin) langsung\nKetik pesan biasa untuk ngobrol dengan EMORA.");
         return;
       default:
         await say(`ℹ Perintah \`/${cmd}\` gak dikenal.`);
@@ -186,8 +192,15 @@ class SlackGateway {
       if (!content) return;
 
       if (content.startsWith("/")) {
-        const args = content.slice(1).split(/\\s+/).filter(Boolean);
-        await this._handleCommand(say, channelKey, args[0].toLowerCase(), args.slice(1));
+        const args = content.slice(1).split(/\s+/).filter(Boolean);
+        const cmd = (args[0] || "").toLowerCase();
+        // Cek dulu apakah ini skill/command manual (bawaan/plugin, format
+        // standar Claude Code — lihat core/skillRegistry.js) SEBELUM
+        // memperlakukannya sbg command gateway bawaan (/status, /reset, dst).
+        // resolveCandidates supaya kasus ambigu tetap diteruskan ke ask().
+        const candidates = cmd && !RESERVED_GATEWAY_COMMANDS.has(cmd) ? await skillRegistry.resolveCandidates(cmd) : [];
+        if (candidates.length) await this._handlePrompt(message, say, channelKey);
+        else await this._handleCommand(say, channelKey, cmd, args.slice(1));
       } else {
         await this._handlePrompt(message, say, channelKey);
       }

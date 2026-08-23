@@ -70,7 +70,15 @@ function normalize(cfg) {
   if (!cfg.platforms || typeof cfg.platforms !== "object") cfg.platforms = {};
   for (const key of Object.keys(cfg.platforms)) {
     const p = cfg.platforms[key];
+    // PENTING: spread `...p` DULU supaya field spesifik-platform (mis.
+    // Slack butuh `botToken`+`appToken`, Matrix butuh `baseUrl`+
+    // `accessToken`+`userId` — lihat gateway/slack/index.js &
+    // gateway/matrix/index.js) ikut kesimpan. Sebelumnya field-field ini
+    // SELALU HILANG setiap kali config disave, karena cuma daftar field
+    // generik di bawah ini yang dipertahankan — akibatnya Slack & Matrix
+    // gak mungkin bisa dikonfigurasi sama sekali lewat cmdSetup/setup.js.
     cfg.platforms[key] = {
+      ...p,
       type: p.type || key,
       enabled: !!p.enabled,
       token: p.token || "",

@@ -245,8 +245,9 @@ export async function cmdMcp(argv) {
 
       case "add": {
         const transport = await select("Tipe transport:", [
-          { label: "stdio   — Jalankan sebagai child process (command)",  value: "stdio" },
-          { label: "sse     — HTTP + Server-Sent Events",                 value: "sse"   },
+          { label: "stdio   — Jalankan sebagai child process (command)",       value: "stdio" },
+          { label: "http    — Streamable HTTP (standar MCP remote server)",    value: "http"  },
+          { label: "sse     — HTTP + Server-Sent Events (legacy)",             value: "sse"   },
         ]);
         const name = await input("Nama server (unik):");
         let server = { name, type: transport };
@@ -254,12 +255,23 @@ export async function cmdMcp(argv) {
           server.command = await input("Command (mis. npx mcp-server-github):");
           const rawArgs  = await input("Args (pisah spasi, kosongkan jika tidak ada):");
           server.args    = rawArgs ? rawArgs.split(" ").filter(Boolean) : [];
+          const envVarsRaw = await input("Env vars tambahan (format KEY=VALUE, pisah koma):");
+          if (envVarsRaw) {
+            server.env = Object.fromEntries(envVarsRaw.split(",").map(e => e.split("=").map(s => s.trim())));
+          }
+        } else if (transport === "http") {
+          server.url = await input("URL endpoint MCP (mis. https://127.0.0.1:27124/mcp/):");
+          const insecure = await confirm("Terima sertifikat TLS self-signed? (umum untuk server lokal)", { default: false });
+          server.insecureTLS = insecure;
+          const authHeader = await input("Header Authorization (kosongkan jika tidak perlu, mis. Bearer ${MY_API_KEY}):");
+          if (authHeader) server.headers = { Authorization: authHeader };
+          infoLine("Tip", "Simpan secret di .env lalu referensikan lewat ${NAMA_VAR} di header — jangan tulis token mentah di sini.");
         } else {
           server.url = await input("URL SSE endpoint (mis. http://localhost:3000/sse):");
-        }
-        const envVarsRaw = await input("Env vars tambahan (format KEY=VALUE, pisah koma):");
-        if (envVarsRaw) {
-          server.env = Object.fromEntries(envVarsRaw.split(",").map(e => e.split("=").map(s => s.trim())));
+          const envVarsRaw = await input("Env vars tambahan (format KEY=VALUE, pisah koma):");
+          if (envVarsRaw) {
+            server.env = Object.fromEntries(envVarsRaw.split(",").map(e => e.split("=").map(s => s.trim())));
+          }
         }
         freshCfg.servers.push(server);
         writeConfig(freshCfg);

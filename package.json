@@ -3,12 +3,12 @@
   "version": "1.2.0",
   "description": "EMORA — Autonomous AI Agent. Self-hosted, multi-platform, multi-provider.",
   "type": "module",
-  "main": "main.js",
+  "main": "bin/emora.js",
   "bin": {
     "emora": "./bin/emora.js"
   },
   "scripts": {
-    "start": "node main.js",
+    "start": "node bin/emora.js",
     "setup": "node setup.js",
     "status": "node bin/emora.js status",
     "postinstall": "chmod +x bin/emora.js 2>/dev/null || true",
@@ -57,6 +57,6 @@
     "zod": "^3.24.2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   }
 }

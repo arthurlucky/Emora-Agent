@@ -48,12 +48,14 @@ async function cmdStatusAction() {
 }
 
 async function cmdSetup() {
-  sectionHeader("Setup Gateway", "Hubungkan EMORA ke Telegram/WhatsApp/Discord");
+  sectionHeader("Setup Gateway", "Hubungkan EMORA ke Telegram/WhatsApp/Discord/Slack/Matrix");
 
   const platform = await select("Platform mana yang mau di-setup?", [
     { label: "Telegram", value: "telegram" },
     { label: "WhatsApp", value: "whatsapp" },
     { label: "Discord", value: "discord" },
+    { label: "Slack", value: "slack" },
+    { label: "Matrix", value: "matrix" },
   ]);
 
   const cfg = loadGatewayConfig();
@@ -75,6 +77,22 @@ async function cmdSetup() {
     patch.allowedUsers = ids.split(",").map((s) => s.trim()).filter(Boolean);
     const maxUsers = await input("Maksimal user aktif bersamaan (0 = tanpa batas): ", String(existing.maxUsers || 0));
     patch.maxUsers = Number(maxUsers) || 0;
+  } else if (platform === "slack") {
+    infoLine("Butuh 2 token", "dari https://api.slack.com/apps — aktifkan Socket Mode dulu", "cyan");
+    infoLine("Bot Token", "OAuth & Permissions → Bot User OAuth Token (diawali xoxb-)", "cyan");
+    infoLine("App Token", "Basic Information → App-Level Tokens, scope 'connections:write' (diawali xapp-)", "cyan");
+    patch.botToken = await input("Bot Token (xoxb-...): ", existing.botToken || "", true);
+    patch.appToken = await input("App-Level Token (xapp-...): ", existing.appToken || "", true);
+    const ids = await input("Allowed user ID Slack (pisah koma, kosongkan = semua): ", (existing.allowedUsers || []).join(","));
+    patch.allowedUsers = ids.split(",").map((s) => s.trim()).filter(Boolean);
+  } else if (platform === "matrix") {
+    infoLine("Homeserver", "URL server Matrix kamu, mis. https://matrix.org", "cyan");
+    infoLine("Access Token", "Element → Settings → Help & About → Advanced → Access Token", "cyan");
+    patch.baseUrl = await input("Homeserver URL: ", existing.baseUrl || "https://matrix.org");
+    patch.accessToken = await input("Access Token: ", existing.accessToken || "", true);
+    patch.userId = await input("User ID (mis. @emorabot:matrix.org): ", existing.userId || "");
+    const ids = await input("Allowed user/room ID (pisah koma, kosongkan = semua): ", (existing.allowedUsers || []).join(","));
+    patch.allowedUsers = ids.split(",").map((s) => s.trim()).filter(Boolean);
   }
 
   patch.enabled = await confirm(`Aktifkan gateway ${platform} sekarang?`, { default: true });

@@ -11,4 +11,5 @@ emora.zip
 # Web UI (Vite)
 webui/node_modules/
 webui/dist/
-downloads/
+downloads/memory.backup.*/
+.emora/

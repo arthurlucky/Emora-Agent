@@ -87,32 +87,36 @@ export function ProjectDebugger() {
   
   function renderPlan() {
     if (!currentPlan) return
-    const completed = currentPlan.tasks.filter(t => t.status === 'DONE').length
-    const total = currentPlan.tasks.length
+    const tasks = Array.isArray(currentPlan.tasks) ? currentPlan.tasks : []
+    const completed = tasks.filter(t => t.status === 'DONE').length
+    const total = tasks.length
     
     planView.innerHTML = `
       <div style="margin-bottom:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <h3 style="font-size:18px;font-weight:600;">${currentPlan.project_name}</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <h3 style="font-size:18px;font-weight:600;">${escapeHtml(currentPlan.project_name || currentPlan.name || 'Proyek')}</h3>
           <span class="badge badge-success">${completed}/${total} Tasks</span>
         </div>
       </div>
+      ${total === 0 ? `<div style="text-align:center;padding:40px;color:var(--text-muted);">Belum ada task dalam proyek ini.</div>` : `
       <div style="display:flex;flex-direction:column;gap:12px;">
-        ${currentPlan.tasks.map(task => {
-          const isReady = !task.depends_on || task.depends_on.length === 0 || task.depends_on.every(dep => currentPlan.tasks.find(t => t.id === dep)?.status === 'DONE')
+        ${tasks.map(task => {
+          const isReady = !task.depends_on || task.depends_on.length === 0 || task.depends_on.every(dep => tasks.find(t => t.id === dep)?.status === 'DONE')
           return `
             <div style="display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);${task.status === 'DONE' ? 'background:var(--accent-light);border-color:var(--accent);' : isReady ? 'background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);' : 'background:var(--bg-secondary);'}">
               <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;${task.status === 'DONE' ? 'background:var(--accent);color:white;' : 'background:var(--bg-tertiary);color:var(--text-muted);'}">
-                ${task.status === 'DONE' ? icons.check : task.id.replace('task_', '')}
+                ${task.status === 'DONE' ? icons.check : String(task.id || '').replace('task_', '')}
               </div>
-              <div style="flex:1;">
-                <p style="font-weight:500;font-size:14px;">${task.description}</p>
-                ${task.depends_on?.length ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Depends on: ${task.depends_on.join(', ')}</p>` : ''}
+              <div style="flex:1;min-width:0;">
+                <p style="font-weight:500;font-size:14px;">${escapeHtml(task.description || '(tanpa deskripsi)')}</p>
+                ${task.context ? `<p style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${escapeHtml(task.context)}</p>` : ''}
+                ${task.depends_on?.length ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Depends on: ${escapeHtml(task.depends_on.join(', '))}</p>` : ''}
               </div>
             </div>
           `
         }).join('')}
       </div>
+      `}
     `
   }
   

@@ -11,6 +11,7 @@
  * emora send       → kirim pesan one-shot ke Telegram/WhatsApp/Discord
  * emora status     → status dashboard
  * emora skills     → skill manager
+ * emora plugin     → kelola tool built-in & plugin eksternal (live disable/enable/reload)
  * emora mcp        → MCP server manager
  * emora --version  → tampilkan versi
  * emora --web      → start CLI + Web UI
@@ -53,6 +54,7 @@ const cyan   = chalk.hex("#58a6ff");
 const green  = chalk.hex("#3fb950");
 const yellow = chalk.hex("#d29922");
 const muted  = chalk.hex("#8b949e");
+const red    = chalk.hex("#f85149");
 const bold   = chalk.bold;
 
 
@@ -75,28 +77,42 @@ function printHelp() {
   console.log(cyan("  │  ") + chalk.hex("#a371f7").bold("USAGE"));
   console.log(cyan("  │  ") + dim("─".repeat(60)));
 
-  const cmds = [
-    ["emora",           "Jalankan TUI agent (default)"],
-    ["emora tui",       "Alias buat 'emora' tanpa argumen"],
-    ["emora setup",     "Interactive setup wizard (provider, gateway, dll)"],
-    ["emora model",     "Ganti model / provider AI"],
-    ["emora gateway",   "Kontrol gateway Telegram/WhatsApp/Discord (status/start/stop/run/setup/cron/service)"],
-    ["emora send",      "Kirim pesan one-shot ke Telegram/WhatsApp/Discord"],
-    ["emora status",    "Tampilkan status semua komponen EMORA"],
-    ["emora skills",    "Browse & kelola skill"],
-    ["emora mcp",       "Manage MCP server & jalankan EMORA sebagai MCP server"],
-  ["emora install:skill <@user/nama>", "Install skill dari EMORA Hub (bisa pake @user/nama atau nama saja)"],
-["emora install:tool <@user/nama>", "Install tool dari EMORA Hub (bisa pake @user/nama atau nama saja)"],
-["emora publish:skill --namaskill=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan skill ke EMORA Hub"],
-["emora publish:tool --namatool=<nama> [--desc=<desc>] [--tags=<t1,t2>]", "Publikasikan tool ke EMORA Hub"],
-["emora community --setkey=<apikey>", "Simpan API key EMORA Hub ke .env"],
-    ["emora --web",     "Jalankan CLI + Web UI control panel"],
-    ["emora --version", "Tampilkan versi"],
-    ["emora --help",    "Tampilkan bantuan ini"],
+  const groups = [
+    ["SESSION", [
+      ["emora",                 "TUI interaktif (default)"],
+      ["emora repl",            "REPL ringan ala Hermes (prompt > )"],
+      ["emora -r <uuid>",       "Resume sesi tertentu"],
+      ["emora -s list|delete|title", "Kelola sesi: delete <id|all>, regen judul"],
+      ["emora run \"<prompt>\"", "Chat sekali jalan, keluar setelah jawab"],
+    ]],
+    ["CONFIG", [
+      ["emora setup",           "Setup wizard penuh"],
+      ["emora model set <prov> <model>", "Set provider+model langsung, tanpa wizard"],
+      ["emora model save|use|rm|list", "Kelola profile model (multi-konfigurasi)"],
+      ["emora config list|get|set",        "Baca/tulis .env langsung"],
+    ]],
+    ["CAPABILITIES", [
+      ["emora skills",          "Browse & kelola skill"],
+      ["emora toolset list|use|on|off", "Preset grup tool aktif"],
+      ["emora plugin ...",      "Kelola plugin (install/trust-hooks)"],
+      ["emora mcp",             "MCP server manager"],
+      ["emora backends add|list", "Backend SSH untuk shell_exec"],
+      ["emora swarm ...",       "Container subagent persistent"],
+    ]],
+    ["OPS", [
+      ["emora gateway run",     "Jalankan gateway messaging"],
+      ["emora send \"<msg>\"",   "Kirim pesan one-shot"],
+      ["emora status",          "Status semua komponen"],
+      ["emora --web",           "CLI + dashboard browser"],
+    ]],
   ];
 
-  for (const [cmd, desc] of cmds) {
-    console.log(cyan("  │  ") + green.bold(cmd.padEnd(24)) + muted(desc));
+  for (const [title, cmds] of groups) {
+    console.log(cyan("  │  ") + chalk.hex("#a371f7").bold(title));
+    for (const [cmd, desc] of cmds) {
+      console.log(cyan("  │    ") + green.bold(cmd.padEnd(36)) + muted(desc));
+    }
+    console.log(cyan("  │"));
   }
 
   console.log(cyan("  │"));
@@ -144,9 +160,97 @@ switch (subCmd) {
   
   case undefined:
   case "tui":
+  case "repl":
   case "--debug": {
+    // `emora repl` = REPL ringan ala Hermes; default tetap TUI penuh.
+    if (subCmd === "repl" || process.env.EMORA_REPL === "1") {
+      const { runREPL } = await import("../cli/repl.js");
+      await runREPL();
+      break;
+    }
     const { runTUI } = await import("../tui/index.js");
     await runTUI();
+    break;
+  }
+
+  case "-s":
+  case "--sessions": {
+    // emora -s list | delete <id|all> | title <id>
+    const { listSessions, deleteSession, getSession, touchSession } = await import("../core/memoryDB.js");
+    const action = rest[0];
+    if (action === "list") {
+      const all = await listSessions();
+      if (!all.length) { console.log(muted("  Belum ada sesi.")); break; }
+      for (const s of all) console.log(`  ${cyan.bold(s.id.slice(0, 8))}  ${muted(s.name || s.title || "(tanpa judul)")}`);
+      break;
+    }
+    if (action === "delete") {
+      const target = rest[1];
+      if (target === "all") {
+        const all = await listSessions();
+        for (const s of all) await deleteSession(s.id);
+        console.log(green(`  ✓ ${all.length} sesi dihapus.`));
+        break;
+      }
+      if (!target) { console.error(red("  ✗ Gunakan: emora -s delete <id|all>")); process.exit(1); }
+      // Resolve partial ID (prefix) ke UUID penuh.
+      let id = target;
+      const all = await listSessions();
+      const hit = all.find(s => s.id === target) || all.find(s => s.id.startsWith(target));
+      if (hit) id = hit.id;
+      try {
+        await deleteSession(id);
+        console.log(green(`  ✓ Sesi ${id.slice(0, 8)} dihapus.`));
+      } catch {
+        // File non-UUID (mis. test) — hapus langsung.
+        const fsSync = (await import("fs")).default;
+        fsSync.rmSync(`memory/${id}.json`, { force: true });
+        console.log(green(`  ✓ Sesi ${id.slice(0, 8)} dihapus.`));
+      }
+      break;
+    }
+    if (action === "title") {
+      // Generate ulang judul sesi dari prompt pertamanya (tanpa LLM, dari isi sesi).
+      const id = rest[1];
+      if (!id) { console.error(red("  ✗ Gunakan: emora -s title <id>")); process.exit(1); }
+      const { loadSession, generateTitleFromPrompt } = await import("../core/memoryDB.js");
+      const msgs = await loadSession(id);
+      const firstUser = msgs.find(m => m.role === "user");
+      if (!firstUser) { console.error(red("  ✗ Sesi kosong.")); process.exit(1); }
+      const title = generateTitleFromPrompt(firstUser.content) || "(tanpa judul)";
+      await touchSession(id, firstUser.content);
+      console.log(green(`  ✓ Judul sesi ${id.slice(0, 8)}: "${title}"`));
+      break;
+    }
+    console.log(muted("  Gunakan: emora -s list | delete <id|all> | title <id>"));
+    break;
+  }
+
+  case "-r":
+  case "--resume": {
+    const target = rest.join(" ").trim();
+    if (!target) {
+      console.error(red("  ✗ Gunakan: emora -r <id | prefix-id | judul sesi>"));
+      process.exit(1);
+    }
+    // Resolve: UUID penuh → prefix ID → judul (case-insensitive contains).
+    let resolved = target;
+    const { listSessions } = await import("../core/memoryDB.js");
+    const all = await listSessions();
+    if (!all.some((s) => s.id === target)) {
+      const hit =
+        all.find((s) => s.id.startsWith(target)) ||
+        all.find((s) => (s.name || "").toLowerCase().includes(target.toLowerCase()));
+      if (!hit) {
+        console.error(red(`  ✗ Sesi tidak ditemukan: "${target}"`));
+        console.error(muted("  Lihat daftar: emora -s list"));
+        process.exit(1);
+      }
+      resolved = hit.id;
+      console.log(green(`  → Sesi ditemukan: ${hit.id.slice(0, 8)}  "${hit.name || "(tanpa judul)"}"`));
+    }
+    const { runTUI } = await import("../tui/index.js");
+    await runTUI({ resumeSession: resolved });
     break;
   }
 
@@ -158,6 +262,125 @@ switch (subCmd) {
   case "model": {
     const { cmdModel } = await import("../cli/cmd-model.js");
     await cmdModel(rest);
+    break;
+  }
+
+  // ── Hermes-style shortcut: non-interaktif, satu baris ────────────────
+  case "run": {
+    // emora run "prompt" — one-shot chat tanpa TUI.
+    const prompt = rest.join(" ").trim();
+    if (!prompt) {
+      console.error(red("  ✗ Prompt wajib. Contoh: emora run \"jelaskan struktur folder ini\""));
+      process.exit(1);
+    }
+    const [{ createLLM }, toolsMod, { ask }, { detectProvider }] = await Promise.all([
+      import("../provider/index.js"),
+      import("../core/tools.js"),
+      import("../core/chat.js"),
+      import("../provider/index.js"),
+    ]);
+    const { default: tools } = toolsMod;
+    const llm = createLLM({ tools });
+    const sessionId = `cli-${Date.now()}`;
+    const answer = await ask(llm, tools, sessionId, prompt);
+    console.log(answer);
+    break;
+  }
+
+  case "config": {
+    // emora config get <KEY> | set <KEY> <VALUE> | list
+    const fsSync = (await import("fs")).default;
+    const action = rest[0];
+    if (action === "list") {
+      const envRaw = fsSync.readFileSync(".env", "utf8");
+      for (const line of envRaw.split("\n")) {
+        if (!line.trim() || line.startsWith("#")) continue;
+        const [k, ...v] = line.split("=");
+        const isSecret = /KEY|TOKEN|SECRET|PASSWORD/i.test(k);
+        console.log(`  ${cyan.bold(k.padEnd(24))} ${isSecret ? dim("***" + String(v.join("=")).slice(-4)) : muted(v.join("="))}`);
+      }
+      break;
+    }
+    if (action === "get") {
+      const key = rest[1];
+      if (!key) { console.error(red("  ✗ Gunakan: emora config get <KEY>")); process.exit(1); }
+      const m = fsSync.readFileSync(".env", "utf8").match(new RegExp(`^${key}=(.*)$`, "m"));
+      console.log(m ? m[1].trim() : dim("(tidak diset)"));
+      break;
+    }
+    if (action === "set") {
+      const key = rest[1], value = rest.slice(2).join(" ");
+      if (!key || !value) { console.error(red("  ✗ Gunakan: emora config set <KEY> <VALUE>")); process.exit(1); }
+      let c = fsSync.existsSync(".env") ? fsSync.readFileSync(".env", "utf8") : "";
+      const re = new RegExp(`^${key}=.*$`, "m");
+      c = re.test(c) ? c.replace(re, `${key}=${value}`) : c + (c.endsWith("\n") || c === "" ? "" : "\n") + `${key}=${value}`;
+      fsSync.writeFileSync(".env", c.trim() + "\n");
+      console.log(green(`  ✓ ${key}=${/KEY|TOKEN|SECRET/i.test(key) ? "***" + value.slice(-4) : value}`));
+      break;
+    }
+    console.error(muted("  Gunakan: emora config list | get <KEY> | set <KEY> <VALUE>"));
+    break;
+  }
+
+  case "toolset": {
+    // emora toolset list|use <preset>|on <group>|off <group>
+    const { TOOL_GROUPS, PRESETS, getActiveGroups, applyPreset, setGroups, statusSummary } =
+      await import("../utils/toolsets.js");
+    const action = rest[0];
+    if (!action || action === "list") {
+      console.log(await statusSummary());
+      break;
+    }
+    if (action === "use") {
+      try {
+        const g = await applyPreset(rest[1]);
+        console.log(green(`  ✓ Preset "${rest[1]}" aktif (${g.length} grup). Restart TUI/gateway agar berlaku.`));
+      } catch (e) { console.error(red(`  ✗ ${e.message}`)); }
+      break;
+    }
+    if (action === "on" || action === "off") {
+      const group = rest[1];
+      if (!TOOL_GROUPS[group]) { console.error(red(`  ✗ Grup tidak dikenal. Pilihan: ${Object.keys(TOOL_GROUPS).join(", ")}`)); process.exit(1); }
+      const cur = await getActiveGroups();
+      const next = action === "on" ? [...new Set([...cur, group])] : cur.filter((g) => g !== group);
+      await setGroups(next);
+      console.log(green(`  ✓ Grup ${group} ${action === "on" ? "diaktifkan" : "dinonaktifkan"}. Restart agar berlaku.`));
+      break;
+    }
+    console.log(muted("  Gunakan: emora toolset list | use <preset> | on <group> | off <group>"));
+    break;
+  }
+
+  case "backends": {
+    // emora backends list|add <name> <host> <user> [port]
+    const fsSync = (await import("fs")).default;
+    const file = ".emora/backends.json";
+    let bks = {};
+    try { bks = JSON.parse(fsSync.readFileSync(file, "utf8")); } catch {}
+    const action = rest[0];
+    if (!action || action === "list") {
+      const entries = Object.entries(bks);
+      if (!entries.length) { console.log(muted("  Belum ada backend SSH. Tambah: emora backends add <name> <host> <user> [port]")); break; }
+      for (const [name, b] of entries) console.log(`  ${cyan.bold(name.padEnd(14))} ${muted(`${b.user}@${b.host}:${b.port || 22}`)}`);
+      break;
+    }
+    if (action === "add") {
+      const [, name, host, user, port] = rest;
+      if (!name || !host || !user) { console.error(red("  ✗ Gunakan: emora backends add <name> <host> <user> [port]")); process.exit(1); }
+      bks[name] = { host, user, port: Number(port) || 22 };
+      fsSync.mkdirSync(".emora", { recursive: true });
+      fsSync.writeFileSync(file, JSON.stringify(bks, null, 2));
+      console.log(green(`  ✓ Backend "${name}" tersimpan → ${user}@${host}:${bks[name].port}`));
+      break;
+    }
+    if (action === "remove") {
+      delete bks[rest[1]];
+      fsSync.mkdirSync(".emora", { recursive: true });
+      fsSync.writeFileSync(file, JSON.stringify(bks, null, 2));
+      console.log(green(`  ✓ Backend "${rest[1]}" dihapus.`));
+      break;
+    }
+    console.log(muted("  Gunakan: emora backends list | add | remove"));
     break;
   }
 
@@ -196,6 +419,33 @@ switch (subCmd) {
   case "mcp": {
     const { cmdMcp } = await import("../cli/cmd-mcp.js");
     await cmdMcp(rest);
+    break;
+  }
+
+  case "obsidian": {
+    const { cmdObsidian } = await import("../cli/cmd-obsidian.js");
+    await cmdObsidian(rest);
+    break;
+  }
+
+  case "doctor": {
+    const { cmdDoctor } = await import("../cli/cmd-doctor.js");
+    await cmdDoctor();
+    break;
+  }
+
+  case "migrate": {
+    // Memory tetap JSON-enhanced (better-sqlite3 tidak bisa build di Termux).
+    // Command ini sekarang hanya menampilkan status memory.
+    const { migrateFromJSON } = await import("../core/memoryDB.js");
+    await migrateFromJSON();
+    break;
+  }
+
+  case "plugin":
+  case "plugins": {
+    const { cmdPlugin } = await import("../cli/cmd-plugin.js");
+    await cmdPlugin(rest);
     break;
   }
   

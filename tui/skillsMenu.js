@@ -1,15 +1,20 @@
 /**
  * tui/skillsMenu.js
  *
- * Data & aksi buat menu `/skills` di TUI. Scan folder skill/ (format
- * EMORA: satu folder per skill, berisi meta.json + skill.md) dan toggle
- * enable/disable dengan cara paling non-destruktif: rename folder pakai
- * suffix `.disabled` (di-skip oleh buildSkillCatalog() di core/chat.js,
- * jadi begitu di-toggle langsung ngaruh ke system prompt tanpa restart).
+ * Data & aksi buat menu `/skills` di TUI. Menampilkan GABUNGAN skill
+ * bawaan (folder skill/, bisa di-toggle on/off) DAN skill+command dari
+ * plugin (./plugins/<id>/{skills,commands}/, format standar Claude Code —
+ * read-only di menu ini, dikelola lewat `/plugin enable|disable <id>` per
+ * plugin, bukan per-skill).
+ *
+ * Toggle skill bawaan: rename folder pakai suffix `.disabled` (di-skip
+ * oleh core/skillRegistry.js, jadi begitu di-toggle langsung ngaruh ke
+ * system prompt tanpa restart).
  */
 import fs from "fs/promises";
 import path from "path";
 import { invalidateSystemPromptCache } from "../core/chat.js";
+import skillRegistry from "../core/skillRegistry.js";
 
 const SKILL_DIR = path.resolve("./skill");
 
@@ -18,7 +23,7 @@ export async function listSkillsForMenu() {
   try {
     entries = await fs.readdir(SKILL_DIR, { withFileTypes: true });
   } catch {
-    return [];
+    entries = [];
   }
 
   const out = [];
@@ -38,14 +43,33 @@ export async function listSkillsForMenu() {
       } catch { /* skill kosong/rusak, tetap tampilkan dengan deskripsi default */ }
     }
 
-    out.push({ name: baseName, dirName: e.name, description, enabled });
+    out.push({ name: baseName, dirName: e.name, description, enabled, source: "builtin", toggleable: true });
   }
+
+  // Tambahkan skill & command dari plugin — read-only di menu ini.
+  try {
+    const pluginEntries = await skillRegistry.listAll();
+    for (const p of pluginEntries) {
+      if (p.source === "builtin") continue; // sudah kehandle di scan di atas
+      out.push({
+        name: `${p.slashName} [${p.kind}]`,
+        dirName: null,
+        description: p.description || "(tanpa deskripsi)",
+        enabled: true,
+        source: p.source,
+        toggleable: false,
+      });
+    }
+  } catch { /* plugins/ belum ada dsb — abaikan, skill bawaan tetap tampil */ }
 
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
 export async function toggleSkill(skill) {
+  if (!skill.toggleable) {
+    throw new Error(`Skill/command dari plugin (${skill.source}) tidak bisa di-toggle per-item — pakai "/plugin disable ${(skill.source || "").replace("plugin:", "")}" untuk nonaktifkan seluruh plugin-nya.`);
+  }
   const from = path.join(SKILL_DIR, skill.dirName);
   const to = skill.enabled
     ? path.join(SKILL_DIR, skill.dirName + ".disabled")

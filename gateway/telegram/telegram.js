@@ -35,6 +35,18 @@ const ALLOWED_IDS = (process.env.TELEGRAM_ALLOWED_IDS || "")
   .map((id) => id.trim())
   .filter(Boolean);
 
+// Teks /help — dulu commandResult.action === "help" dari core/cmd.js gak
+// pernah benar-benar dirender (falls-through tanpa balasan), jadi user yang
+// ketik /help di Telegram gak dapat apa-apa. Ditambah sekalian penjelasan
+// manual skill/command invocation.
+const TELEGRAM_HELP_TEXT =
+  "⎔ *Perintah EMORA (Telegram)*\n\n" +
+  "*Gateway:* `/status` `/stop` `/mode <safe|autonomous>` `/cron ...`\n" +
+  "*Sesi:* `/new` `/sesi [id]` `/clear` `/sesilist` `/sesiinfo <id>` `/sesidel <id>`\n" +
+  "*Plugin & Artifact:* `/plugin list|disable|enable|reload|install` `/artifact list|get|delete`\n" +
+  "*Skill:* `/learn <nama>` (susun skill baru dari sesi ini) · `/<nama_skill_atau_command>` (jalankan skill/command apa pun — bawaan atau dari plugin — langsung)\n\n" +
+  "Ketik pesan biasa untuk ngobrol dengan EMORA.";
+
 function isAllowed(chatId) {
   return (
     ALLOWED_IDS.length === 0 ||
@@ -426,6 +438,8 @@ if (!token) {
       } else if (commandResult.action === "reply") {
         const msg = `⚙️ *SISTEM*\n━━━━━━━━━━━━━━━━━━━━\n_${commandResult.message}_`;
         await sendSafeMessage(ctx, msg);
+      } else if (commandResult.action === "help") {
+        await sendSafeMessage(ctx, TELEGRAM_HELP_TEXT);
       }
 
       return;

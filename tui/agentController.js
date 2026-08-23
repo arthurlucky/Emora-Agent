@@ -43,7 +43,8 @@ export function createAgentController({ dispatch, getState, getLLM, tools }) {
         ? result
         : String(result?.content ?? result ?? "").trim() || "(tidak ada balasan dari agent)";
       dispatch({ type: "AGENT_MESSAGE", content });
-      touchSession(state.sessionId).catch(() => {});
+      // Kirim prompt pertama sebagai bahan auto-title (lihat sessionStore.touchSession).
+      touchSession(state.sessionId, trimmed.slice(0, 200)).catch(() => {});
     } catch (err) {
       if (err?.aborted) dispatch({ type: "AGENT_ABORTED" });
       else dispatch({ type: "AGENT_ERROR", message: err?.message || String(err) });

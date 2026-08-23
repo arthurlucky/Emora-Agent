@@ -1,3 +1,9 @@
+---
+name: prompt_enhancer
+description: Otomatis memperbaiki prompt user yang ambigu, tidak spesifik, atau kurang detail sebelum dieksekusi.
+categories: productivity
+---
+
 # prompt_enhancer
 
 **Metadata**

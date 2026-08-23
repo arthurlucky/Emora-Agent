@@ -1,8 +1,15 @@
 // tools/swarm_delegate.js
-// Tool for delegating tasks from the main agent to specialized swarm containers
+// Delegasi tugas ke swarm container (subagent persistent dengan SOUL/AGENT.md
+// dan memory sendiri). Beda dengan tools/subagent.js (in-memory, sekali pakai):
+// swarm container dibuat via `emora swarm create` dan konfigurasinya persisten.
+//
+// Nama tool: delegate_to_swarm (dulu "delegate_to_subagent" — bentrok dengan
+// tools/subagent.js yang menyebabkan satu nama dua tool di registry).
 
 import path from "path";
 import { fileURLToPath } from "url";
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
 import { createLLM } from "../provider/index.js";
 import { ask, invalidateSystemPromptCache } from "../core/chat.js";
 import { getContainerConfig } from "../swarm/manager.js";
@@ -12,24 +19,17 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const CONTAINERS_DIR = path.join(ROOT_DIR, ".emora", "containers");
 
-export const swarmDelegateTool = {
-  name: "delegate_to_subagent",
-  description: "Delegasikan tugas riset, analisis, atau pemrosesan lainnya ke subagent/container yang terisolasi dengan kepribadian/soul khusus. Kembalikan hasil kerjanya ke agen utama.",
-  parameters: {
-    type: "object",
-    properties: {
-      subagentId: {
-        type: "string",
-        description: "Nama/ID container subagent (mis. agent-sales, bot-riset)."
-      },
-      task: {
-        type: "string",
-        description: "Instruksi/tugas spesifik yang ingin diberikan kepada subagent."
-      }
-    },
-    required: ["subagentId", "task"]
-  },
-  execute: async ({ subagentId, task }) => {
+export const swarmDelegateTool = new DynamicStructuredTool({
+  name: "delegate_to_swarm",
+  description:
+    "Delegasikan tugas ke swarm container (subagent PERSISTEN dengan SOUL/AGENT.md, memory, " +
+    "dan model sendiri — dibuat via `emora swarm create <nama>`). Beda dengan delegate_to_subagent " +
+    "(in-memory sekali pakai): gunakan ini kalau butuh kepribadian/konteks yang konsisten antar panggilan.",
+  schema: z.object({
+    subagentId: z.string().describe("Nama/ID container (mis. agent-sales, bot-riset). Lihat `emora swarm list`."),
+    task: z.string().describe("Instruksi/tugas spesifik untuk container."),
+  }),
+  func: async ({ subagentId, task }) => {
     // Backup process.env
     const backup = {
       EMORA_MEMORY_DIR: process.env.EMORA_MEMORY_DIR,
@@ -39,7 +39,7 @@ export const swarmDelegateTool = {
       MODEL_NAME: process.env.MODEL_NAME,
       MODEL_URL: process.env.MODEL_URL,
       MODEL_API: process.env.MODEL_API,
-      NAME: process.env.NAME
+      NAME: process.env.NAME,
     };
 
     try {
@@ -59,23 +59,26 @@ export const swarmDelegateTool = {
       invalidateSystemPromptCache();
 
       const opts = {
-        apiKey: config.model_api,
+        apiKey: config.model_api || undefined,
         model: config.model_name,
-        url: config.model_url
+        url: config.model_url,
       };
-      
-      // We pass empty tools to the subagent to prevent infinite recursion loop
-      const subagentLLM = await createLLM([], config.model_provider || "gemini", opts);
+
+      // Tools kosong untuk mencegah infinite recursion. Provider dibaca
+      // dari process.env yang sudah di-override di atas.
+      const subagentLLM = await createLLM([]);
       const sessionId = `swarm_${subagentId}`;
 
       const result = await ask(subagentLLM, [], sessionId, task);
-      return { success: true, subagentId, result };
+      return `✅ Swarm "${subagentId}" selesai:\n\n${result}`;
     } catch (err) {
-      return { success: false, error: err.message };
+      return `❌ Swarm delegate gagal: ${err.message}`;
     } finally {
       // Restore process.env
       Object.assign(process.env, backup);
       invalidateSystemPromptCache();
     }
-  }
-};
+  },
+});
+
+export default swarmDelegateTool;

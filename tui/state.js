@@ -7,8 +7,9 @@
  * seiring event terjadi.
  */
 import crypto from "crypto";
+import { C } from "./styles.js";
 
-export function createInitialState({ sessionId, sessionTitle, provider, columns, rows }) {
+export function createInitialState({ sessionId, sessionTitle, provider, columns, rows, initialMode }) {
   return {
     view: "chat", // chat | history | skills | wizard | tasks | gatewayStatus
     sessionId,
@@ -20,6 +21,7 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
 
     status: "idle", // idle | thinking | approval_pending | chain_limit_pending | ask_user_pending
     spinnerTick: 0,
+    turnStartedAt: null,
     progressLines: [], // baris "▸ tool(...)" yang lagi berjalan turn ini
     scrollOffset: 0, // 0 = nempel ke bawah (paling baru)
 
@@ -27,9 +29,9 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
     chainLimit: null, // {resolve}
     askUser: null, // {question, resolve}
 
-    mode: "autonomous", // safe | autonomous
-    agentMode: "chat", // chat | simple | planned | deep (informational, lihat catatan di agentController.js)
-    streamEnabled: false,
+    mode: initialMode || (process.env.DEFAULT_MODE === "safe" ? "safe" : "autonomous"), // safe | autonomous | plan
+    agentMode: process.env.DEFAULT_AGENTMODE || "chat", // chat | simple | planned | deep (informational, lihat catatan di agentController.js)
+    streamEnabled: process.env.DEFAULT_STREAM === "true",
 
     suggestions: null, // array string | null
     suggestionIndex: 0,
@@ -88,6 +90,7 @@ export function reducer(state, action) {
         input: "",
         cursorPos: 0,
         status: "thinking",
+        turnStartedAt: Date.now(),
         progressLines: [],
         suggestions: null,
         abortController: action.abortController,
@@ -97,16 +100,17 @@ export function reducer(state, action) {
     }
 
     case "AGENT_TOOL_USE": {
-      const line = `${action.autoApproved ? "✓" : "▸"} ${action.name}${action.autoApproved ? " (auto)" : ""}`;
+      // Ala Hermes: bullet dim + nama tool, tanpa noise "(auto)".
+      const line = C.faint("▸ ") + C.dim(action.name);
       return { ...state, progressLines: [...state.progressLines.slice(-30), line] };
     }
 
     case "AGENT_TOOL_DENIED": {
-      return { ...state, progressLines: [...state.progressLines.slice(-30), `✘ ${action.name} (ditolak)`] };
+      return { ...state, progressLines: [...state.progressLines.slice(-30), C.red("✘ " + action.name + " ditolak")] };
     }
 
     case "AGENT_SKILL_READ": {
-      return { ...state, progressLines: [...state.progressLines.slice(-30), `◈ membaca skill: ${action.name}`] };
+      return { ...state, progressLines: [...state.progressLines.slice(-30), C.purple("◈ skill: " + action.name)] };
     }
 
     case "AGENT_MESSAGE": {

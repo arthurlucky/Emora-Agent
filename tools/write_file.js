@@ -16,6 +16,14 @@ export const writeFileTool = new DynamicStructuredTool({
       const fp  = resolveWorkspacePath(filename);
       const dir = path.dirname(fp);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      // Snapshot sebelum overwrite (untuk undo). Lazy import agar tidak
+      // circular kalau tools/undo.js someday import write_file.
+      try {
+        const { recordSnapshot } = await import("./undo.js");
+        await recordSnapshot(fp, "write");
+      } catch { /* undo.js belum ada atau error, jangan block write */ }
+
       fs.writeFileSync(fp, content, "utf-8");
       const lines = content.split("\n").length;
       return `✅ File "${filename}" berhasil ditulis (${lines} baris).`;

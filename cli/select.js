@@ -100,33 +100,42 @@ export function select(question, choices, { default: defaultIdx = 0 } = {}) {
     }
 
     function onKey(key) {
-      if (key === "\x03") { // Ctrl+C
-        cleanup();
-        clearLines(total + 1);
-        process.stdout.write(C.red("  ✗ Dibatalkan\n\n"));
-        process.exit(0);
-      }
+      // FIX: bytes bisa datang tergabung dalam satu "data" event (keyboard
+      // cepat / pipe / Termux) — "\x1b[B\x1b[B\r" dulu dianggap satu key
+      // asing dan SEMUA input hilang. Pecah jadi token individual:
+      // escape sequence arrow (\x1b[A/B/C/D) atau single char.
+      const tokens = String(key).match(/\x1b\[[A-D]|\x1b\[|\r|\n|\x7F|\x03|[\s\S]/g) || [key];
 
-      if (key === "\r" || key === "\n") {
-        cleanup();
-        const chosen = choices[idx];
-        if (chosen.disabled) return; // jangan resolve kalau disabled
-        clearLines(total + 1);
-        process.stdout.write(
-          C.cyan("  ❯ ") + chalk.bold(question) + "  " + C.green(chosen.label) + "\n"
-        );
-        resolve(chosen.value);
-        return;
-      }
+      for (const k of tokens) {
+        if (k === "\x03") { // Ctrl+C
+          cleanup();
+          clearLines(total + 1);
+          process.stdout.write(C.red("  ✗ Dibatalkan\n\n"));
+          process.exit(0);
+        }
 
-      // Arrow keys
-      if (key === "\x1B[A") { // Up
-        do { idx = (idx - 1 + total) % total; } while (choices[idx].disabled && idx !== defaultIdx);
-      } else if (key === "\x1B[B") { // Down
-        do { idx = (idx + 1) % total; } while (choices[idx].disabled && idx !== defaultIdx);
-      }
+        if (k === "\r" || k === "\n") {
+          cleanup();
+          const chosen = choices[idx];
+          if (!chosen || chosen.disabled) continue;
+          clearLines(total + 1);
+          process.stdout.write(
+            C.cyan("  ❯ ") + chalk.bold(question) + "  " + C.green(chosen.label) + "\n"
+          );
+          stdin.removeListener("data", onKey);
+          resolve(chosen.value);
+          return;
+        }
 
-      render();
+        // Arrow keys
+        if (k === "\x1b[A") { // Up
+          do { idx = (idx - 1 + total) % total; } while (choices[idx].disabled && idx !== defaultIdx);
+          render();
+        } else if (k === "\x1b[B") { // Down
+          do { idx = (idx + 1) % total; } while (choices[idx].disabled && idx !== defaultIdx);
+          render();
+        }
+      }
     }
 
     stdin.on("data", onKey);

@@ -1,0 +1,6 @@
+{
+  "name": "guide-emora",
+  "description": "Panduan lengkap cara pakai EMORA: semua perintah CLI, TUI, gateway (Telegram/WhatsApp/Discord/Slack/Matrix), sistem skill & plugin, MCP server, cron, artifact, dan troubleshooting. Pakai ini kalau user bertanya 'gimana cara pakai kamu', 'command apa aja yang ada', atau bingung soal fitur EMORA.",
+  "version": "1.0.0",
+  "author": "EMORA (bawaan)"
+}

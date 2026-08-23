@@ -413,7 +413,19 @@ export function SwarmDashboard() {
 
   // Initial load + auto-refresh
   load()
-  refreshInterval = setInterval(load, 5000)
+  refreshInterval = setInterval(() => {
+    // Jangan render ulang (yang menghapus DOM list) saat user sedang
+    // mengetik di form chat container / form create / modal edit terbuka.
+    const ae = document.activeElement
+    const busy = ae && (
+      ae.matches('.swarm-chat-input') ||
+      ae.matches('#new-container-id') ||
+      ae.matches('#swarm-edit-modal input') ||
+      ae.matches('#swarm-edit-modal select') ||
+      ae.matches('#swarm-edit-modal textarea')
+    )
+    if (!busy && editModal.style.display !== 'flex') load()
+  }, 5000)
 
   el._cleanup = () => {
     if (refreshInterval) clearInterval(refreshInterval)

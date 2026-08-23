@@ -94,6 +94,52 @@ export const MODELS = [
 export const DEFAULT_MODEL = "google/gemini-2.0-flash-exp:free";
 
 /**
+ * Fetch daftar model LIVE dari OpenRouter API (tanpa auth), cache 24 jam
+ * di .emora/or_models.json. Return [{id, name, context, free, params}].
+ * Fallback: throw → caller pakai MODELS hardcoded.
+ */
+export async function fetchModels({ force = false } = {}) {
+  const fsSync = await import("fs");
+  const cacheFile = ".emora/or_models.json";
+
+  if (!force && fsSync.existsSync(cacheFile)) {
+    try {
+      const cached = JSON.parse(fsSync.readFileSync(cacheFile, "utf8"));
+      if (Date.now() - cached.ts < 24 * 60 * 60 * 1000) return cached.models;
+    } catch { /* cache rusak → refetch */ }
+  }
+
+  const res = await fetch(`${BASE_URL}/models`, {
+    headers: { "HTTP-Referer": "https://github.com/arthurlucky/Emora-Agent" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`OpenRouter API ${res.status}`);
+
+  const json = await res.json();
+  const models = (json.data || []).map((m) => ({
+    id: m.id,
+    name: m.name || m.id,
+    context: m.context_length || 0,
+    // pricing.prompt dalam string USD per token; "0" = gratis.
+    free: String(m.pricing?.prompt) === "0",
+    params: m.id.match(/[-_](\d+(?:\.\d+)?)b\b/i)?.[1] || null, // "8b", "1.5B"
+  }));
+
+  fsSync.mkdirSync(".emora", { recursive: true });
+  fsSync.writeFileSync(cacheFile, JSON.stringify({ ts: Date.now(), models }));
+  return models;
+}
+
+/** Deteksi model kecil (≤1.5B atau mini/tiny) dari nama — untuk auto AGENT_LITE. */
+export function isSmallModel(modelIdOrName) {
+  const s = String(modelIdOrName).toLowerCase();
+  if (/[-_]\d+m\b/.test(s)) return true; // 270m, 350m — jutaan param pasti kecil
+  const bMatch = s.match(/[-_](\d+(?:\.\d+)?)b\b/);
+  if (bMatch) return parseFloat(bMatch[1]) <= 1.5;
+  return /mini|tiny|small|nano/.test(s);
+}
+
+/**
  * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts
  */
 export function createLLM({ apiKey, model, tools = [] } = {}) {

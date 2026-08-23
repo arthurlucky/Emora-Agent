@@ -121,6 +121,7 @@ export function SystemMonitor() {
   fetchMetrics()
   timerId = setInterval(fetchMetrics, 2000)
 
+  el._cleanup = () => { if (timerId) clearInterval(timerId) }
   el.addEventListener('remove', () => { if (timerId) clearInterval(timerId) })
   return el
 }

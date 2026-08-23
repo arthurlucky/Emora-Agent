@@ -40,11 +40,35 @@ export function Sidebar() {
     </nav>
     <div class="sidebar-footer">
       <div class="status-indicator">
-        <div class="status-dot"></div>
-        <span>System Online</span>
+        <div class="status-dot" id="sys-status-dot"></div>
+        <span id="sys-status-label">Checking...</span>
       </div>
     </div>
   `
+  
+  const statusDot = el.querySelector('#sys-status-dot')
+  const statusLabel = el.querySelector('#sys-status-label')
+
+  async function checkHealth() {
+    try {
+      const res = await fetch('/api/health')
+      const body = await res.json()
+      if (res.ok && body.status === 'ok') {
+        statusDot.className = 'status-dot'
+        statusDot.classList.add('is-on')
+        statusLabel.textContent = `Online · ${body.model || 'default'}`
+      } else {
+        throw new Error('unhealthy')
+      }
+    } catch {
+      statusDot.className = 'status-dot'
+      statusDot.classList.add('is-off')
+      statusLabel.textContent = 'Server Tidak Terjangkau'
+    }
+  }
+  checkHealth()
+  const healthTimer = setInterval(checkHealth, 15000)
+  el._cleanup = () => { clearInterval(healthTimer) }
   
   el.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {

@@ -146,3 +146,131 @@ export function createMCPClient({ command, args = [], env = {}, cwd } = {}) {
 
   return { initialize, listTools, callTool, getStderr, close, child, get alive() { return alive; } };
 }
+
+/**
+ * MCP client via Streamable HTTP transport (spec 2025-03-26) — dipakai
+ * untuk server MCP yang jalan sebagai HTTP endpoint alih-alih child
+ * process, mis. server MCP BAWAAN plugin "Local REST API" Obsidian
+ * (https://127.0.0.1:27124/mcp/), atau server remote lain. Ini transport
+ * yang sama dipakai Claude Desktop/Claude Code untuk remote MCP server.
+ *
+ * Beda dari stdio client: tidak ada child process untuk di-spawn/di-kill,
+ * cukup POST JSON-RPC ke `url`. Server boleh balas `application/json`
+ * (satu respons langsung) ATAU `text/event-stream` (SSE, kita ambil event
+ * `data:` pertama yang id-nya cocok). Session (`Mcp-Session-Id`) di-track
+ * otomatis dari header respons `initialize` dan disertakan di request
+ * berikutnya kalau server memintanya.
+ *
+ * @param {object} opts
+ * @param {string} opts.url            - endpoint MCP, mis. "https://127.0.0.1:27124/mcp/"
+ * @param {object} [opts.headers]      - header tambahan (mis. Authorization Bearer token)
+ * @param {boolean} [opts.insecureTLS] - true untuk terima sertifikat self-signed
+ *                                        (default plugin Local REST API Obsidian
+ *                                        pakai self-signed cert di HTTPS lokal)
+ */
+export function createMCPHttpClient({ url, headers = {}, insecureTLS = false } = {}) {
+  if (!url) throw new Error("MCP http client: 'url' wajib diisi");
+
+  let sessionId = null;
+  let alive = true;
+  let nextId = 1;
+
+  async function rpc(method, params, { isNotification = false } = {}) {
+    if (!alive) throw new Error("MCP HTTP client sudah ditutup");
+
+    // Import lazy supaya modul ini tetap ringan buat konsumen yang cuma
+    // pakai stdio client (mis. cli/cmd-mcp.js) tanpa perlu axios/https.
+    const [{ default: axios }, https] = await Promise.all([
+      import("axios"),
+      import("https"),
+    ]);
+
+    const id = isNotification ? undefined : nextId++;
+    const payload = isNotification
+      ? { jsonrpc: "2.0", method, params }
+      : { jsonrpc: "2.0", id, method, params };
+
+    const reqHeaders = {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+      ...headers,
+    };
+    if (sessionId) reqHeaders["Mcp-Session-Id"] = sessionId;
+
+    let res;
+    try {
+      res = await axios.post(url, payload, {
+        headers: reqHeaders,
+        responseType: "text",
+        timeout: DEFAULT_TIMEOUT_MS,
+        validateStatus: () => true,
+        httpsAgent: insecureTLS ? new https.Agent({ rejectUnauthorized: false }) : undefined,
+      });
+    } catch (err) {
+      throw new Error(`MCP HTTP request gagal: ${err.message}`);
+    }
+
+    const newSession = res.headers?.["mcp-session-id"];
+    if (newSession) sessionId = newSession;
+
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`MCP HTTP ${res.status}: ${String(res.data).slice(0, 300)}`);
+    }
+
+    if (isNotification) return null;
+
+    const contentType = String(res.headers?.["content-type"] || "");
+    let msg = null;
+
+    if (contentType.includes("text/event-stream")) {
+      for (const rawLine of String(res.data).split("\n")) {
+        const line = rawLine.trim();
+        if (!line.startsWith("data:")) continue;
+        const payloadStr = line.slice(5).trim();
+        if (!payloadStr) continue;
+        try {
+          const parsed = JSON.parse(payloadStr);
+          if (parsed.id === id) { msg = parsed; break; }
+        } catch { /* baris SSE bukan JSON valid, lewati */ }
+      }
+      if (!msg) throw new Error(`MCP HTTP: tidak ada respons JSON-RPC untuk id=${id} di SSE stream`);
+    } else {
+      try {
+        msg = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+      } catch (err) {
+        throw new Error(`MCP HTTP: respons bukan JSON valid (${err.message})`);
+      }
+    }
+
+    if (msg.error) throw new Error(msg.error.message || JSON.stringify(msg.error));
+    return msg.result;
+  }
+
+  async function initialize() {
+    const result = await rpc("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "emora-agent", version: "1.0.0" },
+    });
+    await rpc("notifications/initialized", {}, { isNotification: true });
+    return result;
+  }
+
+  async function listTools() {
+    const result = await rpc("tools/list", {});
+    return result?.tools || [];
+  }
+
+  async function callTool(name, toolArgs) {
+    const result = await rpc("tools/call", { name, arguments: toolArgs || {} });
+    const parts = Array.isArray(result?.content) ? result.content : [];
+    const text = parts.map((p) => (p.type === "text" ? p.text : JSON.stringify(p))).join("\n");
+    if (result?.isError) throw new Error(text || `MCP tool "${name}" returned an error`);
+    return text || "(no output)";
+  }
+
+  function getStderr() { return ""; }
+  function close() { alive = false; }
+
+  return { initialize, listTools, callTool, getStderr, close, get alive() { return alive; } };
+}

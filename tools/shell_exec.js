@@ -49,9 +49,10 @@ export const shellExecTool = new DynamicStructuredTool({
     cwd: z.string().describe("Working directory. Kosongkan untuk mengeksekusi di root project (Emora-Agent).").optional(),
     timeout: z.number().int().min(1000).max(MAX_TIMEOUT).optional(),
     create_cwd: z.boolean().optional().default(true),
+    backend: z.string().describe("Backend eksekusi: 'local' (default) atau nama backend SSH dari .emora/backends.json (mis. 'myvps').").optional(),
   }),
-  func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true }) => {
-    
+  func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true, backend = "local" }) => {
+
     // [INTERCEPTOR]: Cegat perintah sendFile (bekerja untuk Telegram MAUPUN WhatsApp)
     if (command.trim().startsWith("sendFile")) {
       if (!session_id) return "❌ Gagal: parameter session_id WAJIB diisi untuk sendFile.";
@@ -77,18 +78,33 @@ export const shellExecTool = new DynamicStructuredTool({
 
     if (!isSafe(command)) return `🚫 Perintah diblokir: "${command}"`;
 
-    const workDir = resolveCwd(cwd);
-
-    if (create_cwd && !fs.existsSync(workDir)) {
-      try { fs.mkdirSync(workDir, { recursive: true }); }
-      catch (e) { return `❌ Gagal membuat direktori "${workDir}": ${e.message}`; }
+    // ── TERMINAL BACKENDS ────────────────────────────────────────────
+    // backend "local" = spawn langsung (default).
+    // backend lain = SSH ke host yang terdaftar di .emora/backends.json:
+    //   { "myvps": { "host": "1.2.3.4", "user": "root", "port": 22 } }
+    let prefixCmd = command;
+    let workDir = resolveCwd(cwd);
+    if (backend !== "local") {
+      let be;
+      try {
+        const backends = JSON.parse(fs.readFileSync(".emora/backends.json", "utf8"));
+        be = backends[backend];
+      } catch { /* belum ada file */ }
+      if (!be) {
+        return `❌ Backend SSH "${backend}" tidak ditemukan di .emora/backends.json. Format: { "${backend}": { "host": "...", "user": "...", "port": 22 } }`;
+      }
+      const port = be.port || 22;
+      const target = `${be.user}@${be.host}`;
+      // Bungkus command dengan ssh; cd dulu kalau cwd dispesifikkan.
+      const remoteCmd = cwd ? `cd '${cwd}' && ${command}` : command;
+      prefixCmd = `ssh -o StrictHostKeyChecking=accept-new -p ${port} ${target} ${JSON.stringify(remoteCmd)}`;
+      workDir = BASE_DIR; // ssh jalan dari lokal
     }
-
-    if (!fs.existsSync(workDir)) return `❌ Direktori tidak ditemukan: "${workDir}"`;
 
     const lines = [
       `💻 $ ${command}`,
-      `📁 CWD: ${path.relative(process.cwd(), workDir) || "."}`,
+      `🖥️ Backend: ${backend}`,
+      ...(backend === "local" ? [`📁 CWD: ${path.relative(process.cwd(), workDir) || "."}`] : []),
       ``,
     ];
 
@@ -96,7 +112,7 @@ export const shellExecTool = new DynamicStructuredTool({
       // 🟢 DETEKSI OS OTOMATIS & ASYNCHRONOUS EXECUTOR
       const isWin = os.platform() === "win32";
       const shellCmd = isWin ? "cmd.exe" : "bash";
-      const shellArgs = isWin ? ["/c", command] : ["-c", command];
+      const shellArgs = isWin ? ["/c", prefixCmd] : ["-c", prefixCmd];
 
       const result = await new Promise((resolve) => {
         const child = spawn(shellCmd, shellArgs, {

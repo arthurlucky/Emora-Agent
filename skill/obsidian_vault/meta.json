@@ -1,0 +1,7 @@
+{
+  "name": "obsidian_vault",
+  "description": "Baca, cari, buat, atau ubah catatan di vault Obsidian user (lewat tool mcp_obsidian__*) — dipakai kapan pun user menyebut Obsidian, 'catatan saya', 'vault', 'daily note', atau minta sesuatu disimpan/dicari di knowledge base pribadinya.",
+  "version": "1.0.0",
+  "author": "EMORA (bawaan)",
+  "requires": "MCP server 'obsidian' aktif — jalankan `emora obsidian setup` kalau belum."
+}

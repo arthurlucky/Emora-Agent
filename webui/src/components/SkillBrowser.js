@@ -74,7 +74,7 @@ export function SkillBrowser() {
   function renderSkills() {
     const query = searchInput.value.toLowerCase().trim()
     const filtered = skills.filter(s =>
-      s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)
+      (s.name || '').toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)
     )
 
     if (filtered.length === 0) {

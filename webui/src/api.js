@@ -5,7 +5,15 @@ async function request(url, options = {}) {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options.headers }
   })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+    try {
+      const body = await response.json()
+      if (body.error) message = body.error
+      if (body.hint) message += ` — ${body.hint}`
+    } catch { /* body bukan JSON, pakai fallback */ }
+    throw new Error(message)
+  }
   return response.json()
 }
 
@@ -16,6 +24,15 @@ export const chatApi = {
   sendStream: (sessionId, message, { onEvent, onToken, onDone, onError }) => {
     const controller = new AbortController();
     let timeoutId = null;
+    let finished = false;
+
+    const finish = (fn, payload) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeoutId);
+      try { fn && fn(payload); } catch (e) { console.error('[Stream callback error]', e); }
+    };
+
     const resetTimeout = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => controller.abort(new Error('Timeout: Tidak ada respon dari server.')), 60000);
@@ -28,10 +45,15 @@ export const chatApi = {
       body: JSON.stringify({ sessionId, message }),
       signal: controller.signal
     }).then(async (res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || msg; } catch {}
+        throw new Error(msg);
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let streamEnded = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -46,9 +68,12 @@ export const chatApi = {
           if (trimmed.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmed.slice(6));
-              if (data.type === 'stream_token') onToken && onToken(data.content);
-              else if (data.type === 'done') onDone && onDone(data);
-              else if (data.type === 'error') onError && onError(data.content);
+              if (data.type === 'stream_token') {
+                streamEnded = false;
+                onToken && onToken(data.content);
+              }
+              else if (data.type === 'done') finish(onDone, data);
+              else if (data.type === 'error') finish(onError, data.content || 'Terjadi kesalahan pada server.');
               else onEvent && onEvent(data);
             } catch (e) {
               console.error('[Stream Parse Error]', e);
@@ -57,12 +82,16 @@ export const chatApi = {
         }
       }
       clearTimeout(timeoutId);
+      // Stream ditutup server tanpa event 'done'/'error' (mis. balasan
+      // command /clear, /help). Pastikan callback tetap terpanggil biar
+      // state loading gak nyangkut selamanya.
+      if (!finished) finish(onDone, { type: 'done', content: '', ended: streamEnded });
     }).catch(err => {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError' || err.message.includes('Timeout')) {
-        onError && onError('Koneksi terputus atau timeout.');
+        finish(onError, 'Koneksi terputus atau timeout.');
       } else {
-        onError && onError(err.message);
+        finish(onError, err.message);
       }
     });
     return () => {
@@ -82,6 +111,12 @@ export const gatewayApi = {
   list: () => request('/api/gateways'),
   update: (gateways) => request('/api/gateways', {
     method: 'POST', body: JSON.stringify({ gateways })
+  }),
+  start: (platform) => request('/api/gateways', {
+    method: 'POST', body: JSON.stringify({ action: 'start', platform })
+  }),
+  stop: (platform) => request('/api/gateways', {
+    method: 'POST', body: JSON.stringify({ action: 'stop', platform })
   })
 }
 

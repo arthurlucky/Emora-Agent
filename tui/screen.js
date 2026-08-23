@@ -9,6 +9,7 @@
  */
 import { C, ICONS, hr, truncate, padVisible, stripAnsi, spinnerFrame, wrapPlain } from "./styles.js";
 import { renderMarkdown } from "./markdown.js";
+import { getSkin, rpgHeader, rpgWelcome } from "./theme-rpg.js";
 
 const MIN_WIDTH = 40;
 const MIN_HEIGHT = 12;
@@ -20,54 +21,58 @@ function clampSize(state) {
 }
 
 // ── Header ───────────────────────────────────────────────────────────────────
+// Ala Hermes: satu baris tenang — brand + judul kiri, provider + mode kanan.
 function renderHeader(state, width) {
-  const brand = C.primaryBold(" EMORA ");
-  const brandLen = 7;
-  const rightBudget = Math.max(8, Math.floor(width * 0.35));
-  const providerText = `${state.provider?.name || "-"}/${state.provider?.model || "-"}`;
-  const right = C.faint(truncate(providerText, rightBudget));
+  const brand = C.primaryBold("◆ EMORA");
+  const title = C.dim(truncate(state.sessionTitle || "Sesi baru", Math.max(8, Math.floor(width * 0.4))));
+  const left = `${brand} ${C.faint("·")} ${title}`;
+
+  const modeTag = state.mode === "safe" ? C.yellow("safe") : state.mode === "plan" ? C.purple("plan") : C.green("auto");
+  const providerText = `${state.provider?.model || "-"}`;
+  const right = C.faint(`${truncate(providerText, 24)} ${C.dim("[" + modeTag + C.dim("]"))}`);
   const rightLen = stripAnsi(right).length;
 
-  const leftBudget = Math.max(6, width - brandLen - 2 - rightLen - 1);
-  const title = C.text(truncate(state.sessionTitle || "Sesi baru", leftBudget));
-  const left = brand + C.faint("· ") + title;
+  const leftLen = stripAnsi(left).length;
+  const gap = Math.max(1, width - leftLen - rightLen);
 
+  const line = getSkin() === "rpg" ? rpgHeader(left + " ".repeat(gap) + right) : left + " ".repeat(gap) + right;
+  return [line, hr(width)];
+}
+
+// ── Status bar ───────────────────────────────────────────────────────────────
+// Ala Hermes: model │ ctx │ timer — info padat satu baris.
+function renderStatusBar(state, width) {
+  const modelName = truncate(state.provider?.model || "-", 20);
+  let left = `${C.primary("⚕")} ${C.dim(modelName)}`;
+
+  // Timer turn aktif (detik sejak submit).
+  if (state.status === "thinking" && state.turnStartedAt) {
+    const secs = Math.floor((Date.now() - state.turnStartedAt) / 1000);
+    left += C.faint(` │ ⏲ ${secs}s`);
+  }
+
+  const right = C.faint("/help · ctrl+c keluar");
+  const rightLen = stripAnsi(right).length;
   const leftLen = stripAnsi(left).length;
   const gap = Math.max(1, width - leftLen - rightLen);
 
   return [left + " ".repeat(gap) + right, hr(width)];
 }
 
-// ── Status bar ───────────────────────────────────────────────────────────────
-function renderStatusBar(state, width) {
-  const modeTag = state.mode === "safe" ? C.yellow("safe") : C.green("autonomous");
-  const agentTag = C.purple(state.agentMode);
-  const streamTag = state.streamEnabled ? C.green("stream:on") : C.faint("stream:off");
-
-  const segments = [
-    `${C.faint("mode:")}${modeTag}`,
-    `${C.faint("agent:")}${agentTag}`,
-    streamTag,
-  ];
-
-  let statusWord = "";
-  if (state.status === "thinking") statusWord = C.yellow(`${spinnerFrame(state.spinnerTick)} berpikir…`);
-  else if (state.status === "approval_pending") statusWord = C.red("menunggu approval");
-  else if (state.status === "ask_user_pending") statusWord = C.purple("menunggu jawaban");
-  const right = statusWord || C.faint("/help bantuan · Ctrl+C keluar");
-  const rightLen = stripAnsi(right).length;
-
-  // Buang segmen kiri satu-satu dari yang paling gak krusial kalau kesempitan,
-  // daripada motong string yang udah ada kode ANSI-nya (bisa korup).
-  while (segments.length > 1 && (stripAnsi(segments.join("  ")).length + rightLen + 3) > width) {
-    segments.pop();
-  }
-  const left = segments.join("  ");
-  const leftLen = stripAnsi(left).length;
-  const gap = Math.max(1, width - leftLen - rightLen);
-
-  if (leftLen + rightLen + 1 > width) return left; // ekstrem sempit, cukup tampilkan kiri
-  return left + " ".repeat(gap) + right;
+// ── Welcome screen ───────────────────────────────────────────────────────────
+// Ala Hermes: tips singkat saat chat masih kosong.
+function renderWelcome(state, width) {
+  const out = [];
+  out.push("");
+  out.push("  " + C.primaryBold("Halo. Aku Emora.") + C.dim(" agent otonom di terminalmu."));
+  out.push("");
+  out.push("  " + C.dim("Coba:"));
+  out.push("  " + C.text("• tanya apa saja — aku jawab pakai tool kalau perlu"));
+  out.push("  " + C.text("• /skills") + C.dim("        lihat skill terpasang"));
+  out.push("  " + C.text("• /help") + C.dim("         semua perintah"));
+  out.push("  " + C.text("• /mode plan") + C.dim("     kunci jadi baca-saja"));
+  out.push("");
+  return out;
 }
 
 // ── Input box ────────────────────────────────────────────────────────────────
@@ -99,23 +104,80 @@ function renderInputLine(state, width) {
   return prefix + leftMark + styled + rightMark;
 }
 
+// ── Border helpers (gaya kotak ala Claude Code) ─────────────────────────────
+// Baris input & status dibungkus border rounded; konten chat tetap bebas.
+function borderTop(width, label = "") {
+  const labelPart = label ? C.primaryBold(` ${label} `) : "";
+  const labelLen = stripAnsi(labelPart).length;
+  return C.border("╭" + "─".repeat(2)) + labelPart + C.border("─".repeat(Math.max(0, width - 4 - labelLen))) + C.border("╮");
+}
+function borderBottom(width) {
+  return C.border("╰" + "─".repeat(Math.max(0, width - 3))) + C.border("╯");
+}
+function borderLine(content, width) {
+  const visible = stripAnsi(content).length;
+  const pad = Math.max(0, width - 3 - visible);
+  return C.border("│ ") + content + " ".repeat(pad) + C.border("│");
+}
+
+/** Input box berbingkai: [top, line, bottom]. */
+function renderInputBox(state, width) {
+  return [
+    borderTop(width),
+    borderLine(renderInputLine(state, width - 4), width),
+    borderBottom(width),
+  ];
+}
+
+/** Status bar berbingkai tipis (tanpa box penuh): garis atas + isi. */
+function renderStatusBox(state, width) {
+  const [line] = renderStatusBar(state, width - 4); // sisakan ruang border
+  return [borderLine(line, width)];
+}
+
 function renderSuggestions(state, width) {
   if (!state.suggestions?.length) return [];
   const out = [];
   const maxShown = 6;
-  const list = state.suggestions.slice(0, maxShown);
+  const total = state.suggestions.length;
+  const idx = state.suggestionIndex;
+
+  // BUG LAMA: dulu selalu nampilin 6 item PERTAMA (`slice(0, maxShown)`)
+  // gak peduli suggestionIndex-nya udah maju ke mana. Begitu user pencet
+  // panah bawah lewat item ke-6, suggestionIndex tetap nambah di reducer,
+  // tapi karena window render-nya statis, item terpilih itu gak pernah
+  // masuk daftar yang ditampilkan -> highlight-nya "hilang"/kelihatan
+  // macet di item terakhir yang sempat ke-render (dilaporkan macet di
+  // "/stream"). Fix: window slice-nya sekarang IKUT bergeser (scroll)
+  // supaya index yang lagi dipilih selalu ada di dalam area yang tampil,
+  // baik pas scroll ke bawah maupun balik ke atas.
+  const maxWindowStart = Math.max(0, total - maxShown);
+  let windowStart = Math.max(0, idx - maxShown + 1);
+  windowStart = Math.min(windowStart, maxWindowStart);
+
+  const list = state.suggestions.slice(windowStart, windowStart + maxShown);
   for (let i = 0; i < list.length; i++) {
-    const isSel = i === state.suggestionIndex;
+    const globalIdx = windowStart + i;
+    const isSel = globalIdx === idx;
     const text = truncate(list[i], width - 4);
     out.push((isSel ? C.primary("  ❯ ") : "    ") + (isSel ? C.primaryBold(text) : C.dim(text)));
   }
-  if (state.suggestions.length > maxShown) {
-    out.push(C.faint(`    …dan ${state.suggestions.length - maxShown} lainnya`));
+
+  const hiddenAbove = windowStart;
+  const hiddenBelow = total - (windowStart + list.length);
+  if (hiddenAbove > 0 || hiddenBelow > 0) {
+    const bits = [];
+    if (hiddenAbove > 0) bits.push(`↑${hiddenAbove} di atas`);
+    if (hiddenBelow > 0) bits.push(`↓${hiddenBelow} di bawah`);
+    out.push(C.faint(`    …${bits.join("  ")}`));
   }
   return out;
 }
 
 // ── Chat transcript ──────────────────────────────────────────────────────────
+// Memoize renderMarkdown per (content, width) — highlight syntax mahal,
+// dulu semua pesan lama dirender ulang tiap frame (26ms/render @100 pesan).
+const _mdCache = new Map();
 function renderMessageBlock(msg, width) {
   const lines = [];
   if (msg.role === "user") {
@@ -123,7 +185,14 @@ function renderMessageBlock(msg, width) {
     for (const l of wrapPlain(msg.content, width - 2)) lines.push("  " + C.text(l));
   } else {
     lines.push(C.purple(`${ICONS.agent} Emora`));
-    for (const l of renderMarkdown(msg.content, width - 2)) lines.push("  " + l);
+    const key = `${msg.content.length}:${width}`;
+    let bodyLines = _mdCache.get(key);
+    if (!bodyLines) {
+      bodyLines = renderMarkdown(msg.content, width - 2).map((l) => "  " + l);
+      if (_mdCache.size > 500) _mdCache.clear(); // ponytail: clear-all, LRU kalau memory jadi masalah
+      _mdCache.set(key, bodyLines);
+    }
+    lines.push(...bodyLines);
   }
   lines.push("");
   return lines;
@@ -141,9 +210,7 @@ function renderChatBody(state, width, height) {
   }
 
   if (!lines.length) {
-    for (const l of wrapPlain("Belum ada percakapan. Ketik pesan atau '/help' buat lihat perintah.", width - 2)) {
-      lines.push(C.faint("  " + l));
-    }
+    lines.push(...(getSkin() === "rpg" ? rpgWelcome(state, width) : renderWelcome(state, width)));
   }
 
   // Clip ke tinggi yang tersedia, dari bawah (paling baru), digeser scrollOffset.
@@ -155,7 +222,9 @@ function renderChatBody(state, width, height) {
   while (visible.length < height) visible.push("");
 
   if (state.scrollOffset > 0) {
-    visible[0] = C.faint(`↑ scroll (${state.scrollOffset}) `) + visible[0];
+    // Sisipkan baris indikator, JANGAN timpa baris pertama (dulu konten hilang).
+    visible.unshift(C.faint(`↑ scroll (${state.scrollOffset})`));
+    visible.pop();
   }
   return visible;
 }
@@ -214,9 +283,9 @@ function renderSkillsView(state, width, height) {
       const s = list[i];
       const isSel = i === index;
       const marker = isSel ? C.primary("❯ ") : "  ";
-      const status = s.enabled ? C.green("[on] ") : C.faint("[off]");
+      const status = s.toggleable === false ? C.faint("[plg]") : (s.enabled ? C.green("[on] ") : C.faint("[off]"));
       const name = truncate(s.name, width - 40);
-      out.push(marker + status + " " + (isSel ? C.primaryBold(name) : C.text(name)));
+      out.push(marker + status + " " + (isSel ? C.primaryBold(name) : C.text(name)) + (s.source && s.source !== "builtin" ? C.faint(`  (${s.source})`) : ""));
       if (isSel) out.push("      " + C.faint(truncate(s.description, width - 10)));
     }
   }
@@ -334,9 +403,9 @@ export function computeScreen(state) {
     ? C.faint(`${ICONS.info} ${state.notice}`)
     : "";
 
-  const inputLine = renderInputLine(state, columns);
-  const statusBar = renderStatusBar(state, columns);
-  const essentialFooter = [inputLine, statusBar]; // ini gak boleh ke-drop
+  const inputLine = renderInputBox(state, columns);
+  const statusBar = renderStatusBox(state, columns); // [line, hr]
+  const essentialFooter = [...inputLine, ...statusBar, borderBottom(columns)]; // ini gak boleh ke-drop
   const optionalFooter = [...overlay, ...(noticeLine ? [noticeLine] : []), ...suggestions];
 
   const minBodyHeight = 1;

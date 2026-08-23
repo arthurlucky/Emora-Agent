@@ -12,12 +12,15 @@ import fs from "fs";
 import path from "path";
 import { ask } from "../../core/chat.js";
 import tools from "../../core/tools.js";
+import skillRegistry from "../../core/skillRegistry.js";
 import { createLLM } from "../../provider/index.js";
 import { registerAdapter } from "../manager.js";
 import { TurnStateManager } from "../session.js";
 import { touchSession } from "../../core/sessionStore.js";
 import { handleCronCommand } from "../cron/commands.js";
 import { splitMessage, formatToolLine, buildApprovalRow, approvalContent } from "../discord/presenter.js";
+
+const RESERVED_GATEWAY_COMMANDS = new Set(["status", "reset", "yes", "no", "mode", "help"]);
 
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 const SESSION_MAP_FILE = path.resolve("./gateway/matrix/session-map.json");
@@ -127,10 +130,14 @@ class MatrixGateway {
         return;
       }
       case "help":
-        await this.sendText(roomId, "⎔ *Perintah EMORA (Matrix)*\\n`/status` `/reset` `/mode <safe|autonomous>`\\n`/yes` `/no`");
+        await this.sendText(roomId, "⎔ *Perintah EMORA (Matrix)*\\n`/status` `/reset` `/mode <safe|autonomous>`\\n`/yes` `/no`\\n`/<nama_skill>` — jalankan skill/command apa pun (bawaan/plugin) langsung");
         return;
-      default:
+      default: {
+        // Bukan salah satu command bawaan gateway di atas — sudah dicek
+        // skillRegistry di routing atas (Room.timeline), jadi kalau sampai
+        // ke sini berarti memang benar-benar tidak dikenal.
         await this.sendText(roomId, `ℹ Perintah \`/${cmd}\` gak dikenal.`);
+      }
     }
   }
 
@@ -195,8 +202,15 @@ class MatrixGateway {
       const roomId = room.roomId;
 
       if (content.startsWith("/")) {
-        const args = content.slice(1).split(/\\s+/).filter(Boolean);
-        await this._handleCommand(roomId, args[0].toLowerCase(), args.slice(1));
+        const args = content.slice(1).split(/\s+/).filter(Boolean);
+        const cmd = (args[0] || "").toLowerCase();
+        // Cek dulu apakah ini skill/command manual (bawaan/plugin, format
+        // standar Claude Code — lihat core/skillRegistry.js) SEBELUM
+        // memperlakukannya sbg command gateway bawaan (/status, /reset, dst).
+        // resolveCandidates supaya kasus ambigu tetap diteruskan ke ask().
+        const candidates = cmd && !RESERVED_GATEWAY_COMMANDS.has(cmd) ? await skillRegistry.resolveCandidates(cmd) : [];
+        if (candidates.length) await this._handlePrompt(roomId, content);
+        else await this._handleCommand(roomId, cmd, args.slice(1));
       } else {
         await this._handlePrompt(roomId, content);
       }

@@ -19,7 +19,7 @@ import { handleKey } from "./keys.js";
 
 const h = React.createElement;
 
-export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, onQuit }) {
+export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, initialMode, onQuit }) {
   const { stdout } = useStdout();
   const { exit } = useApp();
 
@@ -29,6 +29,7 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
       sessionId,
       sessionTitle,
       provider,
+      initialMode,
       columns: stdout?.columns || 80,
       rows: stdout?.rows || 24,
     })
@@ -50,9 +51,15 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
     [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // Spinner tick buat animasi "sedang berpikir..."
+  // Spinner tick buat animasi "sedang berpikir..." — HANYA saat thinking.
+  // Dulu interval jalan terus walau idle → re-render 8x/detik + computeScreen
+  // penuh tiap tick = CPU terbakar di sesi panjang.
+  const statusRef = useRef(state.status);
+  statusRef.current = state.status;
   useEffect(() => {
-    const id = setInterval(() => dispatch({ type: "SPINNER_TICK" }), 120);
+    const id = setInterval(() => {
+      if (statusRef.current === "thinking") dispatch({ type: "SPINNER_TICK" });
+    }, 120);
     return () => clearInterval(id);
   }, []);
 
