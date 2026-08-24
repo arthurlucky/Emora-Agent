@@ -1,6 +1,6 @@
 {
-  "builtAt": "2026-08-24T09:26:24.395Z",
-  "count": 7,
+  "builtAt": "2026-08-24T09:32:12.728Z",
+  "count": 4,
   "entries": [
     {
       "topic": "astronomi",
@@ -41,36 +41,6 @@
       "relPath": "library/pertanian/pupuk/24_08_2026/knowledge.txt",
       "absPath": "/data/data/com.termux/files/home/EMORA/library/pertanian/pupuk/24_08_2026/knowledge.txt",
       "sizeBytes": 4865
-    },
-    {
-      "topic": "v3test",
-      "subtopic": "ref",
-      "date": "24_08_2026",
-      "dateObj": "2026-08-24T00:00:00.000Z",
-      "filename": "c.md",
-      "relPath": "library/v3test/ref/24_08_2026/c.md",
-      "absPath": "/data/data/com.termux/files/home/EMORA/library/v3test/ref/24_08_2026/c.md",
-      "sizeBytes": 120
-    },
-    {
-      "topic": "v3test",
-      "subtopic": "wrap",
-      "date": "24_08_2026",
-      "dateObj": "2026-08-24T00:00:00.000Z",
-      "filename": "a.md",
-      "relPath": "library/v3test/wrap/24_08_2026/a.md",
-      "absPath": "/data/data/com.termux/files/home/EMORA/library/v3test/wrap/24_08_2026/a.md",
-      "sizeBytes": 82
-    },
-    {
-      "topic": "v3test",
-      "subtopic": "wrap",
-      "date": "24_08_2026",
-      "dateObj": "2026-08-24T00:00:00.000Z",
-      "filename": "b.md",
-      "relPath": "library/v3test/wrap/24_08_2026/b.md",
-      "absPath": "/data/data/com.termux/files/home/EMORA/library/v3test/wrap/24_08_2026/b.md",
-      "sizeBytes": 107
     }
   ]
 }

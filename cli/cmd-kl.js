@@ -106,11 +106,26 @@ export async function cmdKl(argv) {
       }
       console.log(`   → ${topic || "?"} / ${subtopic || "?"}`);
     } catch (e) {
-      console.warn(`   ⚠ Deteksi gagal (${e.message.slice(0, 60)}) — pakai fallback.`);
+      console.warn(`   ⚠ Deteksi gagal (${e.message.slice(0, 60)}) — coba ulang...`);
+      // Retry sekali setelah jeda (rate limit 429 sering).
+      try {
+        await new Promise(r => setTimeout(r, 8000));
+        const clsRes2 = await llm.invoke([
+          { role: "system", content: "Klasifikasi dokumen ke TOPIC dan SUBTOPIC. lowercase, underscore, bahasa Indonesia. Format persis:\nTOPIC: <topic>\nSUBTOPIC: <sub>" },
+          { role: "user", content: content.slice(0, 6_000) },
+        ]);
+        const t2 = typeof clsRes2.content === "string" ? clsRes2.content : String(clsRes2.content ?? "");
+        if (!topic) topic = (t2.match(/TOPIC:\s*([a-z0-9_-]+)/i)?.[1] || "").toLowerCase().trim();
+        if (!subtopic) subtopic = (t2.match(/SUBTOPIC:\s*([a-z0-9_-]+)/i)?.[1] || "").toLowerCase().trim();
+      } catch {}
     }
-    // Fallback aman.
-    topic = topic || "umum";
-    subtopic = subtopic || "umum";
+    // Fallback aman: turunkan dari slug URL, bukan "umum" buta.
+    if (!topic || !subtopic) {
+      const slug = (url.split("/").pop() || "").replace(/\.[a-z]+$/, "").toLowerCase();
+      const words = slug.split("-").filter(Boolean);
+      if (!topic) topic = words[0] || "umum";
+      if (!subtopic) subtopic = words.slice(0, 3).join("_") || "umum";
+    }
   }
 
   // ── 2b. Verifikasi LLM terhadap knowledge_policy.md ────────────────────────
@@ -132,7 +147,7 @@ export async function cmdKl(argv) {
 
   if (!ok) {
     // Policy menyarankan ringkas bila masalahnya salinan utuh berhak cipta.
-    if (/ringkas|salinan utuh|copyright|berhak cipta/i.test(reasonMatch?.[1] || "")) {
+    if (/ringkas|salin|copyright|hak cipta|verbatim|utuh/i.test(reasonMatch?.[1] || "")) {
       console.log("\n📝 Policy minta ringkasan — meringkas konten via LLM...");
       try {
         const sumRes = await llm.invoke([
@@ -180,6 +195,7 @@ export async function cmdKl(argv) {
   }
   if (!/\.(md|txt)$/.test(name)) name += ".txt";
 
+  const date = new Date();
   // Tulis — V3 frontmatter + dedup via sourceUrl (update kalau URL sudah ada).
   const { relPath, updated } = writeEntry({
     topic,
