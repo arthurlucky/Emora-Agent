@@ -154,9 +154,10 @@ export async function cmdKl(argv) {
           {
             role: "system",
             content:
-              "Ringkas dokumen berikut menjadi knowledge edukatif yang padat (maks 800 kata), " +
-              "bahasa Indonesia, poin-poin terstruktur, TANPA menyalin kalimat asli secara utuh, " +
-              "tanpa elemen navigasi/iklan/footer. Pertahankan semua fakta penting.",
+              "Tulis ULANG dokumen berikut sebagai knowledge edukatif orisinal (maks 600 kata), " +
+              "bahasa Indonesia, poin-poin terstruktur. WAJIB: parafrase total dengan kata-katamu " +
+              "sendiri — JANGAN menyalin kalimat, frasa, menu navigasi, footer, atau struktur situs " +
+              "asli. Hanya ekstrak FAKTA pengetahuannya.",
           },
           { role: "user", content: content.slice(0, 15_000) },
         ]);

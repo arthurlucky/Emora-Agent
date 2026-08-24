@@ -23,7 +23,9 @@ import { resolveKnowledgeRoot } from "./storage.js";
 // ROOT dinamis berdasarkan KL_VAULT (default/obsidian/custom). Index & relPath
 // memakai prefix virtual "library/" terhadap ROOT, jadi caller tidak perlu
 // tahu di backend mana file sebenarnya tersimpan.
-const { root: ROOT } = resolveKnowledgeRoot();
+const resolved   = resolveKnowledgeRoot();
+const ROOT       = resolved.root;
+const VAULT_MODE = resolved.mode;
 const INDEX_DIR    = path.join(ROOT, ".index");
 const CATALOG_PATH = path.join(INDEX_DIR, "catalog.json");
 const STALE_MS     = 5 * 60 * 1000;  // rebuild index kalau >5 menit
@@ -322,20 +324,54 @@ export function chunkContent(content) {
   return chunks;
 }
 
+/**
+ * Konversi konten jadi catatan Obsidian yang benar (aturan dari skill obsidian):
+ * - Heading H1 dari title bila belum ada
+ * - Bagian "Related" dengan wikilinks [[topic/subtopic]] ke knowledge lain
+ *   dalam topik yang sama → grafik Obsidian otomatis terbentuk.
+ */
+function toObsidianNote(content, topic, subtopic) {
+  let out = content;
+  // Wikilink-kan referensi path internal "topic/subtopic/date/file" yang polos.
+  out = out.replace(
+    /(^|[\s(])((?:[a-z0-9_-]+)\/(?:[a-z0-9_-]+)\/\d{2}_\d{2}_\d{4}\/[a-z0-9_.-]+\.(?:md|txt))/gi,
+    (_m, pre, p) => `${pre}[[${p.replace(/\.(md|txt)$/i, "").split("/").pop()}]]`,
+  );
+  // Tambah section Related berisi wikilinks ke subtopik lain dalam topik sama.
+  try {
+    const siblings = fs.readdirSync(path.join(ROOT, topic))
+      .filter(d => d !== subtopic && !d.startsWith(".") && fs.statSync(path.join(ROOT, topic, d)).isDirectory());
+    if (siblings.length && !out.includes("## Related")) {
+      out += "\n\n## Related\n" + siblings.map(s => `- [[${s}]]`).join("\n") + "\n";
+    }
+  } catch {}
+  return out;
+}
+
 export function writeEntry({ topic, subtopic, filename, content, date = new Date(), meta = {}, sourceUrl = "" }) {
   // Dedup: jika sourceUrl sama sudah ada → update, bukan buat baru.
   if (sourceUrl) {
     const existing = findBySourceUrl(sourceUrl);
     if (existing) {
-      const { content: wrapped } = wrapWithFrontmatter(content, {
+      // Obsidian mode: migrasi .txt lama ke .md + wikilinks (aturan skill obsidian).
+      let targetPath = existing.absPath;
+      if (VAULT_MODE === "obsidian" && /\.txt$/i.test(targetPath)) {
+        const newPath = targetPath.replace(/\.txt$/i, ".md");
+        fs.renameSync(targetPath, newPath);
+        targetPath = newPath;
+      }
+      const body = VAULT_MODE === "obsidian"
+        ? toObsidianNote(content, topic, subtopic)
+        : content;
+      const { content: wrapped } = wrapWithFrontmatter(body, {
         ...meta,
         title:    meta.title || filename,
         topic, subtopic, source: sourceUrl,
         updated:  new Date().toISOString().slice(0, 10),
       });
-      fs.writeFileSync(existing.absPath, wrapped, "utf8");
+      fs.writeFileSync(targetPath, wrapped, "utf8");
       rebuildIndex();
-      return { relPath: existing.relPath, absPath: existing.absPath, updated: true };
+      return { relPath: existing.relPath.replace(/\.txt$/i, ".md"), absPath: targetPath, updated: true };
     }
   }
 
@@ -343,14 +379,23 @@ export function writeEntry({ topic, subtopic, filename, content, date = new Date
   const dir        = path.join(ROOT, topic, subtopic, dateFolder);
   fs.mkdirSync(dir, { recursive: true });
 
+  // Obsidian mode (KL_VAULT=obsidian): paksa .md + wikilinks antar knowledge.
+  // Aturan skill obsidian: catatan = markdown, koneksi via [[Note Name]].
+  let fname = filename;
+  let body   = content;
+  if (VAULT_MODE === "obsidian") {
+    fname = filename.replace(/\.[^.]*$/, "") + ".md";
+    body = toObsidianNote(content, topic, subtopic);
+  }
+
   // Tulis konten (frontmatter ditambahkan hanya kalau belum ada).
-  const { content: wrapped } = wrapWithFrontmatter(content, {
+  const { content: wrapped } = wrapWithFrontmatter(body, {
     ...meta,
-    title:    meta.title || filename,
+    title:    meta.title || fname,
     topic, subtopic, source: sourceUrl || "",
     created:  date.toISOString().slice(0, 10),
   });
-  const absPath = path.join(dir, filename);
+  const absPath = path.join(dir, fname);
   fs.writeFileSync(absPath, wrapped, "utf8");
 
   // Rebuild index agar entri baru langsung bisa dicari.
