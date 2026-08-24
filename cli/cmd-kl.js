@@ -15,7 +15,8 @@ import { searchIndex as searchLibrary, writeEntry } from "../library/index.js";
 export async function cmdKl(argv) {
   const sub = argv[0];
   if (sub !== "install") {
-    console.log("Pakai: emora kl install <url> --topic=<topik> [--subtopic=<sub>] [--name=<nama-file>]");
+    console.log("Pakai: emora kl install <url> [--topic=<topik>] [--subtopic=<sub>] [--name=<nama>]");
+    console.log("topic/subtopic otomatis dideteksi LLM dari konten kalau tidak diisi.");
     process.exit(1);
   }
 
@@ -24,16 +25,13 @@ export async function cmdKl(argv) {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : null;
   };
-  const topic = getArg("--topic");
-  const subtopic = getArg("--subtopic") || "umum";
+  let topic = getArg("--topic");
+  let subtopic = getArg("--subtopic") || null;
   let name = getArg("--name");
 
   if (!url || !/^https?:\/\//.test(url)) {
-    console.error("❌ URL wajib (http/https). Contoh: emora kl install https://... --topic=astronomi");
-    process.exit(1);
-  }
-  if (!topic) {
-    console.error("❌ --topic wajib. Contoh: --topic=astronomi --subtopic=galaksi");
+    console.error("❌ URL wajib (http/https). Contoh: emora kl install https://...");
+    console.error("   topic/subtopic opsional — LLM auto-detect dari konten.");
     process.exit(1);
   }
 
@@ -67,12 +65,43 @@ export async function cmdKl(argv) {
   content = content.slice(0, 40_000); // batasi untuk verifikasi
   console.log(`   Dapat ${content.length} karakter`);
 
-  // ── 2. Verifikasi LLM terhadap knowledge_policy.md ────────────────────────
+  const llm = await createLLM([]);
+
+  // ── 2a. Auto-detect topic/subtopic via LLM kalau tidak diisi manual ──────
+  if (!topic || !subtopic) {
+    console.log("\n🏷️  Deteksi topik & subtopik dari konten...");
+    try {
+      const clsRes = await llm.invoke([
+        {
+          role: "system",
+          content:
+            "Klasifikasi dokumen berikut ke dalam TOPIC dan SUBTOPIC.\n" +
+            "Aturan: lowercase, tanpa spasi (pakai underscore), bahasa Indonesia, " +
+            "satu kata bila memungkinkan. Contoh output persis:\n" +
+            "TOPIC: pertanian\nSUBTOPIC: pupuk_organik",
+        },
+        { role: "user", content: content.slice(0, 8_000) },
+      ]);
+      const t = typeof clsRes.content === "string" ? clsRes.content : String(clsRes.content ?? "");
+      if (!topic) {
+        topic = (t.match(/TOPIC:\s*([a-z0-9_-]+)/i)?.[1] || "").toLowerCase().trim();
+      }
+      if (!subtopic) {
+        subtopic = (t.match(/SUBTOPIC:\s*([a-z0-9_-]+)/i)?.[1] || "").toLowerCase().trim();
+      }
+      console.log(`   → ${topic || "?"} / ${subtopic || "?"}`);
+    } catch (e) {
+      console.warn(`   ⚠ Deteksi gagal (${e.message.slice(0, 60)}) — pakai fallback.`);
+    }
+    // Fallback aman.
+    topic = topic || "umum";
+    subtopic = subtopic || "umum";
+  }
+
+  // ── 2b. Verifikasi LLM terhadap knowledge_policy.md ────────────────────────
   console.log("\n🔍 Verifikasi terhadap Knowledge Policy...");
   let policy = "";
   try { policy = fs.readFileSync("library/knowledge_policy.md", "utf8"); } catch {}
-
-  const llm = await createLLM([]);
   const verdictRes = await llm.invoke([
     {
       role: "system",
@@ -83,8 +112,40 @@ export async function cmdKl(argv) {
     { role: "user", content: content.slice(0, 12_000) },
   ]);
   const verdictText = typeof verdictRes.content === "string" ? verdictRes.content : String(verdictRes.content ?? "");
-  const ok = /VERDICT:\s*OK/i.test(verdictText);
+  let ok = /VERDICT:\s*OK/i.test(verdictText);
   const reasonMatch = verdictText.match(/REASON:\s*(.+)/i);
+
+  if (!ok) {
+    // Policy menyarankan ringkas bila masalahnya salinan utuh berhak cipta.
+    if (/ringkas|salinan utuh|copyright|berhak cipta/i.test(reasonMatch?.[1] || "")) {
+      console.log("\n📝 Policy minta ringkasan — meringkas konten via LLM...");
+      try {
+        const sumRes = await llm.invoke([
+          {
+            role: "system",
+            content:
+              "Ringkas dokumen berikut menjadi knowledge edukatif yang padat (maks 800 kata), " +
+              "bahasa Indonesia, poin-poin terstruktur, TANPA menyalin kalimat asli secara utuh, " +
+              "tanpa elemen navigasi/iklan/footer. Pertahankan semua fakta penting.",
+          },
+          { role: "user", content: content.slice(0, 15_000) },
+        ]);
+        const summarized = typeof sumRes.content === "string" ? sumRes.content : "";
+        if (summarized.trim().length > 200) {
+          content = `Ringkasan dari ${url} (original disimpan apa adanya di sumber):\n\n${summarized.trim()}`;
+          console.log(`   ✅ Ringkasan siap (${content.length} chars) — verifikasi ulang...`);
+          const reVerdict = await llm.invoke([
+            { role: "system", content: `Policy:\n\n${policy}\n\nBalas HANYA: VERDICT: OK|REJECT\\nREASON: <satu kalimat>` },
+            { role: "user", content: content.slice(0, 12_000) },
+          ]);
+          const rt = typeof reVerdict.content === "string" ? reVerdict.content : String(reVerdict.content ?? "");
+          ok = /VERDICT:\s*OK/i.test(rt);
+        }
+      } catch (e) {
+        console.warn(`   ⚠ Ringkasan gagal: ${e.message.slice(0, 60)}`);
+      }
+    }
+  }
 
   if (!ok) {
     // [from condition] if:error → error log
@@ -105,7 +166,7 @@ export async function cmdKl(argv) {
   if (!/\.(md|txt)$/.test(name)) name += ".txt";
 
   // Search path/subpath yang sudah ada
-  const existing = searchLibrary({ topic, subtopic, query: name, maxResults: 50 });
+  const existing = searchLibrary(name || "", { topic, subtopic, maxResults: 50 });
 
   const date = new Date();
   const dateStr = `${String(date.getDate()).padStart(2, "0")}_${String(date.getMonth() + 1).padStart(2, "0")}_${date.getFullYear()}`;
