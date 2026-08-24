@@ -603,11 +603,32 @@ ${body.trimStart()}
             const script = await readFileSafe(
               path.join(SKILL_DIR, safeName, "run.sh")
             );
+
+            // KL v2: kalau skill deklarasi use_knowledge + connection,
+            // sertakan isi knowledge yang terhubung dalam respons read_skill.
+            let connectedKnowledge = null;
+            try {
+              const conn = await import("../library/connections.js");
+              const kn = await conn.readConnectedKnowledge(safeName);
+              if (kn.connected && kn.content) {
+                connectedKnowledge = {
+                  files: kn.files,
+                  content: kn.content,
+                };
+              } else if (kn.connected && kn.missing?.length) {
+                connectedKnowledge = {
+                  missing: kn.missing,
+                  hint: "Path knowledge tidak ditemukan di library — cek `emora kl install` atau knowledge_library action:write.",
+                };
+              }
+            } catch { /* non-kritis */ }
+
             return JSON.stringify({
               success: true,
               skill_name: safeName,
               content,
               script: script || null,
+              ...(connectedKnowledge ? { connected_knowledge: connectedKnowledge } : {}),
             });
           }
 

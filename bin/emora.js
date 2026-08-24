@@ -428,6 +428,12 @@ switch (subCmd) {
     break;
   }
 
+  case "kl": {
+    const { cmdKl } = await import("../cli/cmd-kl.js");
+    await cmdKl(rest);
+    break;
+  }
+
   case "doctor": {
     const { cmdDoctor } = await import("../cli/cmd-doctor.js");
     await cmdDoctor();
