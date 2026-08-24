@@ -42,7 +42,9 @@ export async function setMode(mode) {
   return { ok: true, mode };
 }
 
-/** Cek apakah tool boleh jalan di mode saat ini. Dipakai resolveApproval di core/chat.js. */
+/** Cek apakah tool boleh jalan di mode saat ini.
+ *  DEFAULT-DENY di mode plan: hanya tool di whitelist yang lolos —
+ *  tool MCP/plugin baru otomatis diblok (aman by default). */
 export async function isToolAllowed(name, mode) {
   if (mode === "plan") return PLAN_ALLOWED.has(name);
   return true; // safe/autonomous: biarkan logika lama yang memutuskan

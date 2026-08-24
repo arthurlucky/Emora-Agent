@@ -19,6 +19,15 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const CONTAINERS_DIR = path.join(ROOT_DIR, ".emora", "containers");
 
+// Mutex: env global di-override saat delegasi — dua delegasi concurrent
+// akan saling timpa env. Antrekan sequential (satu per satu).
+let _swarmQueue = Promise.resolve();
+function enqueueSwarm(fn) {
+  const run = _swarmQueue.then(fn, fn); // lanjut walau sebelumnya error
+  _swarmQueue = run.catch(() => {});
+  return run;
+}
+
 export const swarmDelegateTool = new DynamicStructuredTool({
   name: "delegate_to_swarm",
   description:
@@ -30,7 +39,13 @@ export const swarmDelegateTool = new DynamicStructuredTool({
     task: z.string().describe("Instruksi/tugas spesifik untuk container."),
   }),
   func: async ({ subagentId, task }) => {
-    // Backup process.env
+    // Mutex: env global di-override saat delegasi — antrekan sequential.
+    return enqueueSwarm(() => runDelegate(subagentId, task));
+  },
+});
+
+async function runDelegate(subagentId, task) {
+  // Backup process.env
     const backup = {
       EMORA_MEMORY_DIR: process.env.EMORA_MEMORY_DIR,
       EMORA_AGENT_PATH: process.env.EMORA_AGENT_PATH,
@@ -78,7 +93,6 @@ export const swarmDelegateTool = new DynamicStructuredTool({
       Object.assign(process.env, backup);
       invalidateSystemPromptCache();
     }
-  },
-});
+}
 
 export default swarmDelegateTool;

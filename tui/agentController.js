@@ -32,6 +32,35 @@ export function createAgentController({ dispatch, getState, getLLM, tools }) {
         dispatch({ type: "APPROVAL_REQUEST", payload: { toolName, args, resolve } });
       });
 
+    // STREAMING: kalau LLM support .stream() & tidak sedang tool-loop,
+    // tampilkan jawaban token-by-token. Fallback ke ask() biasa kalau
+    // streaming gagal — perilaku lama tetap aman.
+    const useStream = getState().streamEnabled && !trimmed.startsWith("/");
+    if (useStream) {
+      try {
+        const { getSystemPrompt } = await import("../core/chat.js");
+        const { SystemMessage, HumanMessage } = await import("@langchain/core/messages");
+        const sys = await getSystemPrompt();
+        dispatch({ type: "STREAM_START" });
+        const stream = await getLLM().stream([
+          new SystemMessage(sys),
+          new HumanMessage(trimmed),
+        ]);
+        for await (const chunk of stream) {
+          if (abortController.signal.aborted) break;
+          const piece = typeof chunk.content === "string" ? chunk.content : "";
+          if (piece) dispatch({ type: "STREAM_CHUNK", text: piece });
+        }
+        dispatch({ type: "STREAM_END" });
+        touchSession(state.sessionId, trimmed.slice(0, 200)).catch(() => {});
+        return;
+      } catch (err) {
+        dispatch({ type: "STREAM_END" });
+        if (err?.aborted || err?.name === "AbortError") { dispatch({ type: "AGENT_ABORTED" }); return; }
+        // gagal streaming → jatuh ke jalur ask() penuh di bawah
+      }
+    }
+
     try {
       const result = await ask(getLLM(), tools, state.sessionId, trimmed, {
         onEvent,

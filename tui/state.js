@@ -118,6 +118,26 @@ export function reducer(state, action) {
       return addMessage(cleared, { role: "assistant", content: action.content });
     }
 
+    // ── STREAMING ──────────────────────────────────────────────────────────
+    case "STREAM_START": {
+      const started = { ...state, status: "thinking" };
+      return addMessage(started, { role: "assistant", content: "" });
+    }
+    case "STREAM_CHUNK": {
+      // Append ke pesan assistant terakhir (yang dibuat STREAM_START).
+      if (!state.messages.length) return state;
+      const last = state.messages[state.messages.length - 1];
+      if (last.role !== "assistant") return state;
+      const updated = { ...last, content: last.content + action.text };
+      return { ...state, messages: [...state.messages.slice(0, -1), updated], scrollOffset: 0 };
+    }
+    case "STREAM_END": {
+      // Buang pesan streaming kosong (mis. dibatalkan sebelum token pertama).
+      const msgs = state.messages.filter((m, i) =>
+        !(i === state.messages.length - 1 && m.role === "assistant" && !m.content));
+      return { ...state, status: "idle", progressLines: [], abortController: null, messages: msgs };
+    }
+
     case "AGENT_ERROR": {
       return { ...state, status: "idle", progressLines: [], abortController: null, error: action.message };
     }

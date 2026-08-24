@@ -111,6 +111,35 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       return { type: "handled" };
     }
 
+    case "toolset": {
+      // /toolset [preset|list] — live-reload tanpa restart.
+      const sub = rest[0];
+      try {
+        const ts = await import("../utils/toolsets.js");
+        if (!sub || sub === "list") {
+          const groups = await ts.getActiveGroups();
+          return { type: "notice", message: `Grup aktif: ${groups.join(", ")}\nPreset: ${Object.keys(ts.PRESETS).join(", ")}\nGanti: /toolset <preset>` };
+        }
+        if (ts.PRESETS[sub]) {
+          await ts.applyPreset(sub);
+          const { reloadToolset } = await import("../core/tools.js");
+          const n = await reloadToolset();
+          return { type: "notice", message: `✓ Preset "${sub}" aktif — ${n} tool live (tanpa restart).` };
+        }
+        if (["on", "off"].includes(sub) && rest[1]) {
+          const cur = await ts.getActiveGroups();
+          const next = sub === "on" ? [...new Set([...cur, rest[1]])] : cur.filter((g) => g !== rest[1]);
+          await ts.setGroups(next);
+          const { reloadToolset } = await import("../core/tools.js");
+          const n = await reloadToolset();
+          return { type: "notice", message: `✓ Grup ${rest[1]} ${sub} — ${n} tool live.` };
+        }
+        return { type: "notice", message: "Pakai: /toolset list | /toolset <preset> | /toolset on|off <grup>" };
+      } catch (e) {
+        return { type: "error", message: e.message };
+      }
+    }
+
     case "agentmode": {
       const val = (rest[0] || "").toLowerCase();
       if (!["chat", "simple", "planned", "deep"].includes(val)) {

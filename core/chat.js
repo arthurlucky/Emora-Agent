@@ -216,13 +216,20 @@ const LIGHT_WRITE_TOOLS = new Set(["write_file", "create_folder"]);
  */
 async function resolveApproval(name, args, mode, onApproval) {
   // Mode plan: hard-block semua tool yang bukan read-only (tools/change_mode.js).
+  // Fail-closed: kalau modul gagal dimuat, blok semua kecuali read-only inti.
   if (mode === "plan") {
+    const PLAN_SAFE = new Set(["read_file", "list_files", "search_text", "find_folder",
+      "datetime", "system_monitor", "knowledge_library", "read_skill", "session_memory"]);
     try {
       const { isToolAllowed } = await import("../tools/change_mode.js");
       if (!(await isToolAllowed(name, "plan"))) {
         return { allowed: false, reason: `Mode plan aktif — tool "${name}" diblok (hanya baca). Ketik /mode autonomous untuk kembali.` };
       }
-    } catch { /* change_mode.js belum ada → fallback normal */ }
+    } catch {
+      if (!PLAN_SAFE.has(name)) {
+        return { allowed: false, reason: `Mode plan aktif — tool "${name}" diblok.` };
+      }
+    }
   }
   if (!onApproval) return { allowed: true, autoApproved: false };
   if (ALWAYS_SAFE_TOOLS.has(name)) return { allowed: true, autoApproved: false };
@@ -415,6 +422,27 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
   try {
     const { enforceLinkBudget } = await import("./linkBudget.js");
     const budget = Number(process.env.LINK_BUDGET) || 200_000;
+    const totalChars = messages.reduce((s, m) => s + (m.content?.length || 0), 0);
+
+    // COMPACTION: kalau melewati 80% budget & ada cukup riwayat → ringkas
+    // pesan-pesan lama jadi satu summary (dipanggil sekali per turn).
+    if (totalChars > budget * 0.8 && messages.length >= 10) {
+      try {
+        const oldMsgs = messages.slice(1, -4); // sisakan system + 3 pesan terakhir
+        const toSummarize = oldMsgs.map((m) => `${m.role}: ${String(m.content).slice(0, 300)}`).join("\n");
+        const summaryRes = await invokeWithRetry(llm, [
+          new SystemMessage("Ringkas percakapan berikut menjadi poin-poin fakta penting maksimal 200 kata. Fokus pada keputusan, preferensi user, dan konteks teknis. Tanpa basa-basi."),
+          new HumanMessage(toSummarize.slice(0, 30_000)),
+        ], { signal });
+        const summary = typeof summaryRes.content === "string" ? summaryRes.content : String(summaryRes.content ?? "");
+        if (summary.trim()) {
+          messages.splice(1, oldMsgs.length,
+            new HumanMessage(`[RINGKASAN PERCAKAPAN SEBELUMNYA]\n${summary.trim()}`));
+          console.warn(`[chat] compaction: ${oldMsgs.length} pesan diringkas (${totalChars} chars)`);
+        }
+      } catch { /* gagal ringkas → fallback ke pemotongan biasa di bawah */ }
+    }
+
     const lb = enforceLinkBudget(messages, budget);
     if (lb.trimmed) {
       messages.length = 0;

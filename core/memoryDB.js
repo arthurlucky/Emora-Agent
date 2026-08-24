@@ -243,9 +243,13 @@ export async function loadSession(sessionId) {
 
 export async function saveSession(sessionId, messages) {
   touchCache(sessionId, messages);
-  
+
   const file = path.join(MEMORY_DIR, `${sessionId}.json`);
-  await fs.writeFile(file, JSON.stringify(messages, null, 2));
+  // Atomic write: tulis ke temp lalu rename — crash di tengah tidak
+  // meninggalkan file setengah tertulis (JSON corrupt).
+  const tmp = file + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(messages, null, 2));
+  await fs.rename(tmp, file);
 }
 
 export function invalidateSessionCache(sessionId) {

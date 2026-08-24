@@ -180,6 +180,24 @@ try {
   console.error(`  ⚠️  Toolset filter gagal, pakai semua tool: ${err.message}`);
 }
 
+/**
+ * Live-reload toolset — dipanggil dari TUI/REPL setelah `toolset use/on/off`
+ * tanpa restart. Mengganti isi array `filteredTools` in-place (array sama,
+ * isi baru) supaya semua referensi lama tetap valid.
+ */
+export async function reloadToolset() {
+  try {
+    const { applyToolset } = await import("../utils/toolsets.js");
+    const fresh = await applyToolset(allTools);
+    filteredTools.length = 0;
+    filteredTools.push(...fresh, ...filteredTools.filter((t) => !fresh.includes(t)));
+    return filteredTools.length;
+  } catch (err) {
+    console.error(`  ⚠️  Toolset reload gagal: ${err.message}`);
+    return filteredTools.length;
+  }
+}
+
 // ─────────────────────────────────────────────
 // Obsidian MANUAL mode — tool filesystem vault.
 // Aktif hanya kalau OBSIDIAN_VAULT_PATH dikonfigurasi di .env
