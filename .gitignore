@@ -13,3 +13,4 @@ webui/node_modules/
 webui/dist/
 downloads/memory.backup.*/
 .emora/
+.github/
