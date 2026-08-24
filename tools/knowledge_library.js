@@ -74,7 +74,7 @@ export const knowledgeLibraryTool = new DynamicStructuredTool({
     "JANGAN baca isi library secara massal — muat HANYA file yang relevan.",
 
   schema: z.object({
-    action: z.enum(["check", "read", "read_latest", "collect", "write", "list_topics", "rebuild_index"]),
+    action: z.enum(["check", "read", "read_latest", "collect", "write", "list_topics", "rebuild_index", "backlinks"]),
 
     // check
     query:    z.string().optional().describe("Query pencarian bebas, mis. 'pengolahan padi organik'"),
@@ -303,6 +303,16 @@ export const knowledgeLibraryTool = new DynamicStructuredTool({
       if (action === "rebuild_index") {
         const catalog = rebuildIndex();
         return `Index dibangun ulang. Ditemukan ${catalog.count} file di library.`;
+      }
+
+      // ── backlinks (V3) — file lain yang menyebut relPath target ───────────
+      if (action === "backlinks") {
+        if (!rel_path) return "Wajib isi rel_path untuk action backlinks.";
+        const { findBacklinks } = await import("../library/index.js");
+        const links = findBacklinks(rel_path);
+        if (!links.length) return `Belum ada file lain yang menyebut ${rel_path}.`;
+        return `🔗 ${links.length} backlinks untuk ${rel_path}:\n` +
+          links.map(l => `  - ${l.relPath}`).join("\n");
       }
 
       return `Action tidak dikenal: ${action}`;

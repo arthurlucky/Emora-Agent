@@ -20,8 +20,10 @@
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
+import { resolveKnowledgeRoot } from "./storage.js";
 
-const LIBRARY_DIR = path.resolve("library");
+// LIBRARY_DIR dinamis mengikuti vault (default/obsidian/custom).
+const { root: LIBRARY_DIR } = resolveKnowledgeRoot();
 
 /** Parse frontmatter sederhana dari skill.md (tanpa dep YAML). */
 export function parseSkillConnections(mdContent) {

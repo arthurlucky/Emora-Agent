@@ -1,0 +1,81 @@
+# knowledge
+Sumber: https://saraswantifertilizer.com/pupuk-pengertian-dan-manfaatnyaa/
+Tanggal diambil: 24/8/2026
+Verifikasi: lolos knowledge_policy (LLM)
+
+Ringkasan dari https://saraswantifertilizer.com/pupuk-pengertian-dan-manfaatnyaa/ (original disimpan apa adanya di sumber):
+
+# Pupuk: Pengertian dan Jenisnya — Ringkasan Edukatif
+
+## Pengertian Pupuk
+- Pupuk adalah bahan yang mengandung satu atau lebih unsur hara, diberikan pada tanaman maupun media tanam untuk mendukung pertumbuhan hingga berkembang maksimal.
+- Bumi dan atmosfer secara alami merupakan sumber hara yang tidak terbatas, tetapi ketersediaannya sering tidak sejalan dengan kebutuhan tanaman.
+- Oleh karena itu diperlukan campur tangan manusia (*biosphere management*), seperti pengaturan komoditas, klon, masa tanam, lokasi, pemupukan, dan irigasi, agar produksi tinggi serta efisien tercapai.
+
+## Kebutuhan Unsur Hara Tanaman
+- Tanaman memerlukan **13 unsur esensial**:
+  - **Makro:** N, P, K, S, Mg, Ca
+  - **Mikro:** Cl, Fe, Mn, Zn, Cu, B, Mo
+- Terdapat pula **±5 unsur non-esensial/fungsional** (Na, Co, V, Si, Ni) yang dalam kondisi tertentu dapat sementara mengambil peran unsur esensial.
+- Seluruh unsur esensial wajib tersedia untuk metabolisme yang sempurna; kekurangan hanya satu unsur pun akan membatasi produktivitas.
+- Berlaku konsep **hukum minimum**: produktivitas tanaman dibatasi oleh unsur hara yang ketersediaannya paling sedikit.
+
+## Fungsi Pupuk
+- Menjadi sumber unsur hara tambahan atau pengganti yang dibutuhkan tanaman.
+- Membantu memperbaiki struktur tanah agar layak dipakai sebagai media tanam.
+
+## Penggolongan Jenis Pupuk
+
+**1. Berdasarkan asal**
+- *Pupuk alam:* dibuat dari bahan yang murni berasal dari alam — contoh: kompos, kandang, guano.
+- *Pupuk buatan:* direkayasa pabrik dari bahan alami melalui proses fisika dan kimia — contoh: Urea, TSP, ZA.
+
+**2. Berdasarkan senyawa**
+- *Organik:* mengandung senyawa organik, umumnya hasil olahan alami maupun rekayasa — contoh: kompos, kandang, guano.
+- *Anorganik:* mengandung senyawa anorganik, umumnya produk pabrik atau berbasis bahan kimia — contoh: NPK, Urea, TSP, ZA.
+
+**3. Berdasarkan bentuk fisik**
+- *Padat:* kelarutan bervariasi, mayoritas kaya unsur makro — contoh: tablet, briket, granul.
+- *Cair:* umumnya memadukan unsur makro dan mikro.
+
+**4. Berdasarkan jumlah unsur hara**
+- *Tunggal:* hanya memuat satu macam unsur, biasanya makro primer — contoh: Urea (N), TSP (P).
+- *Majemuk:* memuat beberapa unsur sekaligus — contoh: NPK (nitrogen, fosforus, kalium).
+
+**5. Berdasarkan cara aplikasi**
+- *Pupuk daun:* disemprotkan pada permukaan daun; umumnya berkandungan unsur mikro.
+- *Pupuk akar:* disebar atau dibenamkan ke tanah di sekitar tanaman agar mudah diserap akar; umumnya berkandungan unsur makro.
+
+**6. Berdasarkan laju pelepasan hara**
+- *Fast release:* melepaskan hara dengan cepat sehingga langsung dapat diserap tanaman.
+- *Slow release:* melepaskan hara secara lambat dan bertahap.
+
+**7. Berdasarkan macam unsur hara**
+- *Pupuk makro:* hanya unsur makro.
+- *Pupuk mikro:* hanya unsur mikro.
+- *Pupuk makro-mikro:* kombinasi keduanya.
+
+**8. Berdasarkan reaksi fisiologis**
+- *Masam:* meningkatkan keasaman tanah (menurunkan pH) — contoh: ZA/ammonium sulfat.
+- *Basa:* menjadikan tanah lebih basa (menaikkan pH) — contoh: natrium nitrat.
+- *Netral:* tidak mengubah tingkat keasaman/kebasaan tanah — contoh: ammonium nitrat.
+
+## Pemupukan Ideal
+- Pemupukan ideal menghasilkan tanaman sehat yang mampu menyerap seluruh unsur yang dibutuhkan, yaitu sekitar **13–18 macam**.
+- Kenyataannya, praktik umum saat ini baru memberikan 3–4 unsur saja (misalnya N, P, K, Mg), sementara sisanya sepenuhnya diandalkan pada pasokan alam.
+- **Dampak jangka panjang pemupukan yang kurang memadai** — tanaman merespons dengan pelambatan reaksi fisiologis, yang dapat bermanifestasi sebagai:
+  - Pertumbuhan lambat dan pemulihan lambat
+  - Daun pucat dan kusam
+  - Batang kecil dan pendek
+  - Rentan terhadap penyakit
+  - Penurunan produktivitas
+
+## Faktor Penentu Keberhasilan Pemupukan
+Keberhasilan pemupukan merupakan fungsi dari empat faktor utama:
+1. **Faktor tanah** — sifat-sifat tanah dan kondisi iklim setempat.
+2. **Faktor pupuk** — jenis, jumlah, dan komposisi pupuk yang digunakan.
+3. **Faktor tanaman** — komoditas, klon, umur, serta status hara daun.
+4. **Faktor teknik aplikasi** — metode pemberian yang tepat sesuai kondisi lapangan.
+
+## Kesimpulan
+Pupuk berperan vital menutup kesenjangan antara pasokan hara alami dan kebutuhan tanaman. Pemilihan jenis pupuk harus mempertimbangkan delapan aspek penggolongan (asal, senyawa, bentuk, jumlah unsur, aplikasi, laju pelepasan, macam unsur, dan reaksi fisiologis), sedangkan pemupukan yang efektif menuntut perhitungan menyeluruh atas tanah, iklim, karakteristik tanaman, sifat pupuk, dan teknik aplikasinya.

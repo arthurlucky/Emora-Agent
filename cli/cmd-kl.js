@@ -14,9 +14,24 @@ import { searchIndex as searchLibrary, writeEntry } from "../library/index.js";
 
 export async function cmdKl(argv) {
   const sub = argv[0];
+
+  // ── KL VAULT — pilih backend penyimpanan knowledge ─────────────────────────
+  if (sub === "vault") {
+    const { writeVaultConfig } = await import("../cli/kl-vault.js");
+    return writeVaultConfig(argv.slice(1));
+  }
+
+  if (sub === "list")   return (await import("../cli/kl-vault.js")).cmdKlList();
+  if (sub === "search") return (await import("../cli/kl-vault.js")).cmdKlSearch(argv.slice(1));
+  if (sub === "info")   return (await import("../cli/kl-vault.js")).cmdKlInfo(argv.slice(1));
+
   if (sub !== "install") {
-    console.log("Pakai: emora kl install <url> [--topic=<topik>] [--subtopic=<sub>] [--name=<nama>]");
-    console.log("topic/subtopic otomatis dideteksi LLM dari konten kalau tidak diisi.");
+    console.log("Perintah KL:");
+    console.log("  emora kl vault                  Atur lokasi penyimpanan (default/obsidian/custom)");
+    console.log("  emora kl install <url>          Tambah knowledge dari URL");
+    console.log("  emora kl list                   Daftar topik & subtopik");
+    console.log("  emora kl search <query>         Cari knowledge");
+    console.log("  emora kl info <relPath>         Lihat metadata & backlink file");
     process.exit(1);
   }
 
@@ -165,26 +180,23 @@ export async function cmdKl(argv) {
   }
   if (!/\.(md|txt)$/.test(name)) name += ".txt";
 
-  // Search path/subpath yang sudah ada
-  const existing = searchLibrary(name || "", { topic, subtopic, maxResults: 50 });
-
-  const date = new Date();
-  const dateStr = `${String(date.getDate()).padStart(2, "0")}_${String(date.getMonth() + 1).padStart(2, "0")}_${date.getFullYear()}`;
-  const wrapped =
-    `# ${name.replace(/\.(md|txt)$/, "")}\n` +
-    `Sumber: ${url}\nTanggal diambil: ${date.toLocaleDateString("id-ID")}\n` +
-    `Verifikasi: lolos knowledge_policy (LLM)\n\n${content}`;
-
-  const { relPath } = writeEntry({
+  // Tulis — V3 frontmatter + dedup via sourceUrl (update kalau URL sudah ada).
+  const { relPath, updated } = writeEntry({
     topic,
     subtopic,
     filename: name,
-    content: wrapped,
+    content,
     date,
+    sourceUrl: url,
+    meta: {
+      title:    name.replace(/\.(md|txt)$/, ""),
+      language: "id",
+      tags:     [topic, subtopic],
+    },
   });
 
-  if (existing.length) {
-    console.log(`\n✅ Diperbarui: ${relPath} (${existing.length} versi lama tetap tersimpan per tanggal)`);
+  if (updated) {
+    console.log(`\n🔄 Knowledge diperbarui (dedup by source URL): ${relPath}`);
   } else {
     console.log(`\n✅ Knowledge baru ditambahkan: ${relPath}`);
   }

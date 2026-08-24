@@ -18,8 +18,12 @@
 
 import fs   from "fs";
 import path from "path";
+import { resolveKnowledgeRoot } from "./storage.js";
 
-const ROOT         = path.resolve("./library");
+// ROOT dinamis berdasarkan KL_VAULT (default/obsidian/custom). Index & relPath
+// memakai prefix virtual "library/" terhadap ROOT, jadi caller tidak perlu
+// tahu di backend mana file sebenarnya tersimpan.
+const { root: ROOT } = resolveKnowledgeRoot();
 const INDEX_DIR    = path.join(ROOT, ".index");
 const CATALOG_PATH = path.join(INDEX_DIR, "catalog.json");
 const STALE_MS     = 5 * 60 * 1000;  // rebuild index kalau >5 menit
@@ -230,21 +234,133 @@ export function readEntries(relPaths, maxFiles = 5) {
  * @param {Date}   [params.date]      Default: hari ini
  * @returns {{ relPath: string, absPath: string }}
  */
-export function writeEntry({ topic, subtopic, filename, content, date = new Date() }) {
+/**
+ * Helper frontmatter V3 — standar metadata untuk SEMUA file knowledge.
+ * Tag, language, sumber URL/tanggal, judul, referensi (backlinks).
+ */
+function parseFrontmatter(txt) {
+  const m = txt.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return null;
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const k = line.match(/^([a-z_]+):\s*(.*)$/i);
+    if (k) out[k[1].toLowerCase()] = k[2].replace(/^["']|["']$/g, "").trim();
+    // List pendek: related: [a, b]
+    const lst = line.match(/^([a-z_]+):\s*\[(.+)\]$/i);
+    if (lst) out[lst[1].toLowerCase()] = lst[2].split(",").map(s => s.trim().replace(/["']/g, ""));
+  }
+  return out;
+}
+
+function buildFrontmatter(meta) {
+  const lines = ["---"];
+  for (const [k, v] of Object.entries(meta)) {
+    if (v == null || v === "") continue;
+    if (Array.isArray(v)) lines.push(`${k}: [${v.join(", ")}]`);
+    else lines.push(`${k}: ${v}`);
+  }
+  lines.push("---", "");
+  return lines.join("\n");
+}
+
+/** Wrap konten jadi file berfrontmatter (kalau belum ada). Idempotent. */
+function wrapWithFrontmatter(content, baseMeta) {
+  const fm = parseFrontmatter(content);
+  if (fm) {
+    // Sudah ada frontmatter — anggap valid, tidak diubah.
+    return { content, fm };
+  }
+  return { content: buildFrontmatter(baseMeta) + content, fm: baseMeta };
+}
+
+/**
+ * Cari file dengan `source_url` yang cocok di subpath, untuk dedup.
+ */
+export function findBySourceUrl(url) {
+  const idx = loadIndex();
+  return idx.entries.find(e => {
+    try {
+      const fm = parseFrontmatter(fs.readFileSync(e.absPath, "utf8"));
+      return fm?.source === url;
+    } catch { return false; }
+  }) || null;
+}
+
+/**
+ * Ekstrak backlink — file lain yang menyebut relPath target di body-nya.
+ * O(N) scan; cukup cepat sampai ~10K file (ponytail: scan linear, indeks
+ * terbalik dibangun kalau ini jadi lambat).
+ */
+export function findBacklinks(targetRelPath) {
+  const target = targetRelPath.replace(/^library\/?/, "");
+  const idx = loadIndex();
+  const matches = [];
+  for (const e of idx.entries) {
+    if (e.relPath === targetRelPath) continue;
+    try {
+      const txt = fs.readFileSync(e.absPath, "utf8");
+      if (txt.includes(target)) matches.push(e);
+    } catch {}
+  }
+  return matches;
+}
+
+/** Pecah dokumen panjang jadi chunk ±4000 chars (overlap 200) untuk TF-IDF.
+ * Digunakan oleh V3 scoring; pemecahan disimpan di index sebagai `chunks`. */
+const CHUNK_SIZE = 4000;
+const CHUNK_OVERLAP = 200;
+export function chunkContent(content) {
+  if (content.length <= CHUNK_SIZE) return [content];
+  const chunks = [];
+  let i = 0;
+  while (i < content.length) {
+    const end = Math.min(content.length, i + CHUNK_SIZE);
+    chunks.push(content.slice(i, end));
+    if (end >= content.length) break;
+    i = end - CHUNK_OVERLAP;
+  }
+  return chunks;
+}
+
+export function writeEntry({ topic, subtopic, filename, content, date = new Date(), meta = {}, sourceUrl = "" }) {
+  // Dedup: jika sourceUrl sama sudah ada → update, bukan buat baru.
+  if (sourceUrl) {
+    const existing = findBySourceUrl(sourceUrl);
+    if (existing) {
+      const { content: wrapped } = wrapWithFrontmatter(content, {
+        ...meta,
+        title:    meta.title || filename,
+        topic, subtopic, source: sourceUrl,
+        updated:  new Date().toISOString().slice(0, 10),
+      });
+      fs.writeFileSync(existing.absPath, wrapped, "utf8");
+      rebuildIndex();
+      return { relPath: existing.relPath, absPath: existing.absPath, updated: true };
+    }
+  }
+
   const dateFolder = formatDateFolder(date);
   const dir        = path.join(ROOT, topic, subtopic, dateFolder);
   fs.mkdirSync(dir, { recursive: true });
 
+  // Tulis konten (frontmatter ditambahkan hanya kalau belum ada).
+  const { content: wrapped } = wrapWithFrontmatter(content, {
+    ...meta,
+    title:    meta.title || filename,
+    topic, subtopic, source: sourceUrl || "",
+    created:  date.toISOString().slice(0, 10),
+  });
   const absPath = path.join(dir, filename);
-  fs.writeFileSync(absPath, content, "utf8");
+  fs.writeFileSync(absPath, wrapped, "utf8");
 
-  // Rebuild index agar entri baru langsung bisa dicari
+  // Rebuild index agar entri baru langsung bisa dicari.
   rebuildIndex();
 
   return {
     relPath: path.join("library", topic, subtopic, dateFolder, filename),
     absPath,
+    updated: false,
   };
 }
 
-export { formatDateFolder, ROOT };
+export { formatDateFolder, ROOT, parseFrontmatter, buildFrontmatter };
