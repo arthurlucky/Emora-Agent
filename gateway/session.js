@@ -40,13 +40,20 @@ export class TurnStateManager {
     return s.mode;
   }
 
-  /** Mulai turn baru: tandai running & buat AbortController baru untuk `/stop`. */
-  beginTurn(chatId) {
+  /** Mulai turn baru: tandai running & buat AbortController baru untuk `/stop`.
+   *  userId dicatat untuk verifikasi approval (hanya pengirim asli boleh approve). */
+  beginTurn(chatId, userId = null) {
     const s = this._get(chatId);
     s.isRunning = true;
+    s.activeUserId = userId;
     s.activeAbort = new AbortController();
     s.lastActive = Date.now();
     return s.activeAbort.signal;
+  }
+
+  /** User id pengirim turn yang sedang berjalan (untuk gate approve/deny). */
+  getActiveUserId(chatId) {
+    return this.state.get(chatId)?.activeUserId ?? null;
   }
 
   endTurn(chatId) {

@@ -9,7 +9,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import path from "path";
-import fs, { mkdirSync, existsSync } from "fs";
+import fsSync, { mkdirSync, existsSync } from "fs";
 import { pipeline } from "stream/promises";
 
 import { Telegraf, Markup } from "telegraf";
@@ -35,6 +35,18 @@ const ALLOWED_IDS = (process.env.TELEGRAM_ALLOWED_IDS || "")
   .map((id) => id.trim())
   .filter(Boolean);
 
+// DEFAULT-DENY: kalau TELEGRAM_ALLOWED_IDS kosong, bot menolak semua chat
+// (kecuali owner id dari TELEGRAM_OWNER_ID). Dulu open-by-default — bot publik
+// tanpa config = siapa pun bisa eksekusi shell via agent.
+const OWNER_ID = process.env.TELEGRAM_OWNER_ID || "";
+
+function isAllowed(chatId, userId = null) {
+  if (ALLOWED_IDS.length === 0) {
+    return OWNER_ID ? String(userId ?? chatId) === OWNER_ID : false;
+  }
+  return ALLOWED_IDS.includes(String(chatId)) || (userId && ALLOWED_IDS.includes(String(userId)));
+}
+
 // Teks /help — dulu commandResult.action === "help" dari core/cmd.js gak
 // pernah benar-benar dirender (falls-through tanpa balasan), jadi user yang
 // ketik /help di Telegram gak dapat apa-apa. Ditambah sekalian penjelasan
@@ -46,13 +58,6 @@ const TELEGRAM_HELP_TEXT =
   "*Plugin & Artifact:* `/plugin list|disable|enable|reload|install` `/artifact list|get|delete`\n" +
   "*Skill:* `/learn <nama>` (susun skill baru dari sesi ini) · `/<nama_skill_atau_command>` (jalankan skill/command apa pun — bawaan atau dari plugin — langsung)\n\n" +
   "Ketik pesan biasa untuk ngobrol dengan EMORA.";
-
-function isAllowed(chatId) {
-  return (
-    ALLOWED_IDS.length === 0 ||
-    ALLOWED_IDS.includes(String(chatId))
-  );
-}
 
 // ==========================================
 // DOWNLOAD DIRECTORY
@@ -72,7 +77,19 @@ let llm = null;
 // ==========================================
 // EXPORT sessions & bot (digunakan sender.js via sendfile tool)
 // ==========================================
+// sessions persist ke .emora/telegram-sessions.json — restart gateway tidak
+// lagi memutus lanjutan percakapan (dulu mapping in-memory saja).
+const SESSIONS_FILE = ".emora/telegram-sessions.json";
 export const sessions = {};
+try {
+  Object.assign(sessions, JSON.parse(fsSync.readFileSync(SESSIONS_FILE, "utf8")));
+} catch { /* belum ada */ }
+function persistSessions() {
+  try {
+    fsSync.mkdirSync(".emora", { recursive: true });
+    fsSync.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2));
+  } catch {}
+}
 export let bot = null;
 export const turns = new TurnStateManager("telegram");
 const pendingApprovals = new Map(); // chatId -> { messageId, content, resolve }
@@ -245,6 +262,13 @@ if (!token) {
 
   bot.action("emora_approve", async (actionCtx) => {
     const chatId = actionCtx.chat.id;
+    // SECURITY: hanya pengirim asli turn aktif yang boleh approve tool.
+    const approverId = String(actionCtx.from?.id || "");
+    const activeUserId = turns.getActiveUserId?.(chatId);
+    if (activeUserId && approverId !== String(activeUserId)) {
+      await actionCtx.answerCbQuery("Hanya pengirim pesan asli yang bisa approve.");
+      return;
+    }
     const pending = pendingApprovals.get(chatId);
     if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
     pendingApprovals.delete(chatId);
@@ -255,6 +279,12 @@ if (!token) {
 
   bot.action("emora_deny", async (actionCtx) => {
     const chatId = actionCtx.chat.id;
+    const approverId = String(actionCtx.from?.id || "");
+    const activeUserD = turns.getActiveUserId?.(chatId);
+    if (activeUserD && approverId !== String(activeUserD)) {
+      await actionCtx.answerCbQuery("Hanya pengirim pesan asli yang bisa deny.");
+      return;
+    }
     const pending = pendingApprovals.get(chatId);
     if (!pending) { await actionCtx.answerCbQuery("Sudah kadaluarsa."); return; }
     pendingApprovals.delete(chatId);
@@ -299,6 +329,7 @@ if (!token) {
     try {
       // Get file info from Telegram
       const fileInfo = await ctx.telegram.getFile(fileId);
+      // Token TIDAK dimasukkan ke variabel yang bisa ikut ke log/error.
       const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`;
       
       // Determine filename
@@ -323,10 +354,10 @@ if (!token) {
       }
 
       const buffer = await response.arrayBuffer();
-      fs.writeFileSync(filePath, Buffer.from(buffer));
+      fsSync.writeFileSync(filePath, Buffer.from(buffer));
 
       // Get file info
-      const stats = fs.statSync(filePath);
+      const stats = fsSync.statSync(filePath);
       const fileSize = (stats.size / 1024).toFixed(2); // KB
 
       return {
@@ -339,7 +370,8 @@ if (!token) {
         extension
       };
     } catch (err) {
-      console.error("[TG FILE DOWNLOAD ERROR]", err.message);
+      // Jangan sertakan fileUrl di error (mengandung bot token).
+      console.error("[TG FILE DOWNLOAD ERROR]", err.message.replace(/bot\d+:[^/]+/, "bot:***"));
       return {
         success: false,
         error: err.message
@@ -388,7 +420,7 @@ if (!token) {
     let fileContent = "";
     if (mimeType.startsWith("text/") || extension === "txt" || extension === "md" || extension === "json" || extension === "csv" || extension === "js" || extension === "html" || extension === "css") {
       try {
-        fileContent = fs.readFileSync(filePath, "utf8");
+        fileContent = fsSync.readFileSync(filePath, "utf8");
         if (fileContent.length > 10000) {
           fileContent = fileContent.substring(0, 10000) + "\n... [truncated, file too large]";
         }
@@ -419,6 +451,7 @@ if (!token) {
 
     if (!sessions[chatId]) {
       sessions[chatId] = crypto.randomUUID();
+      persistSessions();
     }
 
     const gwReply = await handleGatewayCommand(chatId, text);
@@ -432,6 +465,7 @@ if (!token) {
 
     if (commandResult) {
       sessions[chatId] = localState.currentSession;
+      persistSessions();
 
       if (commandResult.action === "exit") {
         await ctx.reply("❌ Command /exit tidak dapat digunakan di Telegram.");
@@ -457,7 +491,7 @@ if (!token) {
     sendTyping();
     const typingInterval = setInterval(sendTyping, 4000);
 
-    const signal = turns.beginTurn(chatId);
+    const signal = turns.beginTurn(chatId, ctx.from?.id);
     const mode = turns.getMode(chatId);
     const onApproval = (toolName, args) => requestTelegramApproval(chatId, toolName, args);
 
@@ -496,266 +530,80 @@ if (!token) {
   });
 
   // ==========================================
-  // HANDLER: FILE MASUK DARI USER (DOCUMENT)
+  // HANDLER FILE TERPADU — document/photo/video/audio/voice.
+  // Satu implementasi untuk semua tipe file (dulu 5 handler duplikat
+  // ~120 baris masing-masing, dan TIDAK lewat approval gate/turn state).
   // ==========================================
-  bot.on(message("document"), async (ctx) => {
-    const chatId = ctx.chat.id;
-    if (!isAllowed(chatId)) return;
+  const FILE_TYPES = ["document", "photo", "video", "audio", "voice"];
 
-    if (!sessions[chatId]) sessions[chatId] = crypto.randomUUID();
+  function extractFile(ctx, fileType) {
+    const msg = ctx.message;
+    if (fileType === "document") return { fileId: msg.document?.file_id };
+    if (fileType === "photo") {
+      const photos = msg.photo || [];
+      return { fileId: photos[photos.length - 1]?.file_id }; // highest res
+    }
+    return { fileId: msg[fileType]?.file_id }; // video | audio | voice
+  }
+
+  async function handleFileMessage(ctx, fileType) {
+    const chatId = ctx.chat.id;
+    if (!isAllowed(chatId, ctx.from?.id)) return;
+
+    if (!sessions[chatId]) { sessions[chatId] = crypto.randomUUID(); persistSessions(); }
+
+    let isTyping = true;
+    const sendTyping = () => {
+      if (isTyping) ctx.sendChatAction("typing").catch(() => {});
+    };
+    sendTyping();
+    const typingInterval = setInterval(sendTyping, 4000);
 
     try {
-      const document = ctx.message.document;
-      const fileId = document.file_id;
+      const { fileId } = extractFile(ctx, fileType);
       const caption = ctx.message.caption || "";
+      if (!fileId) { await ctx.reply("❌ File tidak terdeteksi."); return; }
 
-      // Download file
-      const downloadResult = await downloadTelegramFile(ctx, fileId, "document");
-      
+      const downloadResult = await downloadTelegramFile(ctx, fileId, fileType);
       if (!downloadResult.success) {
-        await ctx.reply(`❌ *Gagal Download File*\n━━━━━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
+        await ctx.reply(`❌ *Gagal Download ${fileType}*\\n${downloadResult.error}`, { parse_mode: "Markdown" });
         return;
       }
 
-      // Process file with AI
       const sessionId = sessions[chatId];
       const { confirmation, analysisPrompt } = await processFileWithAI(
-        downloadResult,
-        caption,
-        sessionId,
-        ctx,
-        "document"
+        downloadResult, caption, sessionId, ctx, fileType,
       );
-
-      // Send confirmation
       await sendSafeMessage(ctx, confirmation);
 
-      // Analyze with AI
+      // Analisis lewat ask() PENUH dengan approval gate + turn state —
+      // sama seperti pesan teks (dulu file handlers bypass keduanya).
+      const signal = turns.beginTurn(chatId, ctx.from?.id);
+      const mode = turns.getMode(chatId);
       try {
-        const result = await askWithContext(ctx, sessionId, analysisPrompt);
+        const result = await askWithContext(ctx, sessionId, analysisPrompt, {
+          onApproval: (toolName, args) => requestTelegramApproval(chatId, toolName, args),
+          mode, signal,
+        });
         if (result && result.trim()) {
           await sendSafeMessage(ctx, formatTelegramMessage(result));
         }
-      } catch (err) {
-        console.error("[TELEGRAM DOCUMENT AI ERROR]", err.message);
-        await ctx.reply(`⚠️ *Error Analisis File*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
+        touchSession(sessionId).catch(() => {});
+      } finally {
+        turns.endTurn(chatId);
       }
-
     } catch (err) {
-      console.error("[TELEGRAM DOCUMENT ERROR]", err.message);
-      await ctx.reply(`⚠️ *Error Memproses Dokumen*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}`);
+      console.error(`[TELEGRAM ${fileType.toUpperCase()} ERROR]`, err.message);
+      await ctx.reply(`⚠️ *Error Memproses ${fileType}*\\n${err.message}`).catch(() => {});
+    } finally {
+      isTyping = false;
+      clearInterval(typingInterval);
     }
-  });
+  }
 
-  // ==========================================
-  // HANDLER: PHOTO
-  // ==========================================
-  bot.on(message("photo"), async (ctx) => {
-    const chatId = ctx.chat.id;
-    if (!isAllowed(chatId)) return;
-
-    if (!sessions[chatId]) sessions[chatId] = crypto.randomUUID();
-
-    try {
-      // Get highest resolution photo
-      const photos = ctx.message.photo;
-      const photo = photos[photos.length - 1]; // Last = highest res
-      const fileId = photo.file_id;
-      const caption = ctx.message.caption || "";
-
-      // Download file
-      const downloadResult = await downloadTelegramFile(ctx, fileId, "photo");
-      
-      if (!downloadResult.success) {
-        await ctx.reply(`❌ *Gagal Download Gambar*\n━━━━━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
-        return;
-      }
-
-      // Process file with AI
-      const sessionId = sessions[chatId];
-      const { confirmation, analysisPrompt } = await processFileWithAI(
-        downloadResult,
-        caption,
-        sessionId,
-        ctx,
-        "photo"
-      );
-
-      // Send confirmation
-      await sendSafeMessage(ctx, confirmation);
-
-      // Analyze with AI
-      try {
-        const result = await askWithContext(ctx, sessionId, analysisPrompt);
-        if (result && result.trim()) {
-          await sendSafeMessage(ctx, formatTelegramMessage(result));
-        }
-      } catch (err) {
-        console.error("[TELEGRAM PHOTO AI ERROR]", err.message);
-        await ctx.reply(`⚠️ *Error Analisis Gambar*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
-      }
-
-    } catch (err) {
-      console.error("[TELEGRAM PHOTO ERROR]", err.message);
-      await ctx.reply(`⚠️ *Error Memproses Gambar*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}`);
-    }
-  });
-
-  // ==========================================
-  // HANDLER: VIDEO
-  // ==========================================
-  bot.on(message("video"), async (ctx) => {
-    const chatId = ctx.chat.id;
-    if (!isAllowed(chatId)) return;
-
-    if (!sessions[chatId]) sessions[chatId] = crypto.randomUUID();
-
-    try {
-      const video = ctx.message.video;
-      const fileId = video.file_id;
-      const caption = ctx.message.caption || "";
-
-      // Download file
-      const downloadResult = await downloadTelegramFile(ctx, fileId, "video");
-      
-      if (!downloadResult.success) {
-        await ctx.reply(`❌ *Gagal Download Video*\n━━━━━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
-        return;
-      }
-
-      // Process file with AI
-      const sessionId = sessions[chatId];
-      const { confirmation, analysisPrompt } = await processFileWithAI(
-        downloadResult,
-        caption,
-        sessionId,
-        ctx,
-        "video"
-      );
-
-      // Send confirmation
-      await sendSafeMessage(ctx, confirmation);
-
-      // Analyze with AI
-      try {
-        const result = await askWithContext(ctx, sessionId, analysisPrompt);
-        if (result && result.trim()) {
-          await sendSafeMessage(ctx, formatTelegramMessage(result));
-        }
-      } catch (err) {
-        console.error("[TELEGRAM VIDEO AI ERROR]", err.message);
-        await ctx.reply(`⚠️ *Error Analisis Video*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
-      }
-
-    } catch (err) {
-      console.error("[TELEGRAM VIDEO ERROR]", err.message);
-      await ctx.reply(`⚠️ *Error Memproses Video*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}`);
-    }
-  });
-
-  // ==========================================
-  // HANDLER: AUDIO & VOICE
-  // ==========================================
-  bot.on(message("audio"), async (ctx) => {
-    const chatId = ctx.chat.id;
-    if (!isAllowed(chatId)) return;
-
-    if (!sessions[chatId]) sessions[chatId] = crypto.randomUUID();
-
-    try {
-      const audio = ctx.message.audio;
-      const fileId = audio.file_id;
-      const caption = ctx.message.caption || "";
-
-      // Download file
-      const downloadResult = await downloadTelegramFile(ctx, fileId, "audio");
-      
-      if (!downloadResult.success) {
-        await ctx.reply(`❌ *Gagal Download Audio*\n━━━━━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
-        return;
-      }
-
-      // Process file with AI
-      const sessionId = sessions[chatId];
-      const { confirmation, analysisPrompt } = await processFileWithAI(
-        downloadResult,
-        caption,
-        sessionId,
-        ctx,
-        "audio"
-      );
-
-      // Send confirmation
-      await sendSafeMessage(ctx, confirmation);
-
-      // Analyze with AI
-      try {
-        const result = await askWithContext(ctx, sessionId, analysisPrompt);
-        if (result && result.trim()) {
-          await sendSafeMessage(ctx, formatTelegramMessage(result));
-        }
-      } catch (err) {
-        console.error("[TELEGRAM AUDIO AI ERROR]", err.message);
-        await ctx.reply(`⚠️ *Error Analisis Audio*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
-      }
-
-    } catch (err) {
-      console.error("[TELEGRAM AUDIO ERROR]", err.message);
-      await ctx.reply(`⚠️ *Error Memproses Audio*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}`);
-    }
-  });
-
-  // ==========================================
-  // HANDLER: VOICE MESSAGE
-  // ==========================================
-  bot.on(message("voice"), async (ctx) => {
-    const chatId = ctx.chat.id;
-    if (!isAllowed(chatId)) return;
-
-    if (!sessions[chatId]) sessions[chatId] = crypto.randomUUID();
-
-    try {
-      const voice = ctx.message.voice;
-      const fileId = voice.file_id;
-      const caption = ctx.message.caption || "";
-
-      // Download file
-      const downloadResult = await downloadTelegramFile(ctx, fileId, "voice");
-      
-      if (!downloadResult.success) {
-        await ctx.reply(`❌ *Gagal Download Voice*\n━━━━━━━━━━━━━━━━━━━━\nError: ${downloadResult.error}`);
-        return;
-      }
-
-      // Process file with AI
-      const sessionId = sessions[chatId];
-      const { confirmation, analysisPrompt } = await processFileWithAI(
-        downloadResult,
-        caption,
-        sessionId,
-        ctx,
-        "voice"
-      );
-
-      // Send confirmation
-      await sendSafeMessage(ctx, confirmation);
-
-      // Analyze with AI
-      try {
-        const result = await askWithContext(ctx, sessionId, analysisPrompt);
-        if (result && result.trim()) {
-          await sendSafeMessage(ctx, formatTelegramMessage(result));
-        }
-      } catch (err) {
-        console.error("[TELEGRAM VOICE AI ERROR]", err.message);
-        await ctx.reply(`⚠️ *Error Analisis Voice*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}\n\nFile tetap tersimpan di: ${downloadResult.filePath}`);
-      }
-
-    } catch (err) {
-      console.error("[TELEGRAM VOICE ERROR]", err.message);
-      await ctx.reply(`⚠️ *Error Memproses Voice*\n━━━━━━━━━━━━━━━━━━━━\n${err.message}`);
-    }
-  });
+  for (const ft of FILE_TYPES) {
+    bot.on(message(ft), (ctx) => handleFileMessage(ctx, ft));
+  }
 
   // ==========================================
   // ERROR HANDLING & LAUNCH
