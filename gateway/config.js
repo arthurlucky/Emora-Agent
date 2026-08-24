@@ -1,19 +1,20 @@
 /**
  * gateway/config.js
  *
- * Konfigurasi multi-platform untuk gateway EMORA (Telegram, WhatsApp, Discord).
- * Disimpan sebagai JSON di dalam folder project (konsisten dengan memory/,
- * skill/, library/, dll — bukan di home directory user), supaya instalasi
- * EMORA tetap portable dalam satu folder.
- *
- * Backward compatible: kalau file config belum ada, kita "migrasikan" nilai
- * dari .env (TELEGRAM_TOKEN_BOT, WA_PHONE_NUMBER, dst) supaya instalasi lama
- * tetap jalan tanpa perlu setup ulang manual.
+ * Konfigurasi multi-platform untuk gateway EMORA (Telegram, WhatsApp, Discord,
+ * Slack, Matrix). FORMAT UTAMA: config.yml (human-friendly + komentar).
+ * Backward compat: gateways.config.json lama otomatis dimigrasikan ke YAML
+ * saat load pertama; kalau keduanya kosong, migrasi dari .env.
  */
 import fs from "fs";
 import path from "path";
-
-const CONFIG_PATH = process.env.EMORA_GATEWAY_CONFIG ? path.resolve(process.env.EMORA_GATEWAY_CONFIG) : path.resolve("./gateway/gateways.config.json");
+import { load as yamlLoad, dump as yamlDump } from "js-yaml";
+// FORMAT UTAMA: config.yml (human-friendly, komentar didukung).
+// Backward compat: gateways.config.json lama tetap dibaca; save selalu ke YAML.
+const CONFIG_PATH = process.env.EMORA_GATEWAY_CONFIG
+  ? path.resolve(process.env.EMORA_GATEWAY_CONFIG)
+  : path.resolve("./gateway/config.yml");
+const LEGACY_JSON_PATH = path.resolve("./gateway/gateways.config.json");
 
 function splitList(raw) {
   return (raw || "")
@@ -92,18 +93,31 @@ function normalize(cfg) {
 }
 
 export function loadGatewayConfig() {
+  // 1. config.yml (utama)
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf8");
-    return normalize(JSON.parse(raw));
-  } catch {
-    return normalize(fromEnv());
-  }
+    return normalize(yamlLoad(raw));
+  } catch { /* belum ada / parse gagal → cek legacy */ }
+
+  // 2. Legacy JSON — baca sekali, migrasi otomatis ke YAML.
+  try {
+    const raw = fs.readFileSync(LEGACY_JSON_PATH, "utf8");
+    const cfg = normalize(JSON.parse(raw));
+    try {
+      saveGatewayConfig(cfg);
+      console.log(`[config] Dimigrasikan: gateways.config.json → config.yml`);
+    } catch {}
+    return cfg;
+  } catch { /* legacy juga tidak ada */ }
+
+  // 3. Migrasi dari .env
+  return normalize(fromEnv());
 }
 
 export function saveGatewayConfig(cfg) {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(normalize(cfg), null, 2), { mode: 0o600 });
+  fs.writeFileSync(CONFIG_PATH, yamlDump(normalize(cfg), { lineWidth: 120 }), { mode: 0o600 });
   return loadGatewayConfig();
 }
 

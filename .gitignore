@@ -14,3 +14,5 @@ webui/dist/
 downloads/memory.backup.*/
 .emora/
 .github/
+gateway/config.yml
+gateway/gateways.config.json

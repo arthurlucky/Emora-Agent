@@ -45,6 +45,7 @@
     "fast-glob": "^3.3.3",
     "figlet": "^1.8.0",
     "ink": "^5.1.0",
+    "js-yaml": "^5.3.0",
     "langchain": "^1.5.2",
     "matrix-js-sdk": "^42.1.0-rc.0",
     "multer": "^2.0.1",
