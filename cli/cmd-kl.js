@@ -9,8 +9,53 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
+import readline from "readline";
 import { createLLM } from "../provider/index.js";
 import { searchIndex as searchLibrary, writeEntry } from "../library/index.js";
+
+/** Verifikasi MANUAL saat LLM gagal (rate limit, quota, timeout, dll).
+ *  Tampilkan preview konten + policy ringkas, user putuskan OK/REJECT.
+ *  Return "VERDICT: OK\nREASON: manual" | "...REJECT..." | null (batal). */
+async function manualVerificationFallback(err, content, url) {
+  const msg = err?.message || String(err);
+  console.error(`\n⚠️  LLM tidak tersedia untuk verifikasi otomatis: ${msg.slice(0, 120)}`);
+  console.error("   (penyebab umum: rate limit 429, token limit, kuota habis, koneksi)");
+  console.log("\n═══ VERIFIKASI MANUAL ═══");
+  console.log(`URL   : ${url}`);
+  console.log(`Panjang: ${content.length} chars`);
+  console.log("\n--- Preview 1500 chars pertama ---");
+  console.log(content.slice(0, 1500).replace(/\n{2,}/g, "\n"));
+  console.log("--- Akhir preview ---\n");
+
+  // Ringkasan aturan policy (baris bullet saja).
+  try {
+    const policy = fs.readFileSync("library/knowledge_policy.md", "utf8");
+    const rules = policy.split("\n").filter(l => /^- /.test(l.trim())).slice(0, 10);
+    if (rules.length) console.log("Aturan policy utama:\n" + rules.map(r => "  " + r).join("\n") + "\n");
+  } catch {}
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise(res =>
+    rl.question("Lolos policy? [y]es / [n]o / [v]iew more / [c]ancel: ", res)
+  );
+  rl.close();
+
+  const a = answer.trim().toLowerCase();
+  if (a.startsWith("y")) return "VERDICT: OK\nREASON: disetujui manual oleh user (LLM unavailable)";
+  if (a.startsWith("v")) {
+    // Tampilkan lebih banyak, tanya lagi.
+    console.log("\n--- Preview 5000 chars ---");
+    console.log(content.slice(0, 5000));
+    const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const a2 = await new Promise(res => rl2.question("Lolos policy? [y/n/c]: ", res));
+    rl2.close();
+    if (a2.trim().toLowerCase().startsWith("y")) return "VERDICT: OK\nREASON: disetujui manual oleh user (LLM unavailable)";
+    if (a2.trim().toLowerCase().startsWith("c")) return null;
+    return "VERDICT: REJECT\nREASON: ditolak manual oleh user";
+  }
+  if (a.startsWith("c")) return null;
+  return "VERDICT: REJECT\nREASON: ditolak manual oleh user";
+}
 
 export async function cmdKl(argv) {
   const sub = argv[0];
@@ -132,23 +177,33 @@ export async function cmdKl(argv) {
   console.log("\n🔍 Verifikasi terhadap Knowledge Policy...");
   let policy = "";
   try { policy = fs.readFileSync("library/knowledge_policy.md", "utf8"); } catch {}
-  const verdictRes = await llm.invoke([
-    {
-      role: "system",
-      content:
-        `Kamu adalah verifier knowledge library. Terapkan policy ini KETAT:\n\n${policy}\n\n` +
-        `Balas HANYA dengan format:\nVERDICT: OK|REJECT\nREASON: <satu kalimat>`,
-    },
-    { role: "user", content: content.slice(0, 12_000) },
-  ]);
-  const verdictText = typeof verdictRes.content === "string" ? verdictRes.content : String(verdictRes.content ?? "");
+
+  let llmFailed = false;
+  let verdictText = "";
+  try {
+    const verdictRes = await llm.invoke([
+      {
+        role: "system",
+        content:
+          `Kamu adalah verifier knowledge library. Terapkan policy ini KETAT:\n\n${policy}\n\n` +
+          `Balas HANYA dengan format:\nVERDICT: OK|REJECT\nREASON: <satu kalimat>`,
+      },
+      { role: "user", content: content.slice(0, 12_000) },
+    ]);
+    verdictText = typeof verdictRes.content === "string" ? verdictRes.content : String(verdictRes.content ?? "");
+  } catch (e) {
+    llmFailed = true;
+    verdictText = await manualVerificationFallback(e, content, url);
+    if (verdictText === null) process.exit(1); // user batal
+  }
   let ok = /VERDICT:\s*OK/i.test(verdictText);
   const reasonMatch = verdictText.match(/REASON:\s*(.+)/i);
 
-  if (!ok) {
+  if (!ok && !llmFailed) {
     // Policy menyarankan ringkas bila masalahnya salinan utuh berhak cipta.
     if (/ringkas|salin|copyright|hak cipta|verbatim|utuh/i.test(reasonMatch?.[1] || "")) {
       console.log("\n📝 Policy minta ringkasan — meringkas konten via LLM...");
+      let summarized = "";
       try {
         const sumRes = await llm.invoke([
           {
@@ -161,19 +216,31 @@ export async function cmdKl(argv) {
           },
           { role: "user", content: content.slice(0, 15_000) },
         ]);
-        const summarized = typeof sumRes.content === "string" ? sumRes.content : "";
-        if (summarized.trim().length > 200) {
-          content = `Ringkasan dari ${url} (original disimpan apa adanya di sumber):\n\n${summarized.trim()}`;
-          console.log(`   ✅ Ringkasan siap (${content.length} chars) — verifikasi ulang...`);
+        summarized = typeof sumRes.content === "string" ? sumRes.content : "";
+      } catch (e) {
+        // LLM gagal saat summarize → tawarkan verifikasi manual atas konten asli.
+        console.warn(`   ⚠ Ringkasan gagal: ${e.message.slice(0, 80)}`);
+        const manual = await manualVerificationFallback(e, content, url);
+        if (manual === null) process.exit(1);
+        ok = /VERDICT:\s*OK/i.test(manual);
+        if (ok) console.log("   ✅ Disetujui manual (LLM gagal saat ringkasan)");
+      }
+      if (summarized.trim().length > 200) {
+        content = `Ringkasan dari ${url} (original disimpan apa adanya di sumber):\n\n${summarized.trim()}`;
+        console.log(`   ✅ Ringkasan siap (${content.length} chars) — verifikasi ulang...`);
+        try {
           const reVerdict = await llm.invoke([
-            { role: "system", content: `Policy:\n\n${policy}\n\nBalas HANYA: VERDICT: OK|REJECT\\nREASON: <satu kalimat>` },
+            { role: "system", content: `Policy:\n\n${policy}\n\nBalas HANYA: VERDICT: OK|REJECT\nREASON: <satu kalimat>` },
             { role: "user", content: content.slice(0, 12_000) },
           ]);
           const rt = typeof reVerdict.content === "string" ? reVerdict.content : String(reVerdict.content ?? "");
           ok = /VERDICT:\s*OK/i.test(rt);
+        } catch (e) {
+          console.warn(`   ⚠ Re-verifikasi gagal: ${e.message.slice(0, 80)}`);
+          const manual2 = await manualVerificationFallback(e, content, url);
+          if (manual2 === null) process.exit(1);
+          ok = /VERDICT:\s*OK/i.test(manual2);
         }
-      } catch (e) {
-        console.warn(`   ⚠ Ringkasan gagal: ${e.message.slice(0, 60)}`);
       }
     }
   }
