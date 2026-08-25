@@ -234,15 +234,25 @@ export function reducer(state, action) {
         view: "chat",
       };
 
-    case "LOAD_SESSION":
+    case "LOAD_SESSION": {
+      // Aturan TUI.md #10: resume → panel "Previous Conversation" berisi
+      // ringkasan percakapan lama, digabung ke atas transcript.
+      const prev = (action.messages || []).slice(-6).map((m) => {
+        const who = m.role === "user" ? "You" : "Hermes";
+        const body = String(m.content || "").split("\n")[0].slice(0, 120);
+        return { role: m.role, line: `  ● ${who}: ${body}` };
+      });
       return {
         ...state,
         sessionId: action.sessionId,
         sessionTitle: action.sessionTitle,
         messages: action.messages,
         view: "chat",
-        notice: `Sesi "${action.sessionTitle}" dimuat.`,
+        notice: `↻ Resumed session ${action.sessionId} "${action.sessionTitle}" (${action.messages.length} messages)`,
+        previousConversation: prev.length ? prev : null,
+        _welcomeRendered: true, // sesi lanjutan tidak perlu welcome box
       };
+    }
 
     case "SET_HISTORY_VIEW":
       return { ...state, view: "history", history: { sessions: action.sessions, index: 0 } };
@@ -287,7 +297,7 @@ export function reducer(state, action) {
       return { ...state, view: "tasks", tasks: { list: action.list } };
 
     case "SET_NOTICE":
-      return { ...state, notice: action.message };
+      return { ...state, notice: action.message, noticeBig: !!action.big };
 
     case "SET_ERROR":
       return { ...state, error: action.message };

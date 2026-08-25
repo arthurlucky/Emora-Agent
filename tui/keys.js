@@ -139,6 +139,7 @@ async function submitText(text, { state, dispatch, controller }) {
     if (result) {
       dispatch({ type: "SET_INPUT", value: "" });
       if (result.type === "notice") dispatch({ type: "SET_NOTICE", message: result.message });
+      if (result.type === "resume_menu") dispatch({ type: "SET_NOTICE", message: result.message, big: true });
       if (result.type === "error") dispatch({ type: "SET_ERROR", message: result.message });
       // Fire-and-forget: command apa pun bisa saja mengubah daftar skill
       // (install/reload plugin, /learn skill baru, dll) — refresh cache

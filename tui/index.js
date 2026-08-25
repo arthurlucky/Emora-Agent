@@ -69,6 +69,7 @@ export async function runTUI(options = {}) {
   // gak perlu nge-block startup TUI nunggu scan disk selesai.
   refreshSkillSuggestionCache();
 
+  const startTime = Date.now();
   process.stdout.write(ALT_SCREEN_ON);
 
   let exited = false;
@@ -76,6 +77,22 @@ export async function runTUI(options = {}) {
     if (exited) return;
     exited = true;
     process.stdout.write(ALT_SCREEN_OFF);
+    // Aturan TUI.md #11: clear terminal + ringkasan sesi saat keluar.
+    try {
+      process.stdout.write("\x1b[2J\x1b[H");
+      const dur = Math.round((Date.now() - (startTime || Date.now())) / 1000);
+      const sid = session.id;
+      const title = session.name || session.title || "Sesi baru";
+      console.log("");
+      console.log(chalk.yellow("  Resume this session with:"));
+      console.log(`    ${cyan(`emora --resume ${sid}`)}`);
+      console.log(`    ${cyan(`emora -c "${title.replace(/"/g, "").slice(0, 60)}"`)}`);
+      console.log("");
+      console.log(`  ${dim("Session:")}        ${sid}`);
+      console.log(`  ${dim("Title:")}          ${title.slice(0, 70)}`);
+      console.log(`  ${dim("Duration:")}       ${dur}s`);
+      console.log("");
+    } catch {}
   };
 
   process.on("exit", cleanup);

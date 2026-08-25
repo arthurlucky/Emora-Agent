@@ -241,13 +241,58 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     }
 
     case "resume": {
-      if (!argStr) return { type: "notice", message: "Pakai: /resume <kata kunci judul sesi>" };
+      // Aturan TUI.md #9: tanpa argumen → daftar sesi tabel ala Hermes.
+      const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
       const sessions = await listSessions();
-      const found = sessions.find((s) => (s.title || "").toLowerCase().includes(argStr.toLowerCase()));
-      if (!found) return { type: "error", message: `Gak ketemu sesi dengan judul mengandung "${argStr}".` };
+      if (!argStr) {
+        const lines = [
+          "",
+          "  Usage: /resume <number|session_id_or_title>",
+          "  Recent sessions:",
+          "  #   Title                            Preview                                  Last Active   ID",
+          "  ─── ──────────────────────────────── ──────────────────────────────────────── ───────────── ────────────────────────",
+        ];
+        const relTime = (ts) => {
+          const diff = Date.now() - (ts || Date.now());
+          const m = Math.floor(diff / 60000);
+          if (m < 1) return "just now";
+          if (m < 60) return `${m}m ago`;
+          const h = Math.floor(m / 60);
+          if (h < 24) return `${h}h ago`;
+          return `${Math.floor(h / 24)}d ago`;
+        };
+        const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+        sessions.slice(0, 12).forEach((s, i) => {
+          const title = cut(s.title || "(tanpa judul)", 32).padEnd(34);
+          const preview = cut((s.preview || s.title || ""), 38).padEnd(40);
+          const active = relTime(s.updatedAt).padEnd(13);
+          lines.push(`  ${(i + 1).toString().padEnd(3)} ${title} ${preview} ${active} ${s.id}`);
+        });
+        lines.push("");
+        lines.push("  Use /resume <number>, /resume <session id>, or /resume <session title> to continue.");
+        lines.push("  Example: /resume 2");
+        return { type: "resume_menu", message: lines.join("\n") };
+      }
+
+      // Argumen: number | id | judul.
+      let found = null;
+      const asNum = parseInt(argStr, 10);
+      if (!isNaN(asNum) && String(asNum) === argStr.trim() && asNum >= 1 && asNum <= sessions.length) {
+        found = sessions[asNum - 1];
+      } else {
+        const q = argStr.toLowerCase();
+        found =
+          sessions.find((s) => s.id.toLowerCase().includes(q)) ||
+          sessions.find((s) => (s.title || "").toLowerCase().includes(q));
+      }
+      if (!found) return { type: "error", message: `Gak ketemu sesi: "${argStr}".` };
       const messages = await loadSession(found.id);
       dispatch({ type: "LOAD_SESSION", sessionId: found.id, sessionTitle: found.title, messages });
-      return { type: "handled" };
+      const userMsgs = messages.filter(m => m.role === "user").length;
+      return {
+        type: "notice",
+        message: `↻ Resumed session ${found.id} "${cut(found.title || "", 40)}" (${userMsgs} user message, ${messages.length} total)`,
+      };
     }
 
     case "skills": {

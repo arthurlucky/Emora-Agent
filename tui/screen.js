@@ -293,9 +293,23 @@ function renderChatBody(state, width, height) {
     lines.push("");
   }
 
-  if (!lines.length) {
-    lines.push(...(getSkin() === "rpg" ? rpgWelcome(state, width) : renderWelcome(state, width)));
+  // Aturan TUI.md #7: welcome box JANGAN dihilangkan saat chat — selalu
+  // tampil di atas transcript (ala Contoh 1: box → pesan user → respons ●).
+  // Aturan #10: sesi resume pakai panel "Previous Conversation" sebagai gantinya.
+  if (state.previousConversation?.length) {
+    const innerW = Math.max(30, width - 4);
+    lines.push(C.border("╭─") + C.primaryBold(" Previous Conversation ") + C.border("─".repeat(Math.max(0, innerW - 22))) + C.border("╮"));
+    for (const p of state.previousConversation) {
+      for (const l of wrapPlain(p.line, innerW - 2)) lines.push(C.border("│") + " " + C.dim(l));
+    }
+    lines.push(C.border("╰" + "─".repeat(innerW) + "╯"));
+    lines.push("");
+  } else if (!state._welcomeRendered) {
+    lines.unshift(...(getSkin() === "rpg" ? rpgWelcome(state, width) : renderWelcome(state, width)));
+    lines._welcomeRendered = true;
   }
+  // Flag di level render (bukan state.messages): welcome hanya sekali per mount.
+  if (lines._welcomeRendered) state._welcomeRendered = true;
 
   // Clip ke tinggi yang tersedia, dari bawah (paling baru), digeser scrollOffset.
   // Aturan TUI.md #4: TIDAK ada gap besar antara welcome box dan input bar —
@@ -507,17 +521,23 @@ export function computeScreen(state) {
   if (state.approval) overlay = renderApprovalOverlay(state, columns);
   else if (state.askUser) overlay = renderAskUserOverlay(state, columns);
 
-  const noticeLine = state.error
-    ? C.red(`${ICONS.fail} ${state.error}`)
-    : state.notice
-    ? C.faint(`${ICONS.info} ${state.notice}`)
-    : "";
+  // Notice besar (mis. tabel /resume): render multi-baris apa adanya.
+  let noticeLines = [];
+  if (state.error) noticeLines = [C.red(`${ICONS.fail} ${state.error}`)];
+  else if (state.notice) {
+    const text = String(state.notice);
+    if (state.noticeBig || text.includes("\n")) {
+      for (const l of text.split("\n")) noticeLines.push(C.dim(l));
+    } else {
+      noticeLines = [C.faint(`${ICONS.info} ${state.notice}`)];
+    }
+  }
 
   const inputLine = renderInputArea(state, columns);
   // Notice fitur ala Contoh 2 ("* Voice mode is now available · /voice to enable").
   const featureNotice = state.featureNotice ? ["", C.dim(`* ${state.featureNotice}`)] : [];
   const essentialFooter = [...inputLine]; // ini gak boleh ke-drop
-  const optionalFooter = [...overlay, ...(noticeLine ? [noticeLine] : []), ...suggestions, ...featureNotice];
+  const optionalFooter = [...overlay, ...noticeLines, ...suggestions, ...featureNotice];
 
   const minBodyHeight = 1;
   const maxFooterHeight = Math.max(essentialFooter.length, rows - header.length - minBodyHeight);
