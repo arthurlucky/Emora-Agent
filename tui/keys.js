@@ -162,6 +162,21 @@ function handleApprovalKeys({ controller, input, key }) {
   else if (c === "3" || c === "n") controller.resolveApproval(false);
 }
 
+// ── Model picker (realtime model list) ───────────────────────────────────────
+function handleModelPickerKeys({ state, dispatch, key }) {
+  if (key.escape) return dispatch({ type: "MODEL_PICKER_CLOSE" });
+  if (key.upArrow) return dispatch({ type: "MODEL_PICKER_MOVE", delta: -1 });
+  if (key.downArrow) return dispatch({ type: "MODEL_PICKER_MOVE", delta: 1 });
+  if (key.return) {
+    const mp = state.modelPicker;
+    const chosen = mp.models[mp.index];
+    if (!chosen) return;
+    // Apply async — pakai handler global yang di-set oleh slashCommands.
+    dispatch({ type: "MODEL_PICKER_CLOSE" });
+    globalThis.__EMORA_MODEL_APPLY__?.(mp, chosen.id);
+  }
+}
+
 // ── History browser ──────────────────────────────────────────────────────────
 async function handleHistoryKeys({ state, dispatch, key, input }) {
   if (key.escape) return dispatch({ type: "SET_VIEW", view: "chat" });
@@ -299,6 +314,7 @@ async function handleWizardKeys({ state, dispatch, key, input }) {
 export async function handleKey(ctx) {
   const { state } = ctx;
 
+  if (state.modelPicker) return handleModelPickerKeys(ctx);
   if (state.approval) return handleApprovalKeys(ctx);
   // Catatan: state.askUser scaffolding disiapkan buat kalau suatu saat EMORA
   // punya tool "ask_user", tapi belum ada yang men-trigger ASK_USER_REQUEST

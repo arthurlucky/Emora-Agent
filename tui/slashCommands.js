@@ -184,57 +184,136 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     }
 
     case "model": {
-      // /model <nama>          → langsung pakai profile tersimpan (ala Hermes)
-      // /model                 → daftar profile + status
-      // /model save <nama>     → simpan config aktif
-      // /model rm <nama>       → hapus profile
-      // /model use <nama>      → alias pakai profile
+      // /model                → daftar provider yang sudah di-setup (profiles + custom endpoints)
+      // /model <provider>     → pilih model REALTIME dari provider itu → simpan & pakai
+      // /model rm <nama>      → hapus custom endpoint / profile tersimpan
+      // /model save <nama>    → simpan config aktif sebagai profile
       const sub = rest[0];
       try {
         const mp = await import("../core/modelProfiles.js");
         const { setEnv, getEnv } = await import("../envHelpers.js");
 
-        // Tanpa argumen: daftar profile tersimpan.
-        if (!sub || sub === "list") {
-          const profiles = await mp.listProfiles();
-          const names = Object.keys(profiles);
-          let txt = "MODEL PROFILES\n\n" + mp.formatList(profiles);
-          if (names.length) {
-            txt += "\n\nPakai: /model <nama>   (mis. /model " + names[0] + ")";
-          } else {
-            txt += "\n\nBelum ada profile. Simpan config aktif: /model save <nama>";
-          }
-          return { type: "notice", message: txt };
+        // ── rm: hapus profile / custom endpoint ────────────────────────────
+        if (sub === "rm" || sub === "remove") {
+          const name = rest[1];
+          if (!name) return { type: "error", message: "Pakai: /model rm <nama-profile-atau-endpoint>" };
+          let removed = false;
+          try { await mp.removeProfile(name); removed = true; } catch {}
+          try { await mp.removeCustomEndpoint(name); removed = true; } catch {}
+          if (!removed) return { type: "error", message: `"${name}" tidak ada di profiles maupun custom endpoints.` };
+          return { type: "notice", message: `✓ "${name}" dihapus.` };
         }
 
-        // /model <nama> atau /model use <nama> → aktifkan profile.
-        if (sub === "use" || !["save", "rm", "remove"].includes(sub)) {
-          const name = sub === "use" ? rest[1] : sub;
-          const profiles = await mp.listProfiles();
-          if (!profiles[name]) {
-            const avail = Object.keys(profiles).map((n) => "/" + n).join(", ") || "(kosong)";
-            return { type: "error", message: `Profile "${name}" tidak ada. Tersimpan: ${avail}\nSimpan dulu: /model save <nama>` };
-          }
-          const p = await mp.useProfile(name, setEnv);
-          invalidateSystemPromptCache();
-          const llm = await createLLM([], p.provider, {});
-          const meta = getProviderMeta(p.provider);
-          dispatch({ type: "SET_PROVIDER", provider: { name: meta.label, model: getEnv("MODEL_NAME") } });
-          globalThis.__EMORA_TUI_LLM__ = llm;
-          return { type: "notice", message: `✓ Model diganti ke profile "${name}": ${p.provider}/${p.model}` };
-        }
-
+        // ── save: snapshot config aktif ─────────────────────────────────────
         if (sub === "save") {
           if (!rest[1]) return { type: "error", message: "Pakai: /model save <nama>" };
           await mp.saveProfile(rest[1]);
           return { type: "notice", message: `✓ Config aktif disimpan sebagai "${rest[1]}". Pakai: /model ${rest[1]}` };
         }
-        if (sub === "rm" || sub === "remove") {
-          if (!rest[1]) return { type: "error", message: "Pakai: /model rm <nama>" };
-          await mp.removeProfile(rest[1]);
-          return { type: "notice", message: `✓ Profile "${rest[1]}" dihapus.` };
+
+        // ── Tanpa argumen: daftar semua provider yang sudah di-setup ────────
+        if (!sub) {
+          const profiles = await mp.listProfiles();
+          const endpoints = await mp.listCustomEndpoints();
+          const lines = ["Provider & model yang sudah di-setup:", ""];
+          for (const [n, p] of Object.entries(profiles)) {
+            const active = p.provider === process.env.MODEL_PROVIDER && p.model === process.env.MODEL_NAME;
+            lines.push(`  ${active ? C.green("●") : " "} ${C.bold("/model " + n)}  ${C.dim(p.provider + "/" + p.model)}`);
+          }
+          for (const [n, e] of Object.entries(endpoints)) {
+            if (profiles[n]) continue;
+            lines.push(`  ${C.cyan?.("●") || "●"} ${C.bold("/model " + n)}  ${C.dim("custom/" + (e.models?.[0] || "?"))} ${C.dim(`[${e.compat}]`)}`);
+          }
+          if (lines.length === 2) {
+            lines.push(C.faint("  Belum ada. Jalankan 'emora setup model' atau /setup untuk menambah provider."));
+          }
+          lines.push("", C.dim("Pilih: /model <nama> — lalu pilih model realtime dari daftar."));
+          return { type: "notice", message: lines.join("\n"), big: true };
         }
-        return { type: "notice", message: "Pakai: /model [list] | /model <nama> | /model save <nama> | /model rm <nama>" };
+
+        // ── /model <nama>: fetch model realtime → user pilih → apply ────────
+        const name = sub === "use" ? rest[1] : sub;
+        const profiles = await mp.listProfiles();
+        const endpoints = await mp.listCustomEndpoints();
+        const profile = profiles[name];
+        const endpoint = !profile ? endpoints[name] : null;
+
+        // Provider target untuk fetch models.
+        let providerKey, url, apiKey, compat;
+        if (profile) {
+          providerKey = profile.provider; url = profile.url; apiKey = profile.apiKey; compat = profile.compat;
+        } else if (endpoint) {
+          providerKey = "custom"; url = endpoint.url; apiKey = endpoint.apiKey; compat = endpoint.compat;
+        } else {
+          return { type: "error", message: `"${name}" tidak ditemukan. Ketik /model untuk lihat daftar.` };
+        }
+
+        // Fetch model REALTIME.
+        let models = [];
+        if (providerKey === "custom") {
+          models = await mp.fetchCustomModels(url, apiKey, compat);
+        } else {
+          try {
+            const orp = await import("../provider/openrouter/index.js");
+            if (providerKey === "openrouter" && orp.fetchModels) {
+              models = (await orp.fetchModels()).map(m => ({ id: m.id, name: m.name }));
+            }
+          } catch {}
+          if (!models.length) {
+            const { getProviderModels } = await import("../provider/index.js");
+            models = (await getProviderModels(providerKey)).map(m => ({ id: m.id || m, name: m.label || m.id || String(m) }));
+          }
+        }
+        if (!models.length && endpoint?.models?.length) {
+          models = endpoint.models.map(m => ({ id: m, name: m }));
+        }
+        if (!models.length) {
+          return { type: "error", message: `Gagal mengambil daftar model dari "${name}" (${compat}). Endpoint offline atau format tidak didukung.` };
+        }
+
+        // Simpan pilihan ke wizard state — user pilih via arrow keys di overlay.
+        // Handler global untuk apply setelah user pilih model di picker.
+        globalThis.__EMORA_MODEL_APPLY__ = async (mp, modelId) => {
+          try {
+            // 1. Tulis config provider ke .env
+            setEnv("MODEL_PROVIDER", mp.providerKey);
+            if (mp.url) setEnv("MODEL_URL", mp.url);
+            if (mp.apiKey) setEnv("MODEL_API", mp.apiKey);
+            setEnv("MODEL_NAME", modelId);
+            if (mp.compat && mp.providerKey === "custom") setEnv("MODEL_COMPAT", mp.compat);
+
+            // 2. Simpan/refresh custom endpoint (model baru masuk daftar reuse)
+            if (mp.providerKey === "custom") {
+              await mp.addCustomEndpoint({
+                name: mp.name, url: mp.url, apiKey: mp.apiKey,
+                compat: mp.compat || "openai", models: [modelId],
+              });
+            }
+
+            // 3. Buat LLM baru + update header
+            invalidateSystemPromptCache();
+            const llm = await createLLM([], mp.providerKey === "custom" ? "custom" : mp.providerKey, {});
+            const meta = getProviderMeta(mp.providerKey);
+            dispatch({ type: "SET_PROVIDER", provider: { name: meta.label, model: modelId } });
+            globalThis.__EMORA_TUI_LLM__ = llm;
+            globalThis.__EMORA_MODEL_APPLY__ = null;
+            dispatch({ type: "SET_NOTICE", message: `✓ Model "${modelId}" aktif (${mp.name}: ${mp.providerKey}${mp.compat ? "/" + mp.compat : ""}).` });
+          } catch (e) {
+            dispatch({ type: "SET_ERROR", message: `Gagal apply model: ${e.message}` });
+          }
+        };
+
+        dispatch({
+          type: "MODEL_PICKER",
+          payload: {
+            name,
+            providerKey, url, apiKey, compat,
+            models,
+            index: 0,
+            resolve: null,
+          },
+        });
+        return { type: "handled" };
       } catch (err) {
         return { type: "error", message: err.message };
       }

@@ -406,6 +406,36 @@ function renderAskUserOverlay(state, width) {
   return lines;
 }
 
+// ── Model picker overlay — pilih model realtime dari provider tersimpan ──────
+function renderModelPickerOverlay(state, width) {
+  const mp = state.modelPicker;
+  if (!mp) return [];
+  const maxShown = 14;
+  const total = mp.models.length;
+  let start = Math.max(0, Math.min(mp.index - maxShown + 1, total - maxShown));
+  start = Math.max(0, start);
+  const visible = mp.models.slice(start, start + maxShown);
+
+  const out = [
+    hr(width),
+    C.yellow.bold(`⚙ Pilih model untuk "${mp.name}"`) + C.dim(` (${mp.providerKey}${mp.compat ? " · " + mp.compat : ""} · realtime)`),
+    "",
+  ];
+  for (let i = 0; i < visible.length; i++) {
+    const gIdx = start + i;
+    const sel = gIdx === mp.index;
+    const m = visible[i];
+    const label = truncate(m.name && m.name !== m.id ? `${m.id} — ${m.name}` : m.id, width - 10);
+    out.push((sel ? C.primary("❯ ") : "  ") + (sel ? C.primaryBold(label) : C.text(label)));
+  }
+  if (start > 0 || start + maxShown < total) {
+    out.push(C.faint(`   … ${total} model total (↑↓ scroll)`));
+  }
+  out.push("");
+  out.push(C.dim(truncate("  ↑↓ pilih · Enter pakai model ini · Esc batal", width)));
+  return out;
+}
+
 // ── Alternate full-screen views ─────────────────────────────────────────────
 function renderHistoryView(state, width, height) {
   const out = [C.primaryBold(" Riwayat Sesi "), hr(width)];
@@ -553,6 +583,7 @@ export function computeScreen(state) {
 
   let overlay = [];
   if (state.approval) overlay = renderApprovalOverlay(state, columns);
+  else if (state.modelPicker) overlay = renderModelPickerOverlay(state, columns);
   else if (state.askUser) overlay = renderAskUserOverlay(state, columns);
 
   // Notice besar (mis. tabel /resume): render multi-baris apa adanya.

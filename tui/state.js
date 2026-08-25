@@ -51,6 +51,7 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
     approval: null, // {toolName, args, resolve, options}
     chainLimit: null, // {resolve}
     askUser: null, // {question, resolve}
+    modelPicker: null, // {name, providerKey, url, apiKey, compat, models[], index}
 
     mode: initialMode || (process.env.DEFAULT_MODE === "safe" ? "safe" : "autonomous"), // safe | autonomous | plan
     agentMode: process.env.DEFAULT_AGENTMODE || "chat", // chat | simple | planned | deep (informational, lihat catatan di agentController.js)
@@ -297,6 +298,19 @@ export function reducer(state, action) {
 
     case "SET_NOTICE":
       return { ...state, notice: action.message, noticeBig: !!action.big };
+
+    case "MODEL_PICKER":
+      // Aturan user: pilih provider tersimpan → milih ulang model REALTIME.
+      return { ...state, modelPicker: { ...action.payload } };
+
+    case "MODEL_PICKER_MOVE":
+      return {
+        ...state,
+        modelPicker: { ...state.modelPicker, index: Math.max(0, Math.min(state.modelPicker.models.length - 1, state.modelPicker.index + action.delta)) },
+      };
+
+    case "MODEL_PICKER_CLOSE":
+      return { ...state, modelPicker: null };
 
     case "SET_ERROR":
       return { ...state, error: action.message };
