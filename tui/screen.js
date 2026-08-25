@@ -298,19 +298,22 @@ function renderChatBody(state, width, height) {
   }
 
   // Clip ke tinggi yang tersedia, dari bawah (paling baru), digeser scrollOffset.
+  // Aturan TUI.md #4: TIDAK ada gap besar antara welcome box dan input bar —
+  // filler kosong ditaruh DI ATAS konten, bukan di bawah, supaya welcome box
+  // selalu menempel dekat input.
   const total = lines.length;
   const endIdx = Math.max(0, total - state.scrollOffset);
   const startIdx = Math.max(0, endIdx - height);
-  const visible = lines.slice(startIdx, endIdx);
-
-  while (visible.length < height) visible.push("");
+  let visible = lines.slice(startIdx, endIdx);
 
   if (state.scrollOffset > 0) {
     // Sisipkan baris indikator, JANGAN timpa baris pertama (dulu konten hilang).
     visible.unshift(C.faint(`↑ scroll (${state.scrollOffset})`));
     visible.pop();
   }
-  return visible;
+  // Pad sisa tinggi DI ATAS (bukan di bawah) — konten menempel ke input bar.
+  while (visible.length < height) visible.unshift("");
+  return visible.slice(-height);
 }
 
 // ── Overlays ─────────────────────────────────────────────────────────────────
