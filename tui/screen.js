@@ -259,34 +259,15 @@ function renderSuggestions(state, width) {
   windowStart = Math.min(windowStart, maxWindowStart);
 
   const list = state.suggestions.slice(windowStart, windowStart + maxShown);
-  // Dua kolom ala TUI.md #8 bila layar cukup lebar.
-  const halfW = Math.floor((width - 4) / 2);
-  const descOf = (c) => COMMAND_DESCRIPTIONS[c] || "Run this skill/command";
-  if (halfW >= 40) {
-    for (let i = 0; i < list.length; i += 2) {
-      const lIdx = windowStart + i;
-      const rIdx = windowStart + i + 1;
-      const cell = (gIdx) => {
-        if (gIdx >= total) return " ".repeat(halfW);
-        const c = state.suggestions[gIdx];
-        const sel = gIdx === idx;
-        const name = truncate(c, 10).padEnd(11);
-        const desc = truncate(descOf(c), halfW - 15);
-        return (sel ? C.primary(" ") : " ")
-          + (sel ? C.primaryBold(name) : C.text(name))
-          + (sel ? C.dim(desc) : C.faint(desc))
-          + " ".repeat(Math.max(0, halfW - stripAnsi(name + desc).length - 2));
-      };
-      out.push(cell(lIdx) + cell(rIdx));
-    }
-    // Baris terpilih tunggal di kolom kiri saat jumlah ganjil — sudah tertangani cell().
-  } else {
-    for (let i = 0; i < list.length; i++) {
-      const globalIdx = windowStart + i;
-      const isSel = globalIdx === idx;
-      const text = truncate(list[i], width - 4);
-      out.push((isSel ? C.primary("  ❯ ") : "    ") + (isSel ? C.primaryBold(text) : C.dim(text)));
-    }
+  // SATU kolom selebar layar (aturan TUI.md #8): command + deskripsi terpotong …
+  const descW = Math.max(20, width - 36);
+  for (let i = 0; i < list.length; i++) {
+    const globalIdx = windowStart + i;
+    const isSel = globalIdx === idx;
+    const c = list[i];
+    const name = truncate(c, 32).padEnd(33);
+    const desc = truncate(COMMAND_DESCRIPTIONS[c] || "Run this skill/command", descW);
+    out.push(" " + (isSel ? C.primaryBold(name) : C.text(name)) + (isSel ? C.dim(desc) : C.faint(desc)));
   }
 
   const hiddenAbove = windowStart;
@@ -295,7 +276,7 @@ function renderSuggestions(state, width) {
     const bits = [];
     if (hiddenAbove > 0) bits.push(`↑${hiddenAbove} di atas`);
     if (hiddenBelow > 0) bits.push(`↓${hiddenBelow} di bawah`);
-    out.push(C.faint(`    …${bits.join("  ")}`));
+    out.push(C.faint(` …${bits.join("  ")}`));
   }
   return out;
 }

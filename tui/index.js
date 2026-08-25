@@ -73,6 +73,9 @@ export async function runTUI(options = {}) {
   process.stdout.write(ALT_SCREEN_ON);
 
   let exited = false;
+  let messagesExisted = false;
+  // Track apakah ada percakapan — di-set oleh App via onActivity callback.
+  const markConversation = () => { messagesExisted = true; };
   const cleanup = () => {
     if (exited) return;
     exited = true;
@@ -80,9 +83,19 @@ export async function runTUI(options = {}) {
     // Aturan TUI.md #11: clear terminal + ringkasan sesi saat keluar.
     try {
       process.stdout.write("\x1b[2J\x1b[H");
+      // Ada percakapan → tampilkan resume hint + summary. Kosong → goodbye saja.
+      const hasConversation = (session.messageCount || 0) > 0 || messagesExisted;
+      if (!hasConversation) {
+        console.log("");
+        console.log(chalk.yellow("  Goodbye! 👋"));
+        console.log(chalk.dim("  Sampai jumpa di sesi berikutnya."));
+        console.log("");
+        return;
+      }
       const dur = Math.round((Date.now() - (startTime || Date.now())) / 1000);
       const sid = session.id;
       const title = session.name || session.title || "Sesi baru";
+      const msgCount = session.messageCount ?? "?";
       console.log("");
       console.log(chalk.yellow("  Resume this session with:"));
       console.log(`    ${cyan(`emora --resume ${sid}`)}`);
@@ -91,6 +104,7 @@ export async function runTUI(options = {}) {
       console.log(`  ${dim("Session:")}        ${sid}`);
       console.log(`  ${dim("Title:")}          ${title.slice(0, 70)}`);
       console.log(`  ${dim("Duration:")}       ${dur}s`);
+      console.log(`  ${dim("Messages:")}       ${msgCount}`);
       console.log("");
     } catch {}
   };
@@ -109,6 +123,7 @@ export async function runTUI(options = {}) {
       tools,
       initialQuery,
       onQuit: cleanup,
+      onActivity: markConversation,
     }),
     { exitOnCtrlC: false }
   );

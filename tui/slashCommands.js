@@ -191,7 +191,7 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       const sub = rest[0];
       try {
         const mp = await import("../core/modelProfiles.js");
-        const { setEnv, getEnv } = await import("../envHelpers.js");
+        const { setEnv, getEnv } = await import("./envHelpers.js");
 
         // ── rm: hapus profile / custom endpoint ────────────────────────────
         if (sub === "rm" || sub === "remove") {

@@ -19,9 +19,18 @@ import { handleKey } from "./keys.js";
 
 const h = React.createElement;
 
-export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, initialMode, onQuit }) {
+export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, initialMode, onQuit, onActivity }) {
   const { stdout } = useStdout();
   const { exit } = useApp();
+
+  // Track percakapan untuk exit summary (aturan TUI.md #11).
+  const hadActivityRef = useRef(false);
+  useEffect(() => {
+    if (state.messages?.length && !hadActivityRef.current) {
+      hadActivityRef.current = true;
+      onActivity?.();
+    }
+  }, [state.messages]);
 
   const [state, dispatch] = useReducer(
     reducer,
