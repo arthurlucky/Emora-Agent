@@ -9,6 +9,29 @@
 import crypto from "crypto";
 import { C } from "./styles.js";
 
+/** Ringkas args tool jadi satu baris pendek ala Claude Code. */
+export function summarizeArgs(args = {}) {
+  try {
+    const keys = Object.keys(args);
+    if (!keys.length) return "";
+    // Prioritaskan key umum: path/query/command/url/file_path
+    const pref = ["path", "file_path", "rel_path", "query", "command", "url", "pattern", "topic", "action", "name"];
+    const parts = [];
+    for (const k of pref) {
+      if (args[k] != null && parts.length < 2) {
+        const v = String(args[k]);
+        parts.push(`${k}: "${v.slice(0, 40)}${v.length > 40 ? "…" : ""}"`);
+      }
+    }
+    if (!parts.length) {
+      const v = JSON.stringify(args);
+      return v.slice(0, 50) + (v.length > 50 ? "…" : "");
+    }
+    if (keys.length > parts.length) parts.push("…");
+    return parts.join(", ");
+  } catch { return ""; }
+}
+
 export function createInitialState({ sessionId, sessionTitle, provider, columns, rows, initialMode }) {
   return {
     view: "chat", // chat | history | skills | wizard | tasks | gatewayStatus
@@ -100,9 +123,23 @@ export function reducer(state, action) {
     }
 
     case "AGENT_TOOL_USE": {
-      // Ala Hermes: bullet dim + nama tool, tanpa noise "(auto)".
-      const line = C.faint("▸ ") + C.dim(action.name);
-      return { ...state, progressLines: [...state.progressLines.slice(-30), line] };
+      // Claude Code style: ● Tool(args) — args diringkas.
+      const argsStr = summarizeArgs(action.args);
+      const line = C.purple("● ") + C.bold(action.name) + C.dim(`(${argsStr})`);
+      const entry = { line, name: action.name, args: action.args || {}, result: null };
+      return { ...state, progressLines: [...state.progressLines.slice(-30), entry] };
+    }
+
+    case "AGENT_TOOL_RESULT": {
+      // Tempel hasil ke entri tool terakhir yang cocok nama-nya.
+      const lines = [...state.progressLines];
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i]?.name === action.name && !lines[i].result) {
+          lines[i] = { ...lines[i], result: action };
+          break;
+        }
+      }
+      return { ...state, progressLines: lines };
     }
 
     case "AGENT_TOOL_DENIED": {

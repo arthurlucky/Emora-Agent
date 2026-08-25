@@ -239,7 +239,8 @@ async function resolveApproval(name, args, mode, onApproval) {
   }
 
   const approved = await onApproval(name, args, mode);
-  return { allowed: !!approved, autoApproved: false };
+  // approved bisa: true/false (klasik) atau "always" (izinkan tool ini turn ini).
+  return { allowed: !!approved, autoApproved: false, alwaysThisTurn: approved === "always" };
 }
 
 function abortError() {
@@ -493,6 +494,7 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
     const workMessages = [...messages];
 
     let aiMsg = response;
+    const alwaysAllowedThisTurn = new Set(); // "Yes, selalu" (opsi 2 dialog approval)
     while (toolCalls.length > 0 && !signal?.aborted) {
       workMessages.push(aiMsg);
 
@@ -501,7 +503,14 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
 
         if (onEvent) onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
 
-        const decision = await resolveApproval(toolCall.name, toolCall.args, mode, onApproval);
+        // Opsi "2. Yes, selalu" di turn ini: skip approval untuk tool yang sama.
+        let decision;
+        if (alwaysAllowedThisTurn.has(toolCall.name)) {
+          decision = { allowed: true, autoApproved: true };
+        } else {
+          decision = await resolveApproval(toolCall.name, toolCall.args, mode, onApproval);
+          if (decision.alwaysThisTurn) alwaysAllowedThisTurn.add(toolCall.name);
+        }
         if (!decision.allowed) {
           workMessages.push(new ToolMessage({
             tool_call_id: toolCall.id,

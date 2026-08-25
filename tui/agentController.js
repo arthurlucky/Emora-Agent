@@ -22,7 +22,8 @@ export function createAgentController({ dispatch, getState, getLLM, tools }) {
     dispatch({ type: "SUBMIT_START", text: trimmed, abortController });
 
     const onEvent = (ev) => {
-      if (ev.type === "tool_use") dispatch({ type: "AGENT_TOOL_USE", name: ev.name, autoApproved: ev.autoApproved });
+      if (ev.type === "tool_use") dispatch({ type: "AGENT_TOOL_USE", name: ev.name, args: ev.args, autoApproved: ev.autoApproved });
+      else if (ev.type === "tool_result") dispatch({ type: "AGENT_TOOL_RESULT", name: ev.name, durationMs: ev.durationMs });
       else if (ev.type === "tool_denied") dispatch({ type: "AGENT_TOOL_DENIED", name: ev.name });
       else if (ev.type === "skill_read") dispatch({ type: "AGENT_SKILL_READ", name: ev.name });
     };

@@ -153,10 +153,12 @@ async function submitText(text, { state, dispatch, controller }) {
 }
 
 // ── Approval prompt ──────────────────────────────────────────────────────────
-function handleApprovalKeys({ controller, input }) {
+function handleApprovalKeys({ controller, input, key }) {
   const c = (input || "").toLowerCase();
-  if (c === "y" || c === "a") controller.resolveApproval(true);
-  else if (c === "n") controller.resolveApproval(false);
+  // Dialog bernomor ala TUI.md: 1=Yes · 2=Yes selalu (turn ini) · 3/n=No.
+  if (c === "1" || key.return || c === "y") controller.resolveApproval(true);
+  else if (c === "2" || c === "a") controller.resolveApproval("always");
+  else if (c === "3" || c === "n") controller.resolveApproval(false);
 }
 
 // ── History browser ──────────────────────────────────────────────────────────

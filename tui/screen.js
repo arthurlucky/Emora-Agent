@@ -60,19 +60,66 @@ function renderStatusBar(state, width) {
 }
 
 // ── Welcome screen ───────────────────────────────────────────────────────────
-// Ala Hermes: tips singkat saat chat masih kosong.
+// Ala TUI.md: box 2 kolom — logo+info kiri, tips+aktivitas kanan.
 function renderWelcome(state, width) {
-  const out = [];
-  out.push("");
-  out.push("  " + C.primaryBold("Halo. Aku Emora.") + C.dim(" agent otonom di terminalmu."));
-  out.push("");
-  out.push("  " + C.dim("Coba:"));
-  out.push("  " + C.text("• tanya apa saja — aku jawab pakai tool kalau perlu"));
-  out.push("  " + C.text("• /skills") + C.dim("        lihat skill terpasang"));
-  out.push("  " + C.text("• /help") + C.dim("         semua perintah"));
-  out.push("  " + C.text("• /mode plan") + C.dim("     kunci jadi baca-saja"));
-  out.push("");
+  const logoLines = [
+    "",
+    "         ▄████▄        ",
+    "        ███  ███       ",
+    "        ████████       ",
+    "        ██ ▀▀ ██       ",
+    "         ▀▄  ▄▀        ",
+    "",
+    C.dim(truncate(`${state.provider?.model || "-"} · ${state.mode || "auto"}`, 24)),
+    C.faint(truncate(process.cwd(), 26)),
+    "",
+  ];
+  const tipsLines = [
+    "",
+    C.bold("Tips for getting started"),
+    C.dim(" Minta Emora bikin app / analisa repo"),
+    C.dim(" /skills — lihat skill terpasang"),
+    C.dim(" /help   — semua perintah"),
+    C.dim(" /mode plan — kunci baca-saja"),
+    "",
+    C.faint("─".repeat(Math.min(34, Math.floor(width * 0.4)))),
+    "",
+    C.bold("Recent activity"),
+    C.faint(" Belum ada aktivitas"),
+    "",
+    "",
+  ];
+
+  // Border box 2 kolom.
+  const leftW = 28;
+  const rightW = Math.max(20, width - leftW - 7);
+  const rows = Math.max(logoLines.length, tipsLines.length);
+  const top = borderTop2(width, ` Emora v${globalThis.__EMORA_VERSION || "3.0"} `, leftW);
+  const out = [top];
+  for (let i = 0; i < rows; i++) {
+    const l = stripAnsi(logoLines[i] || "").slice(0, leftW).padEnd(leftW);
+    const rRaw = (tipsLines[i] || "").slice(0, rightW);
+    const rPad = " ".repeat(Math.max(0, rightW - stripAnsi(rRaw).length));
+    out.push(C.border("│ ") + logoLines[i] + " ".repeat(Math.max(1, leftW - stripAnsi(logoLines[i] || "").length)) + C.border("│ ") + rRaw + rPad + C.border("│"));
+  }
+  // Bottom dengan sambungan kolom tengah.
+  const mid = leftW + 2;
+  out.push(
+    C.border("└" + "─".repeat(mid)) + C.border("┬") + C.border("─".repeat(Math.max(0, width - mid - 4))) + C.border("┘")
+  );
   return out;
+}
+
+/** Border top dua-kolom: ┌─ label ─┬─────┐ */
+function borderTop2(width, label = "", leftW = 28) {
+  const labelPart = C.primaryBold(label);
+  const labelLen = stripAnsi(labelPart).length;
+  const leftInner = leftW - 1;
+  const rightInner = Math.max(4, width - leftW - 6);
+  return (
+    C.border("┌─") + labelPart + " ".repeat(Math.max(1, leftInner - labelLen - 1)) +
+    C.border("┬") + C.border("─".repeat(rightInner)) + C.border("┐")
+  );
 }
 
 // ── Input box ────────────────────────────────────────────────────────────────
@@ -205,7 +252,15 @@ function renderChatBody(state, width, height) {
   if (state.status === "thinking") {
     lines.push(C.purple(`${ICONS.agent} Emora`));
     lines.push("  " + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
-    for (const l of state.progressLines.slice(-8)) lines.push("  " + C.faint(l));
+    for (const entry of state.progressLines.slice(-8)) {
+      // Entry bisa string lama atau objek {line, name, result}.
+      if (typeof entry === "string") { lines.push("  " + entry); continue; }
+      lines.push("  " + entry.line);
+      if (entry.result) {
+        const dur = entry.result.durationMs ? C.faint(` · ${Math.round(entry.result.durationMs / 100) / 10}s`) : "";
+        lines.push("  " + C.dim("│ ") + C.green("✓ selesai") + dur);
+      }
+    }
     lines.push("");
   }
 
@@ -233,13 +288,34 @@ function renderChatBody(state, width, height) {
 function renderApprovalOverlay(state, width) {
   const { toolName, args } = state.approval;
   const argsPreview = truncate(JSON.stringify(args || {}), Math.max(10, width - 4));
-  const lines = [
+
+  // Preview file (write/patch) ala TUI.md: nomor baris di panel bawah.
+  const preview = [];
+  const filePath = args?.path || args?.file_path || args?.rel_path;
+  if (filePath && ["write_file", "patch", "edit"].includes(toolName)) {
+    const contentStr = String(args.content ?? args.new_string ?? "");
+    if (contentStr) {
+      preview.push(hr(width));
+      preview.push(C.text(` ${ICONS.tool} ${truncate(String(filePath), width - 12)}`));
+      const maxLines = 9;
+      contentStr.split("\n").slice(0, maxLines).forEach((l, i) => {
+        preview.push(C.faint(String(i + 1).padStart(3) + " ") + C.dim(truncate(" " + l, width - 8)));
+      });
+      if (contentStr.split("\n").length > maxLines) preview.push(C.faint("   …"));
+    }
+  }
+
+  return [
     hr(width),
-    C.red.bold(`${ICONS.warn} Approval dibutuhkan: `) + C.text(toolName),
+    C.red.bold(`${ICONS.warn} Perlu izin: `) + C.bold(toolName),
     C.faint("  " + argsPreview),
-    C.dim(truncate("  [y] approve   [n] deny   [a] selalu izinkan tool ini turn ini", width)),
+    ...preview,
+    "",
+    C.primary("❯ 1. Yes") + C.dim("      setujui sekali ini"),
+    "  " + C.text("2. Yes, selalu") + C.dim("  izinkan tool ini turn ini"),
+    "  " + C.text("3. No") + C.dim("        tolak"),
+    C.dim(truncate("  [1/Enter] yes · [2] selalu · [3/n] no", width)),
   ];
-  return lines;
 }
 
 function renderAskUserOverlay(state, width) {
