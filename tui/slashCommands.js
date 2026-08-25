@@ -23,7 +23,7 @@ import path from "path";
 
 export const AVAILABLE_COMMANDS = [
   "/help", "/clear", "/reset", "/mode", "/agentmode", "/stream",
-  "/setup", "/switch", "/model", "/skin", "/history", "/resume", "/skills", "/tasks",
+  "/setup", "/model", "/skin", "/history", "/resume", "/skills", "/tasks",
   "/gateway", "/undo", "/redo", "/undo-history", "/exit", "/quit",
   "/plugin", "/artifact", "/learn",
 ];
@@ -60,7 +60,7 @@ function helpText() {
     "  /agentmode <chat|simple|planned|deep> - gaya respons agent",
     "  /stream          - toggle typewriter effect",
     "  /setup           - wizard ganti provider/model AI",
-    "  /switch          - alias /setup",
+    "  /model [nama]    - pakai profile tersimpan; /model list|save|rm",
     "  /history         - browser sesi tersimpan",
     "  /resume <judul>  - lanjutkan sesi dari history by keyword",
     "  /skills          - kelola skill (on/off)",
@@ -161,34 +161,8 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     }
 
     case "switch": {
-      // /switch <nama>  → langsung pakai profile tersimpan
-      // /switch         → wizard pilih provider (perilaku lama)
-      const name = rest[0];
-      if (!name) {
-        const wizard = { ...createWizardState(), choices: providerChoices() };
-        wizard.sequence = ["provider"];
-        dispatch({ type: "SET_WIZARD_VIEW", wizard });
-        return { type: "handled" };
-      }
-      try {
-        const { useProfile, listProfiles } = await import("../core/modelProfiles.js");
-        const profiles = await listProfiles();
-        if (!profiles[name]) {
-          const avail = Object.keys(profiles).map((n) => "/" + n).join(", ") || "(kosong)";
-          return { type: "error", message: `Profile "${name}" tidak ada. Tersimpan: ${avail}` };
-        }
-        // Terapkan ke .env + runtime, lalu buat LLM baru.
-        const { setEnv, getEnv } = await import("../envHelpers.js");
-        const p = await useProfile(name, setEnv);
-        invalidateSystemPromptCache();
-        const llm = await createLLM([], p.provider, {});
-        const meta = getProviderMeta(p.provider);
-        dispatch({ type: "SET_PROVIDER", provider: { name: meta.label, model: getEnv("MODEL_NAME") } });
-        globalThis.__EMORA_TUI_LLM__ = llm;
-        return { type: "notice", message: `✓ Beralih ke profile "${name}": ${p.provider}/${p.model}` };
-      } catch (err) {
-        return { type: "error", message: `Gagal switch: ${err.message}` };
-      }
+      // DIHAPUS — digabung ke /model <nama> (aturan user: hapus /switch).
+      return { type: "error", message: "/switch sudah dihapus. Pakai: /model <nama> untuk pakai profile tersimpan, atau /setup untuk wizard." };
     }
 
     case "skin": {
@@ -210,25 +184,57 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     }
 
     case "model": {
-      // /model list | /model save <nama> | /model rm <nama>
+      // /model <nama>          → langsung pakai profile tersimpan (ala Hermes)
+      // /model                 → daftar profile + status
+      // /model save <nama>     → simpan config aktif
+      // /model rm <nama>       → hapus profile
+      // /model use <nama>      → alias pakai profile
       const sub = rest[0];
       try {
         const mp = await import("../core/modelProfiles.js");
+        const { setEnv, getEnv } = await import("../envHelpers.js");
+
+        // Tanpa argumen: daftar profile tersimpan.
         if (!sub || sub === "list") {
-          return { type: "notice", message: "MODEL PROFILES\n\n" + mp.formatList(await mp.listProfiles()) +
-            "\n\nSimpan config aktif: /model save <nama>\nGanti: /switch <nama>" };
+          const profiles = await mp.listProfiles();
+          const names = Object.keys(profiles);
+          let txt = "MODEL PROFILES\n\n" + mp.formatList(profiles);
+          if (names.length) {
+            txt += "\n\nPakai: /model <nama>   (mis. /model " + names[0] + ")";
+          } else {
+            txt += "\n\nBelum ada profile. Simpan config aktif: /model save <nama>";
+          }
+          return { type: "notice", message: txt };
         }
+
+        // /model <nama> atau /model use <nama> → aktifkan profile.
+        if (sub === "use" || !["save", "rm", "remove"].includes(sub)) {
+          const name = sub === "use" ? rest[1] : sub;
+          const profiles = await mp.listProfiles();
+          if (!profiles[name]) {
+            const avail = Object.keys(profiles).map((n) => "/" + n).join(", ") || "(kosong)";
+            return { type: "error", message: `Profile "${name}" tidak ada. Tersimpan: ${avail}\nSimpan dulu: /model save <nama>` };
+          }
+          const p = await mp.useProfile(name, setEnv);
+          invalidateSystemPromptCache();
+          const llm = await createLLM([], p.provider, {});
+          const meta = getProviderMeta(p.provider);
+          dispatch({ type: "SET_PROVIDER", provider: { name: meta.label, model: getEnv("MODEL_NAME") } });
+          globalThis.__EMORA_TUI_LLM__ = llm;
+          return { type: "notice", message: `✓ Model diganti ke profile "${name}": ${p.provider}/${p.model}` };
+        }
+
         if (sub === "save") {
           if (!rest[1]) return { type: "error", message: "Pakai: /model save <nama>" };
           await mp.saveProfile(rest[1]);
-          return { type: "notice", message: `✓ Config aktif disimpan sebagai "${rest[1]}".` };
+          return { type: "notice", message: `✓ Config aktif disimpan sebagai "${rest[1]}". Pakai: /model ${rest[1]}` };
         }
         if (sub === "rm" || sub === "remove") {
           if (!rest[1]) return { type: "error", message: "Pakai: /model rm <nama>" };
           await mp.removeProfile(rest[1]);
           return { type: "notice", message: `✓ Profile "${rest[1]}" dihapus.` };
         }
-        return { type: "notice", message: "Pakai: /model list | save <nama> | rm <nama>" };
+        return { type: "notice", message: "Pakai: /model [list] | /model <nama> | /model save <nama> | /model rm <nama>" };
       } catch (err) {
         return { type: "error", message: err.message };
       }
