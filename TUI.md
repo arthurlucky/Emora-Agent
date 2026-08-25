@@ -89,4 +89,32 @@ Aturan TUI
 2.mungkin hanya beberapa contoh penggunaan tools yang ditampilkan pada instruksi ini jadi kamu wajib untuk membuat yang lain agar lebih lengkap dan sesuai
 3.Contoh 1 adalah contoh response ai agent dengan berbagai tools dan lainnya,contoh 2 adalah tampilan awal dari Emora,jadi wajib gabungkan 2 contoh ini dan harus sama persis
 4.semua design harus sama,tidak ada kesenjangan/Gap input bar terlalu besar pada maskot 
+5.tidak ada design tambahan seperti contoh dibawah ini:
 
+◆ EMORA · Sesi baru                                                      ox-alpha [auto]
+────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+┌─ Emora v3.0               ┬──────────────────────────────────────────────────────┐
+│                             │                                                      │
+│       Welcome back!         │ Tips for getting started                             │
+│                             │  Ask Emora to create a new app or                    │
+│         ▄████▄              │                                                      │
+│        ███  ███             │ ──────────────────────────────────                   │
+│        ████████             │                                                      │
+│        ██ ▀▀ ██             │ Recent activity                                      │
+│         ▀▄  ▄▀              │  No recent activity                                  │
+│                             │                                                      │
+│      ox-alpha · Emora       │                                                      │
+│ /data/data/com.termux/fi…   │                                                      │
+│                             │                                                      │
+│                             │                                                      │
+└──────────────────────────────┴──────────────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────────────
+ox-alpha · auto
+>
+────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts
+
+6.semua tampilan wajib mengikuti design contoh 1 dan contoh 2,tidak ada tambahan lagi dan tema emora wajib berwarna biru dengan campuran kuning

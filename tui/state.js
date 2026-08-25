@@ -125,7 +125,7 @@ export function reducer(state, action) {
     case "AGENT_TOOL_USE": {
       // Claude Code style: ● Tool(args) — args diringkas.
       const argsStr = summarizeArgs(action.args);
-      const line = C.purple("● ") + C.bold(action.name) + C.dim(`(${argsStr})`);
+      const line = C.yellow("● ") + C.bold(action.name) + C.dim(`(${argsStr})`);
       const entry = { line, name: action.name, args: action.args || {}, result: null };
       return { ...state, progressLines: [...state.progressLines.slice(-30), entry] };
     }
@@ -147,7 +147,7 @@ export function reducer(state, action) {
     }
 
     case "AGENT_SKILL_READ": {
-      return { ...state, progressLines: [...state.progressLines.slice(-30), C.purple("◈ skill: " + action.name)] };
+      return { ...state, progressLines: [...state.progressLines.slice(-30), C.yellow("◈ skill: " + action.name)] };
     }
 
     case "AGENT_MESSAGE": {

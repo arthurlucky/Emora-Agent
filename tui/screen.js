@@ -27,7 +27,7 @@ function renderHeader(state, width) {
   const title = C.dim(truncate(state.sessionTitle || "Sesi baru", Math.max(8, Math.floor(width * 0.4))));
   const left = `${brand} ${C.faint("·")} ${title}`;
 
-  const modeTag = state.mode === "safe" ? C.yellow("safe") : state.mode === "plan" ? C.purple("plan") : C.green("auto");
+  const modeTag = state.mode === "safe" ? C.yellow("safe") : state.mode === "plan" ? C.yellow("plan") : C.green("auto");
   const providerText = `${state.provider?.model || "-"}`;
   const right = C.faint(`${truncate(providerText, 24)} ${C.dim("[" + modeTag + C.dim("]"))}`);
   const rightLen = stripAnsi(right).length;
@@ -269,7 +269,7 @@ function renderMessageBlock(msg, width) {
       if (_mdCache.size > 500) _mdCache.clear(); // ponytail: clear-all, LRU kalau memory jadi masalah
       _mdCache.set(key, bodyLines);
     }
-    bodyLines.forEach((l, i) => lines.push((i === 0 ? C.purple("● ") : "  ") + " " + l));
+    bodyLines.forEach((l, i) => lines.push((i === 0 ? C.yellow("● ") : "  ") + " " + l));
   }
   lines.push("");
   return lines;
@@ -280,7 +280,7 @@ function renderChatBody(state, width, height) {
   for (const msg of state.messages) lines.push(...renderMessageBlock(msg, width));
 
   if (state.status === "thinking") {
-    lines.push(C.purple("● ") + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
+    lines.push(C.yellow("● ") + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
     for (const entry of state.progressLines.slice(-8)) {
       // Entry bisa string lama atau objek {line, name, result}.
       if (typeof entry === "string") { lines.push("  " + entry); continue; }
@@ -498,7 +498,9 @@ export function computeScreen(state) {
   if (state.view === "tasks") return renderTasksView(state, columns, rows).join("\n");
 
   // ── Default: chat view ──────────────────────────────────────────────────
-  const header = renderHeader(state, columns);
+  // Aturan TUI.md #5: TANPA header tambahan (◆ EMORA · sesi · [auto] dilarang).
+  // Welcome box langsung di atas; status model·mode sudah ada di input area.
+  const header = [];
   const suggestions = renderSuggestions(state, columns);
 
   let overlay = [];
