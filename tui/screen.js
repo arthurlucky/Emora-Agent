@@ -293,23 +293,8 @@ function renderChatBody(state, width, height) {
     lines.push("");
   }
 
-  // Aturan TUI.md #7: welcome box JANGAN dihilangkan saat chat — selalu
-  // tampil di atas transcript (ala Contoh 1: box → pesan user → respons ●).
-  // Aturan #10: sesi resume pakai panel "Previous Conversation" sebagai gantinya.
-  if (state.previousConversation?.length) {
-    const innerW = Math.max(30, width - 4);
-    lines.push(C.border("╭─") + C.primaryBold(" Previous Conversation ") + C.border("─".repeat(Math.max(0, innerW - 22))) + C.border("╮"));
-    for (const p of state.previousConversation) {
-      for (const l of wrapPlain(p.line, innerW - 2)) lines.push(C.border("│") + " " + C.dim(l));
-    }
-    lines.push(C.border("╰" + "─".repeat(innerW) + "╯"));
-    lines.push("");
-  } else if (!state._welcomeRendered) {
-    lines.unshift(...(getSkin() === "rpg" ? rpgWelcome(state, width) : renderWelcome(state, width)));
-    lines._welcomeRendered = true;
-  }
-  // Flag di level render (bukan state.messages): welcome hanya sekali per mount.
-  if (lines._welcomeRendered) state._welcomeRendered = true;
+  // Welcome box dirender di layer terpisah oleh computeScreen (aturan #7
+  // diperkuat) — di sini hanya transcript + thinking indicator.
 
   // Clip ke tinggi yang tersedia, dari bawah (paling baru), digeser scrollOffset.
   // Aturan TUI.md #4: TIDAK ada gap besar antara welcome box dan input bar —
@@ -551,7 +536,33 @@ export function computeScreen(state) {
   const footerLines = [...optional, ...essentialFooter];
 
   const bodyHeight = Math.max(minBodyHeight, rows - header.length - footerLines.length);
-  const body = renderChatBody(state, columns, bodyHeight);
+  const showWelcome = state.view === "chat" && !state.previousConversation?.length;
+  const bodyHeightRaw = Math.max(minBodyHeight, rows - header.length - footerLines.length);
+  let body;
+  // Panel Previous Conversation (aturan #10) — di atas welcome box.
+  let topPanel = [];
+  if (state.previousConversation?.length) {
+    const innerW = Math.max(30, columns - 4);
+    topPanel.push(C.border("╭─") + C.primaryBold(" Previous Conversation ") + C.border("─".repeat(Math.max(0, innerW - 22))) + C.border("╮"));
+    for (const p of state.previousConversation) {
+      for (const l of wrapPlain(p.line, innerW - 2)) topPanel.push(C.border("│") + " " + C.dim(l));
+    }
+    topPanel.push(C.border("╰" + "─".repeat(innerW) + "╯"));
+    topPanel.push("");
+  }
+  if (showWelcome) {
+    const welcomeLines = getSkin() === "rpg" ? rpgWelcome(state, columns) : renderWelcome(state, columns);
+    const wH = welcomeLines.length;
+    const transcriptH = Math.max(1, bodyHeightRaw - wH - topPanel.length);
+    const transcript = renderChatBody(state, columns, transcriptH);
+    body = [...topPanel, ...welcomeLines, "", ...transcript.slice(0, transcriptH)];
+    while (body.length < bodyHeightRaw) body.push("");
+    body = body.slice(0, bodyHeightRaw);
+  } else {
+    body = [...topPanel, ...renderChatBody(state, columns, Math.max(1, bodyHeightRaw - topPanel.length))];
+    while (body.length < bodyHeightRaw) body.push("");
+    body = body.slice(0, bodyHeightRaw);
+  }
 
   return [...header, ...body, ...footerLines].join("\n");
 }

@@ -250,7 +250,6 @@ export function reducer(state, action) {
         view: "chat",
         notice: `↻ Resumed session ${action.sessionId} "${action.sessionTitle}" (${action.messages.length} messages)`,
         previousConversation: prev.length ? prev : null,
-        _welcomeRendered: true, // sesi lanjutan tidak perlu welcome box
       };
     }
 
