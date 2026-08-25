@@ -212,32 +212,82 @@ function renderStatusBox(state, width) {
   return [borderLine(line, width)];
 }
 
+// Deskripsi command untuk dropdown "/" dua kolom (aturan TUI.md #8).
+const COMMAND_DESCRIPTIONS = {
+  "/help":          "Show all available commands",
+  "/clear":         "Clear screen and start a new session",
+  "/reset":         "Start a new session (fresh session ID + history)",
+  "/new":           "Start a new session (fresh session ID + history)",
+  "/redraw":        "Force a full UI repaint (recovers from terminal draw bugs)",
+  "/mode":          "Switch approval mode: safe | autonomous | plan",
+  "/agentmode":     "Switch response style: chat | simple | planned | deep",
+  "/stream":        "Toggle token-by-token streaming",
+  "/setup":         "Wizard: change AI provider / model / API key",
+  "/switch":        "Alias of /setup",
+  "/model":         "Manage model profiles (save/use/rm/list)",
+  "/skin":          "Switch UI theme skin (clean | rpg)",
+  "/history":       "Show conversation history",
+  "/save":          "Export the current conversation",
+  "/retry":         "Retry the last message (resend to agent)",
+  "/prompt":        "Compose your next prompt in $EDITOR, then send",
+  "/compose":       "Compose your next prompt in $EDITOR, then send",
+  "/undo":          "Back up N user turns and re-prompt (default 1)",
+  "/redo":          "Re-apply the last undone edit",
+  "/undo-history":  "List undo checkpoints for this session",
+  "/title":         "Set a title for the current session",
+  "/resume":        "Resume a saved session by number/id/title",
+  "/handoff":       "Hand off this session to a messaging platform",
+  "/skills":        "Manage skills (enable/disable)",
+  "/tasks":         "Show background tasks",
+  "/gateway":       "Gateway status/control (telegram/whatsapp/discord)",
+  "/plugin":        "Manage tools/plugins (list/install/enable/disable)",
+  "/artifact":      "Manage saved artifacts",
+  "/learn":         "Turn this chat session into a new skill",
+  "/exit":          "Exit Emora",
+  "/quit":          "Exit Emora",
+};
+
 function renderSuggestions(state, width) {
   if (!state.suggestions?.length) return [];
   const out = [];
-  const maxShown = 6;
+  const maxShown = 12;
   const total = state.suggestions.length;
   const idx = state.suggestionIndex;
 
-  // BUG LAMA: dulu selalu nampilin 6 item PERTAMA (`slice(0, maxShown)`)
-  // gak peduli suggestionIndex-nya udah maju ke mana. Begitu user pencet
-  // panah bawah lewat item ke-6, suggestionIndex tetap nambah di reducer,
-  // tapi karena window render-nya statis, item terpilih itu gak pernah
-  // masuk daftar yang ditampilkan -> highlight-nya "hilang"/kelihatan
-  // macet di item terakhir yang sempat ke-render (dilaporkan macet di
-  // "/stream"). Fix: window slice-nya sekarang IKUT bergeser (scroll)
-  // supaya index yang lagi dipilih selalu ada di dalam area yang tampil,
-  // baik pas scroll ke bawah maupun balik ke atas.
+  // Window scroll — index terpilih selalu terlihat.
   const maxWindowStart = Math.max(0, total - maxShown);
   let windowStart = Math.max(0, idx - maxShown + 1);
   windowStart = Math.min(windowStart, maxWindowStart);
 
   const list = state.suggestions.slice(windowStart, windowStart + maxShown);
-  for (let i = 0; i < list.length; i++) {
-    const globalIdx = windowStart + i;
-    const isSel = globalIdx === idx;
-    const text = truncate(list[i], width - 4);
-    out.push((isSel ? C.primary("  ❯ ") : "    ") + (isSel ? C.primaryBold(text) : C.dim(text)));
+  // Dua kolom ala TUI.md #8 bila layar cukup lebar.
+  const halfW = Math.floor((width - 4) / 2);
+  const descOf = (c) => COMMAND_DESCRIPTIONS[c] || "Run this skill/command";
+  if (halfW >= 40) {
+    for (let i = 0; i < list.length; i += 2) {
+      const lIdx = windowStart + i;
+      const rIdx = windowStart + i + 1;
+      const cell = (gIdx) => {
+        if (gIdx >= total) return " ".repeat(halfW);
+        const c = state.suggestions[gIdx];
+        const sel = gIdx === idx;
+        const name = truncate(c, 10).padEnd(11);
+        const desc = truncate(descOf(c), halfW - 15);
+        return (sel ? C.primary(" ") : " ")
+          + (sel ? C.primaryBold(name) : C.text(name))
+          + (sel ? C.dim(desc) : C.faint(desc))
+          + " ".repeat(Math.max(0, halfW - stripAnsi(name + desc).length - 2));
+      };
+      out.push(cell(lIdx) + cell(rIdx));
+    }
+    // Baris terpilih tunggal di kolom kiri saat jumlah ganjil — sudah tertangani cell().
+  } else {
+    for (let i = 0; i < list.length; i++) {
+      const globalIdx = windowStart + i;
+      const isSel = globalIdx === idx;
+      const text = truncate(list[i], width - 4);
+      out.push((isSel ? C.primary("  ❯ ") : "    ") + (isSel ? C.primaryBold(text) : C.dim(text)));
+    }
   }
 
   const hiddenAbove = windowStart;
