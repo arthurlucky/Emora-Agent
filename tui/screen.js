@@ -60,54 +60,69 @@ function renderStatusBar(state, width) {
 }
 
 // ── Welcome screen ───────────────────────────────────────────────────────────
-// Ala TUI.md: box 2 kolom — logo+info kiri, tips+aktivitas kanan.
+// Ala TUI.md Contoh 2, SAMA PERSIS: kiri "Welcome back!" + logo + model·info·cwd,
+// kanan Tips + separator + Recent activity.
 function renderWelcome(state, width) {
+  const userName = (process.env.USER || process.env.USERNAME || "").trim();
+  const greeting = userName ? `Welcome back ${userName}!` : "Welcome back!";
   const logoLines = [
     "",
-    "         ▄████▄        ",
-    "        ███  ███       ",
-    "        ████████       ",
-    "        ██ ▀▀ ██       ",
-    "         ▀▄  ▄▀        ",
+    centerPlain(greeting, 26),
     "",
-    C.dim(truncate(`${state.provider?.model || "-"} · ${state.mode || "auto"}`, 24)),
-    C.faint(truncate(process.cwd(), 26)),
+    "        ▄████▄        ",
+    "       ███  ███       ",
+    "       ████████       ",
+    "       ██ ▀▀ ██       ",
+    "        ▀▄  ▄▀        ",
+    "",
+    C.dim(centerPlain(truncate(`${state.provider?.model || "-"} · Emora`, 25), 26)),
+    C.faint(centerPlain(truncate(process.cwd(), 25), 26)),
+    "",
     "",
   ];
+  const cwdNote = process.cwd().startsWith("/data/data/com.termux/files/home") && process.cwd() === "/data/data/com.termux/files/home"
+    ? ["", C.faint(" Note: You have launched emora in your home directory")]
+    : [];
   const tipsLines = [
     "",
     C.bold("Tips for getting started"),
-    C.dim(" Minta Emora bikin app / analisa repo"),
-    C.dim(" /skills — lihat skill terpasang"),
-    C.dim(" /help   — semua perintah"),
-    C.dim(" /mode plan — kunci baca-saja"),
+    C.dim(" Ask Emora to create a new app or clone a repository"),
+    ...cwdNote,
     "",
-    C.faint("─".repeat(Math.min(34, Math.floor(width * 0.4)))),
+    C.faint("─".repeat(Math.min(46, Math.floor(width * 0.45)))),
     "",
     C.bold("Recent activity"),
-    C.faint(" Belum ada aktivitas"),
+    C.faint(" No recent activity"),
+    "",
     "",
     "",
   ];
 
-  // Border box 2 kolom.
+  // Border box 2 kolom — persis pola TUI.md: ┌─ label ─┬───┐
   const leftW = 28;
-  const rightW = Math.max(20, width - leftW - 7);
   const rows = Math.max(logoLines.length, tipsLines.length);
-  const top = borderTop2(width, ` Emora v${globalThis.__EMORA_VERSION || "3.0"} `, leftW);
-  const out = [top];
+  const out = [borderTop2(width, ` Emora v${globalThis.__EMORA_VERSION || "3.0"} `, leftW)];
   for (let i = 0; i < rows; i++) {
-    const l = stripAnsi(logoLines[i] || "").slice(0, leftW).padEnd(leftW);
-    const rRaw = (tipsLines[i] || "").slice(0, rightW);
-    const rPad = " ".repeat(Math.max(0, rightW - stripAnsi(rRaw).length));
-    out.push(C.border("│ ") + logoLines[i] + " ".repeat(Math.max(1, leftW - stripAnsi(logoLines[i] || "").length)) + C.border("│ ") + rRaw + rPad + C.border("│"));
+    const lRaw = logoLines[i] || "";
+    const rRaw = (tipsLines[i] || "").slice(0, Math.max(10, width - leftW - 7));
+    const rPad = " ".repeat(Math.max(0, width - leftW - 7 - stripAnsi(rRaw).length));
+    out.push(
+      C.border("│ ") + lRaw + " ".repeat(Math.max(1, leftW - stripAnsi(lRaw).length)) +
+      C.border("│ ") + rRaw + rPad + C.border("│")
+    );
   }
-  // Bottom dengan sambungan kolom tengah.
   const mid = leftW + 2;
   out.push(
-    C.border("└" + "─".repeat(mid)) + C.border("┬") + C.border("─".repeat(Math.max(0, width - mid - 4))) + C.border("┘")
+    C.border("└" + "─".repeat(mid)) + C.border("┴") +
+    C.border("─".repeat(Math.max(0, width - mid - 4))) + C.border("┘")
   );
   return out;
+}
+
+function centerPlain(text, w) {
+  const visible = stripAnsi(String(text)).length;
+  const pad = Math.max(0, w - visible);
+  return " ".repeat(Math.floor(pad / 2)) + text;
 }
 
 /** Border top dua-kolom: ┌─ label ─┬─────┐ */
@@ -122,9 +137,11 @@ function borderTop2(width, label = "", leftW = 28) {
   );
 }
 
-// ── Input box ────────────────────────────────────────────────────────────────
-function renderInputLine(state, width) {
-  const availW = Math.max(10, width - 2); // sisakan ruang buat "❯ "
+// ── Input area ───────────────────────────────────────────────────────────────
+// Ala TUI.md Contoh 2: pesan diapit dua garis horizontal penuh, prefix "> ",
+// footer "? for shortcuts". Status info dipindah ke baris atas input.
+function renderInputArea(state, width) {
+  const availW = Math.max(10, width - 4); // "> " kiri + cursor
   const { input, cursorPos } = state;
 
   let windowStart = 0;
@@ -143,12 +160,25 @@ function renderInputLine(state, width) {
   } else {
     styled = visible.slice(0, relCursor) + C.inverse(visible[relCursor] || " ") + visible.slice(relCursor + 1);
   }
-
-  const leftMark = windowStart > 0 ? C.faint("…") : " ";
+  const leftMark = windowStart > 0 ? C.faint("…") : "";
   const rightMark = windowEnd < input.length ? C.faint("…") : "";
 
-  const prefix = state.status === "idle" ? C.primaryBold("❯ ") : C.faint("❯ ");
-  return prefix + leftMark + styled + rightMark;
+  // Status ringkas kanan pada garis atas (model · mode · timer).
+  const modelName = truncate(state.provider?.model || "-", 18);
+  const modeTag = state.mode === "safe" ? "safe" : state.mode === "plan" ? "plan" : "auto";
+  let rightInfo = `${modelName} · ${modeTag}`;
+  if (state.status === "thinking" && state.turnStartedAt) {
+    rightInfo += ` · ${Math.floor((Date.now() - state.turnStartedAt) / 1000)}s`;
+  }
+  const padTop = Math.max(1, width - stripAnsi(rightInfo).length - 1);
+
+  return [
+    hr(width),
+    C.faint(rightInfo) + " ".repeat(padTop),
+    C.primaryBold("> ") + leftMark + styled + rightMark,
+    hr(width),
+    C.dim("? for shortcuts"),
+  ];
 }
 
 // ── Border helpers (gaya kotak ala Claude Code) ─────────────────────────────
@@ -228,18 +258,18 @@ const _mdCache = new Map();
 function renderMessageBlock(msg, width) {
   const lines = [];
   if (msg.role === "user") {
-    lines.push(C.primaryBold(`${ICONS.user} Kamu`));
-    for (const l of wrapPlain(msg.content, width - 2)) lines.push("  " + C.text(l));
+    // Ala TUI.md Contoh 2: pesan user polos tanpa header blok.
+    for (const l of wrapPlain(msg.content, width - 4)) lines.push("   " + C.text(l));
   } else {
-    lines.push(C.purple(`${ICONS.agent} Emora`));
+    // Ala Contoh 1: tiap blok respons diawali bullet ● ungu, teks lanjutan menjorok.
     const key = `${msg.content.length}:${width}`;
     let bodyLines = _mdCache.get(key);
     if (!bodyLines) {
-      bodyLines = renderMarkdown(msg.content, width - 2).map((l) => "  " + l);
+      bodyLines = renderMarkdown(msg.content, width - 6);
       if (_mdCache.size > 500) _mdCache.clear(); // ponytail: clear-all, LRU kalau memory jadi masalah
       _mdCache.set(key, bodyLines);
     }
-    lines.push(...bodyLines);
+    bodyLines.forEach((l, i) => lines.push((i === 0 ? C.purple("● ") : "  ") + " " + l));
   }
   lines.push("");
   return lines;
@@ -250,8 +280,7 @@ function renderChatBody(state, width, height) {
   for (const msg of state.messages) lines.push(...renderMessageBlock(msg, width));
 
   if (state.status === "thinking") {
-    lines.push(C.purple(`${ICONS.agent} Emora`));
-    lines.push("  " + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
+    lines.push(C.purple("● ") + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
     for (const entry of state.progressLines.slice(-8)) {
       // Entry bisa string lama atau objek {line, name, result}.
       if (typeof entry === "string") { lines.push("  " + entry); continue; }
@@ -479,17 +508,18 @@ export function computeScreen(state) {
     ? C.faint(`${ICONS.info} ${state.notice}`)
     : "";
 
-  const inputLine = renderInputBox(state, columns);
-  const statusBar = renderStatusBox(state, columns); // [line, hr]
-  const essentialFooter = [...inputLine, ...statusBar, borderBottom(columns)]; // ini gak boleh ke-drop
-  const optionalFooter = [...overlay, ...(noticeLine ? [noticeLine] : []), ...suggestions];
+  const inputLine = renderInputArea(state, columns);
+  // Notice fitur ala Contoh 2 ("* Voice mode is now available · /voice to enable").
+  const featureNotice = state.featureNotice ? ["", C.dim(`* ${state.featureNotice}`)] : [];
+  const essentialFooter = [...inputLine]; // ini gak boleh ke-drop
+  const optionalFooter = [...overlay, ...(noticeLine ? [noticeLine] : []), ...suggestions, ...featureNotice];
 
   const minBodyHeight = 1;
   const maxFooterHeight = Math.max(essentialFooter.length, rows - header.length - minBodyHeight);
   let optional = optionalFooter;
   // Kalau overlay/notice/suggestion kepanjangan buat layar sekecil ini,
   // buang dari YANG PALING GAK PENTING dulu (baris atas overlay), supaya
-  // input box & status bar (paling bawah) selalu tetap kelihatan.
+  // input box (paling bawah) selalu tetap kelihatan.
   while (optional.length + essentialFooter.length > maxFooterHeight && optional.length > 0) {
     optional = optional.slice(1);
   }

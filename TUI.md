@@ -87,4 +87,4 @@ Contoh 2
 Aturan TUI
 1.Hanya mengganti TUI yang sekarang tidak mengubah fungsi
 2.mungkin hanya beberapa contoh penggunaan tools yang ditampilkan pada instruksi ini jadi kamu wajib untuk membuat yang lain agar lebih lengkap dan sesuai
-
+3.Contoh 1 adalah contoh response ai agent dengan berbagai tools dan lainnya,contoh 2 adalah tampilan awal dari Emora,jadi wajib gabungkan 2 contoh ini dan harus sama persis
