@@ -280,26 +280,58 @@ async function executeTool(toolCall, tools, { signal } = {}) {
 }
 
 async function invokeWithRetry(llm, messages, { signal, maxRetries = 3 } = {}) {
+  // Smart retry ala Hermes error_classifier: klasifikasi error → strategi
+  // recovery (backoff / langsung retry / kompres dulu / abort).
+  const { classifyError, RECOVERY } = await import("./errorClassifier.js");
   let attempt = 0;
-  while (attempt < maxRetries) {
+  while (attempt <= maxRetries) {
     if (signal?.aborted) throw abortError();
     try {
-      const timeoutSignal = AbortSignal.timeout(35000);
+      const timeoutSignal = AbortSignal.timeout(60000);
       const activeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
       return await llm.invoke(messages, { signal: activeSignal });
     } catch (err) {
       if (err?.name === "AbortError" || signal?.aborted) throw abortError();
+
+      const cls = classifyError(err);
+
+      // ABORT: auth/billing/unknown — jangan buang waktu retry.
+      if (cls.recovery === RECOVERY.ABORT) throw err;
+
       attempt++;
-      const isToolError = err?.status === 400 || err?.code === 'tool_use_failed';
+      if (attempt > maxRetries) throw err;
 
-      if (isToolError && attempt < maxRetries) {
-        console.warn(`\n[LLM WARNING] Malformed tool call detected. Retrying... (Attempt ${attempt}/${maxRetries})`);
-        continue;
+      if (cls.recovery === RECOVERY.RETRY_WITH_BACKOFF && cls.delayMs) {
+        const wait = cls.delayMs * attempt; // eksponensial ringan: 5s→10s→15s
+        console.warn(`[chat] ${cls.kind} — tunggu ${wait / 1000}s lalu retry (${attempt}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, Math.min(wait, 20000)));
+      } else {
+        console.warn(`[chat] ${cls.kind} — retry langsung (${attempt}/${maxRetries})`);
       }
-
-      throw err;
+      // RETRY_COMPACTED ditangani caller via onContextOverflow callback.
+      if (cls.recovery === RECOVERY.RETRY_COMPACTED) err.__compactFirst = true;
+      continue;
     }
   }
+}
+
+/** Kompaksi darurat saat context overflow (aturan Hermes context_compressor). */
+async function emergencyCompact(llm, messages, { signal } = {}) {
+  try {
+    const oldMsgs = messages.slice(1, -2); // sisakan system + 1 terakhir
+    if (!oldMsgs.length) return false;
+    const toSummarize = oldMsgs.map((m) => `${m.role}: ${String(m.content).slice(0, 300)}`).join("\n");
+    const res = await llm.invoke([
+      new SystemMessage("Ringkas percakapan ini menjadi fakta penting maksimal 150 kata. Tanpa basa-basi."),
+      new HumanMessage(toSummarize.slice(0, 20_000)),
+    ], { signal: AbortSignal.timeout(30000) });
+    const summary = typeof res.content === "string" ? res.content : String(res.content ?? "");
+    if (!summary.trim()) return false;
+    messages.splice(1, oldMsgs.length,
+      new HumanMessage(`[RINGKASAN PERCAKAPAN SEBELUMNYA]\n${summary.trim()}`));
+    console.warn(`[chat] emergency compaction: ${oldMsgs.length} pesan diringkas`);
+    return true;
+  } catch { return false; }
 }
 
 // PERF #3: Fast-path untuk chat pendek/basa-basi.
@@ -456,7 +488,17 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
   let response;
 
   try {
-    response = await invokeWithRetry(llm, messages, { signal });
+    try {
+      response = await invokeWithRetry(llm, messages, { signal });
+    } catch (err) {
+      // Context overflow → kompak darurat lalu coba SEKALI lagi (aturan Hermes:
+      // context_overflow = compress, not failover).
+      if (!err.__compactFirst || signal?.aborted) throw err;
+      console.warn("[chat] context overflow — kompresi darurat...");
+      const okCompact = await emergencyCompact(llm, messages, { signal });
+      if (!okCompact) throw err;
+      response = await llm.invoke(messages, { signal: AbortSignal.any([signal, AbortSignal.timeout(60000)].filter(Boolean)) });
+    }
   } catch (err) {
     if (err?.aborted) throw err;
     // Log ke file untuk diagnosa (emora doctor membaca ini).
@@ -495,7 +537,16 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
 
     let aiMsg = response;
     const alwaysAllowedThisTurn = new Set(); // "Yes, selalu" (opsi 2 dialog approval)
+    // Iteration budget ala Hermes iteration_budget.py — cegah agent muter
+    // tanpa henti di dalam satu turn.
+    const MAX_TOOL_ITERATIONS = parseInt(process.env.MAX_TOOL_ITERATIONS || "25");
+    let iterations = 0;
     while (toolCalls.length > 0 && !signal?.aborted) {
+      if (++iterations > MAX_TOOL_ITERATIONS) {
+        finalText += `\n\n⚠️ Dihentikan: batas ${MAX_TOOL_ITERATIONS} iterasi tool tercapai dalam satu giliran.`;
+        console.warn(`[chat] iteration budget habis (${MAX_TOOL_ITERATIONS})`);
+        break;
+      }
       workMessages.push(aiMsg);
 
       for (const toolCall of toolCalls) {
@@ -551,10 +602,15 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
     memory.push({ role: "assistant", content: finalText });
     await saveSession(sessionId, memory);
 
-    // Auto-title: generate judul sesi dari prompt pertama.
+    // Auto-title: stage 1 (instant, deterministic) + stage 2 (LLM upgrade, async).
     try {
       const { touchSession } = await import("./sessionStore.js");
       touchSession(sessionId, input.slice(0, 200));
+      // Stage 2 ala Hermes generate_title — fire-and-forget upgrade di
+      // background; tidak mengganggu turn user. Tidak akan replace judul
+      // yang sudah user set manual.
+      const { upgradeTitle } = await import("./titleGenerator.js");
+      upgradeTitle({ sessionId, llm, userMessage: input }).catch(() => {});
     } catch { /* non-kritis */ }
   } catch (err) {
     console.error(`[chat] gagal simpan memory: ${err.message}`);

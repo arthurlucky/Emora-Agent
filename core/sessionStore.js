@@ -160,6 +160,7 @@ export async function renameSession(id, name) {
     name: trimmed,
     createdAt: meta[id]?.createdAt || now,
     updatedAt: now,
+    source: "user", // provenance: rename manual tidak akan ditimpa LLM
   };
 
   await saveMeta(meta);
@@ -197,11 +198,16 @@ export async function deleteSession(id) {
 
 export function generateTitleFromPrompt(prompt) {
   if (!prompt || typeof prompt !== 'string') return null;
-  const clean = prompt.trim()
-    .replace(/^[\/\#\!\.\,\?\s]+/, '')
-    .replace(/\s+/g, ' ');
+  // Ala Hermes title_generator.derive_title: baris pertama bermakna,
+  // dipotong di word boundary, maks 48 char. Deterministik & tak bisa gagal.
+  const line = prompt.split("\n").map(l => l.trim()).find(l => l.length > 2);
+  if (!line) return null;
+  const clean = line.replace(/^[/#!.,?\s]+/, "").replace(/\s+/g, " ");
   if (!clean || clean.length < 2) return null;
-  return clean.length > 38 ? clean.slice(0, 38) + '...' : clean;
+  if (clean.length <= 48) return clean.replace(/[.,;:!?—-]+$/, "");
+  const cut = clean.slice(0, 48);
+  const space = cut.lastIndexOf(" ");
+  return (space > 24 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?—-]+$/, "") + "…";
 }
 
 /**
@@ -223,6 +229,9 @@ export async function touchSession(id, firstPrompt = null) {
     name: name || defaultName(id),
     createdAt: meta[id]?.createdAt || now,
     updatedAt: now,
+    // provenance: 'derived' = auto dari prompt pertama (stage 1).
+    // Stage-2 LLM upgrade boleh menimpa ini, rename manual tidak.
+    source: meta[id]?.source || "derived",
   };
 
   await saveMeta(meta);
