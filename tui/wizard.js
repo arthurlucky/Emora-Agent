@@ -70,4 +70,22 @@ export function applyWizardResult(wizard) {
   if (wizard.apiKey) setEnv("MODEL_API", wizard.apiKey);
   if (wizard.url) setEnv("MODEL_URL", wizard.url);
   if (wizard.model && wizard.model !== "__custom__") setEnv("MODEL_NAME", wizard.model);
+
+  // Rekomendasi otomatis AGENT_MODE (lite|full) — sync, tanpa import async.
+  try {
+    if (!process.env.AGENT_MODE && isSmallModelName(wizard.model)) {
+      setEnv("AGENT_MODE", "lite");
+      console.log(`[setup] AGENT_MODE otomatis = lite (${wizard.model} kecil)`);
+    }
+  } catch { /* non-kritis */ }
+}
+
+/** Duplikat ringan dari core/agentMode.isSmallModel — Hindari import cycle. */
+function isSmallModelName(modelId) {
+  if (!modelId) return false;
+  const s = String(modelId).toLowerCase();
+  if (/[-_:.](\d+)m\b/.test(s)) return true;
+  const b = s.match(/[-_:.](\d+(?:\.\d+)?)b\b/);
+  if (b) return parseFloat(b[1]) <= 1.5;
+  return /mini|tiny|nano|small\b/.test(s);
 }

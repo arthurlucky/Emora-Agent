@@ -85,31 +85,25 @@ async function buildLibrarySummary() {
 }
 
 async function getSystemPrompt() {
-  const agentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
-  if (cachedSystemPrompts[agentPath]) {
-    return cachedSystemPrompts[agentPath];
-  }
+  const { resolveAgentPath } = await import("./agentMode.js");
+  const rootAgentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
 
-  // ── Auto AGENT_LITE untuk model kecil ──────────────────────────────────
-  // Override manual: AGENT_MODE=lite|full di .env menang.
-  // Otomatis: nama model mengandung ukuran ≤1.5B atau mini/tiny/nano.
-  let effectiveAgentPath = agentPath;
-  const agentMode = (process.env.AGENT_MODE || "").toLowerCase();
-  const modelName = process.env.MODEL_NAME || "";
-  let usedLite = false;
-  try {
-    if (agentMode === "lite") {
-      effectiveAgentPath = path.join(ROOT_DIR, "AGENT_LITE.md");
-      usedLite = true;
-    } else if (!agentMode && modelName) {
-      const { isSmallModel } = await import("../provider/openrouter/index.js").catch(() => ({}));
-      if (isSmallModel?.(modelName)) {
-        effectiveAgentPath = path.join(ROOT_DIR, "AGENT_LITE.md");
-        usedLite = true;
-      }
-    }
-  } catch { /* fallback ke full */ }
-  if (usedLite) console.log("[chat] model kecil terdeteksi → memakai AGENT_LITE.md");
+  // Pilih AGENT.md vs AGENT_LITE.md (core/agentMode.js) — generik semua
+  // provider. Override manual AGENT_MODE=lite|full di .env menang.
+  const picked = resolveAgentPath({
+    rootDir: ROOT_DIR,
+    modelId: process.env.MODEL_NAME || "",
+  });
+  const effectiveAgentPath = process.env.EMORA_AGENT_PATH || picked.path;
+  const cacheKey = effectiveAgentPath; // cache terpisah per file AGENT
+  if (cachedSystemPrompts[cacheKey]) {
+    return cachedSystemPrompts[cacheKey];
+  }
+  // Backward-compat: cache lama di agentPath masih dipakai kalau path sama.
+  if (cachedSystemPrompts[rootAgentPath] && effectiveAgentPath === rootAgentPath) {
+    return cachedSystemPrompts[rootAgentPath];
+  }
+  if (picked.usedLite) console.log(`[chat] mode LITE aktif — ${picked.reason}`);
 
   try {
     const name = process.env.NAME || "Emora";
@@ -159,7 +153,7 @@ MANDATORY LIBRARY WORKFLOW: Before answering any factual question about topics t
 Selain riwayat chat mentah (yang cuma menyimpan ${MAX_CONTEXT_MESSAGES} pesan terakhir per sesi), kamu punya tool session_memory buat menyimpan FAKTA yang perlu diingat MELEWATI batas itu: preferensi user, detail lingkungan/konteks kerja, keputusan yang sudah disepakati. SIMPAN secara proaktif pakai session_memory (action: remember) begitu user menyebutkan sesuatu yang termasuk kategori itu. Fakta yang tersimpan otomatis muncul di bagian bawah prompt tiap turn (blok "[FAKTA TERSIMPAN]"). Kalau user menyebut sesuatu yang terasa seperti kelanjutan obrolan lama tapi gak ada di riwayat/fakta yang keliatan, coba session_memory (action: search_history) sebelum minta user mengulang dari awal.
  `;
 
-    cachedSystemPrompts[agentPath] = Context;
+    cachedSystemPrompts[cacheKey] = Context;
     return Context;
   } catch (err) {
     console.error(`[CHAT ERROR] Failed to load system prompt: ${err.message}`);
@@ -172,7 +166,7 @@ Selain riwayat chat mentah (yang cuma menyimpan ${MAX_CONTEXT_MESSAGES} pesan te
 
  You are ${name}, an AI assistant.
  `;
-    cachedSystemPrompts[agentPath] = fallback;
+    cachedSystemPrompts[cacheKey] = fallback;
     return fallback;
   }
 }

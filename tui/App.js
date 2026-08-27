@@ -23,15 +23,6 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
   const { stdout } = useStdout();
   const { exit } = useApp();
 
-  // Track percakapan untuk exit summary (aturan TUI.md #11).
-  const hadActivityRef = useRef(false);
-  useEffect(() => {
-    if (state.messages?.length && !hadActivityRef.current) {
-      hadActivityRef.current = true;
-      onActivity?.();
-    }
-  }, [state.messages]);
-
   const [state, dispatch] = useReducer(
     reducer,
     createInitialState({
@@ -46,6 +37,15 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
 
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Track percakapan untuk exit summary (aturan TUI.md #11).
+  const hadActivityRef = useRef(false);
+  useEffect(() => {
+    if (stateRef.current.messages?.length && !hadActivityRef.current) {
+      hadActivityRef.current = true;
+      onActivity?.();
+    }
+  }, [stateRef.current.messages?.length]);
 
   const llmRef = useRef(llm);
 
