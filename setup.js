@@ -699,10 +699,7 @@ export async function runSetup() {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
 
-  if (!fs.existsSync(ENV_PATH)) {
-    fs.writeFileSync(ENV_PATH, "");
-    console.log(chalk.hex("#3fb950")("  ✓ File .env dibuat\n"));
-  }
+  // Config.yml is automatically managed via core/config.js.
 
   // Langkah 0: User milih alur setup (Step-by-Step Berurutan vs Menu Manual)
   const setupMode = await select("Pilih metode setup EMORA:", [
