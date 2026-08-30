@@ -159,6 +159,25 @@ export async function runTUI(options = {}) {
       console.log(`  ${dim("Duration:")}       ${dur}s`);
       console.log(`  ${dim("Messages:")}       ${msgCount}`);
       console.log("");
+
+      // Auto Record on Exit (EMORA RECORDS Vault)
+      try {
+        const { loadSession } = await import("../core/sessionStore.js");
+        const { extractAndRecordSession, hasPersonalitySignals, isVaultInitialized } = await import("../core/recordsManager.js");
+        if (isVaultInitialized()) {
+          const msgs = await loadSession(sid);
+          if (hasPersonalitySignals(msgs)) {
+            const masterPwd = process.env.EMORA_RECORDS_KEY || "";
+            if (masterPwd) {
+              const res = await extractAndRecordSession(msgs, masterPwd);
+              if (res.extractedCount > 0) {
+                console.log(chalk.green(`  🔐 [EMORA RECORDS] Otomatis merekam ${res.extractedCount} fakta kepribadian baru ke vault terenkripsi.`));
+                console.log("");
+              }
+            }
+          }
+        }
+      } catch { /* silent auto-record fallback */ }
     } catch {}
   };
 

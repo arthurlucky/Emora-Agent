@@ -207,7 +207,7 @@ export function input(prompt, defaultVal = "", secret = false) {
     const displayPrompt = C.cyan("  ❯ ") + chalk.bold(prompt) +
       (defaultVal ? C.hint(` [${defaultVal}]`) : "") + "  ";
 
-    if (secret) {
+    if (secret && process.stdin.isTTY) {
       // Tulis prompt manual, baca dengan echo dimatiin
       process.stdout.write(displayPrompt);
       let val = "";
@@ -226,12 +226,14 @@ export function input(prompt, defaultVal = "", secret = false) {
           process.exit(0);
         } else if (c === "\x7F") {
           val = val.slice(0, -1);
-          process.stdout.clearLine(0);
-          process.stdout.cursorTo(0);
-          process.stdout.write(displayPrompt + "*".repeat(val.length));
+          if (process.stdout.isTTY) {
+            process.stdout.clearLine(0);
+            process.stdout.cursorTo(0);
+            process.stdout.write(displayPrompt + "*".repeat(val.length));
+          }
         } else {
           val += c;
-          process.stdout.write("*");
+          if (process.stdout.isTTY) process.stdout.write("*");
         }
       }
       process.stdin.on("data", onChar);

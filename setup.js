@@ -346,6 +346,38 @@ async function setupName() {
 }
 
 // ─────────────────────────────────────────────
+// SECTION: EMORA RECORDS (Encrypted Vault)
+// ─────────────────────────────────────────────
+async function setupRecordsVault() {
+  const { isVaultInitialized, setMasterPassword } = await import("./core/recordsManager.js");
+  sectionHeader("EMORA RECORDS VAULT", "Merekam kepribadian pengguna ke dalam vault terenkripsi (AES-256-GCM)");
+
+  if (isVaultInitialized()) {
+    infoLine("Status Vault", "Vault terenkripsi sudah aktif", "green");
+    const change = await confirm("Mau ubah/set ulang Password Vault Master?", { default: false });
+    if (!change) { sectionFooter(); return; }
+  }
+
+  warnLine("Password vault ini digunakan untuk mengamankan 7 dimensi kepribadian Anda.");
+  const pwd = await input("Masukkan Password Vault Master (min 4 karakter):", "", true);
+  if (!pwd || pwd.length < 4) {
+    errorLine("Password vault minimal 4 karakter. Setup ditunda.");
+    sectionFooter();
+    return;
+  }
+  const pwdConfirm = await input("Konfirmasi Password Vault Master:", "", true);
+  if (pwd !== pwdConfirm) {
+    errorLine("Password tidak cocok. Setup vault dibatalkan.");
+    sectionFooter();
+    return;
+  }
+
+  setMasterPassword(pwd);
+  successLine("EMORA RECORDS Vault terenkripsi berhasil dikonfigurasi!");
+  sectionFooter();
+}
+
+// ─────────────────────────────────────────────
 // SECTION: REVIEW KONFIGURASI
 // ─────────────────────────────────────────────
 async function reviewConfig() {
@@ -732,6 +764,7 @@ export async function runSetup() {
       { label: "⚙️   Advanced Behavior",          value: "advanced", hint: getEnv("DEFAULT_MODE") || "autonomous" },
       { label: "🌐  Web UI",                     value: "webui",    hint: getEnv("WEBUI") === "true" ? "aktif" : "nonaktif" },
       { label: "✏️   Nama & Identitas Agent",     value: "name",     hint: getEnv("NAME") || "Emora" },
+      { label: "🔐  EMORA RECORDS Vault",        value: "records",  hint: "kepribadian terenkripsi" },
       { label: "📄  Context Files (AGENT.md/SOUL.md)", value: "context", hint: "shape setiap percakapan" },
       { label: "🏗️   Architecture",               value: "arch"     },
       { label: "🧠  Skills Hub",                   value: "skillsHub", hint: "procedural memory" },
@@ -749,6 +782,7 @@ export async function runSetup() {
       case "advanced": await setupAdvancedBehavior();  break;
       case "webui":    await setupWebUI();              break;
       case "name":     await setupName();               break;
+      case "records":  await setupRecordsVault();        break;
       case "context":  await setupContextFiles();       break;
       case "arch":     await showArchitecture();        break;
       case "skillsHub": await setupSkillsHub();         break;

@@ -273,6 +273,12 @@ switch (subCmd) {
     break;
   }
 
+  case "records": {
+    const { cmdRecords } = await import("../cli/cmd-records.js");
+    await cmdRecords(rest);
+    break;
+  }
+
   // ── Hermes-style shortcut: non-interaktif, satu baris ────────────────
   case "run": {
     // emora run "prompt" — one-shot chat tanpa TUI.

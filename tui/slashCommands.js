@@ -31,7 +31,7 @@ export const AVAILABLE_COMMANDS = [
   "/gateway", "/undo", "/redo", "/exit",
   "/plugin", "/artifact", "/learn", "/thinking",
   "/compact", "/copy", "/failover", "/tokens", "/doctor", "/context",
-  "/evolve", "/swarm", "/bot",
+  "/evolve", "/swarm", "/bot", "/records",
 ];
 
 // ── Cache nama skill/command buat autocomplete ──────────────────────────
@@ -335,6 +335,16 @@ export async function runSlashCommand(raw, { state, dispatch }) {
         return { type: "notice", message: "Pakai: /bot list | /bot run <bot_id> <tugas>" };
       } catch (e) {
         return { type: "error", message: `Bot Error: ${e.message}` };
+      }
+    case "records": {
+      try {
+        const { isVaultInitialized } = await import("../core/recordsManager.js");
+        if (!isVaultInitialized()) {
+          return { type: "notice", message: "🔐 **EMORA RECORDS:** Vault belum disetup. Ketik `emora records setup` di terminal CLI untuk membuat password vault." };
+        }
+        return { type: "notice", message: "🔐 **EMORA RECORDS Vault Aktif:** Merekam 7 dimensi kepribadian terenkripsi secara otomatis saat exit. Jalankan `emora records view` di terminal untuk membuka vault." };
+      } catch (e) {
+        return { type: "error", message: `Records Error: ${e.message}` };
       }
     }
 
