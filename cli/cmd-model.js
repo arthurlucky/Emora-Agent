@@ -10,9 +10,7 @@ import { select, input, sectionHeader, sectionFooter, successLine } from "./sele
 import { PROVIDERS, getProviderModels } from "../provider/index.js";
 import * as ollamaMod from "../provider/ollama/index.js";
 
-const ENV_PATH = "./.env";
-function getEnv(k) { const m = (fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH,"utf8") : "").match(new RegExp(`^${k}=(.*)$`,"m")); return m?m[1].trim():""; }
-function setEnv(k,v) { let c=fs.existsSync(ENV_PATH)?fs.readFileSync(ENV_PATH,"utf8"):""; const re=new RegExp(`^${k}=.*$`,"m"); c=re.test(c)?c.replace(re,`${k}=${v}`):c+(c.endsWith("\n")||c===""?"":"\n")+`${k}=${v}`; fs.writeFileSync(ENV_PATH,c.trim()+"\n"); }
+import { getEnv, setEnv } from "../core/config.js";
 
 export async function cmdModel(args = []) {
   const { saveProfile, useProfile, removeProfile, listProfiles, formatList, listCustomEndpoints, removeCustomEndpoint, fetchCustomModels } =

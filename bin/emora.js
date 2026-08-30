@@ -296,34 +296,32 @@ switch (subCmd) {
   }
 
   case "config": {
-    // emora config get <KEY> | set <KEY> <VALUE> | list
-    const fsSync = (await import("fs")).default;
+    // emora config get <KEY> | set <KEY> <VALUE> | list (menggunakan config.yml)
+    const { getConfig, setConfig, loadAllConfig } = await import("../core/config.js");
     const action = rest[0];
     if (action === "list") {
-      const envRaw = fsSync.readFileSync(".env", "utf8");
-      for (const line of envRaw.split("\n")) {
-        if (!line.trim() || line.startsWith("#")) continue;
-        const [k, ...v] = line.split("=");
+      const cfg = loadAllConfig();
+      console.log(cyan.bold("  ╭─ KONFIGURASI EMORA (config.yml) ──────────────────────────────"));
+      for (const [k, v] of Object.entries(cfg)) {
+        const valStr = String(v);
         const isSecret = /KEY|TOKEN|SECRET|PASSWORD/i.test(k);
-        console.log(`  ${cyan.bold(k.padEnd(24))} ${isSecret ? dim("***" + String(v.join("=")).slice(-4)) : muted(v.join("="))}`);
+        console.log(`  │  ${cyan.bold(k.padEnd(24))} ${isSecret ? dim("***" + valStr.slice(-4)) : muted(valStr)}`);
       }
+      console.log(cyan.bold("  ╰───────────────────────────────────────────────────────────────"));
       break;
     }
     if (action === "get") {
       const key = rest[1];
       if (!key) { console.error(red("  ✗ Gunakan: emora config get <KEY>")); process.exit(1); }
-      const m = fsSync.readFileSync(".env", "utf8").match(new RegExp(`^${key}=(.*)$`, "m"));
-      console.log(m ? m[1].trim() : dim("(tidak diset)"));
+      const val = getConfig(key);
+      console.log(val ? val : dim("(tidak diset)"));
       break;
     }
     if (action === "set") {
       const key = rest[1], value = rest.slice(2).join(" ");
       if (!key || !value) { console.error(red("  ✗ Gunakan: emora config set <KEY> <VALUE>")); process.exit(1); }
-      let c = fsSync.existsSync(".env") ? fsSync.readFileSync(".env", "utf8") : "";
-      const re = new RegExp(`^${key}=.*$`, "m");
-      c = re.test(c) ? c.replace(re, `${key}=${value}`) : c + (c.endsWith("\n") || c === "" ? "" : "\n") + `${key}=${value}`;
-      fsSync.writeFileSync(".env", c.trim() + "\n");
-      console.log(green(`  ✓ ${key}=${/KEY|TOKEN|SECRET/i.test(key) ? "***" + value.slice(-4) : value}`));
+      setConfig(key, value);
+      console.log(green(`  ✓ [config.yml] ${key}=${/KEY|TOKEN|SECRET/i.test(key) ? "***" + value.slice(-4) : value}`));
       break;
     }
     console.error(muted("  Gunakan: emora config list | get <KEY> | set <KEY> <VALUE>"));

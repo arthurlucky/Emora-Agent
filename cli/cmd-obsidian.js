@@ -30,8 +30,9 @@ import https from "https";
 import axios from "axios";
 import { select, confirm, input, sectionHeader, sectionFooter, infoLine, successLine, warnLine, errorLine } from "./select.js";
 
+import { setConfig, deleteConfig, getConfig } from "../core/config.js";
+
 const CONFIG_PATH = "./mcp/mcp.config.json";
-const ENV_PATH = "./.env";
 const SERVER_NAME = "obsidian";
 
 function readMcpConfig() {
@@ -45,17 +46,9 @@ function writeMcpConfig(cfg) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
 }
 
-/** Simpan/perbarui API key ke .env sebagai OBSIDIAN_API_KEY=... (bukan ditulis mentah di JSON). */
+/** Simpan/perbarui API key ke config.yml sebagai OBSIDIAN_API_KEY=... */
 function upsertEnvVar(key, value) {
-  let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
-  const line = `${key}=${value}`;
-  const re = new RegExp(`^${key}=.*$`, "m");
-  if (re.test(content)) {
-    content = content.replace(re, line);
-  } else {
-    content = content.trimEnd() + (content.trim() ? "\n" : "") + line + "\n";
-  }
-  fs.writeFileSync(ENV_PATH, content);
+  setConfig(key, value);
 }
 
 /** Tes koneksi ke root endpoint Local REST API (`GET /`) — balasannya manifest server + versi. */
@@ -262,19 +255,10 @@ async function runRemove() {
   writeMcpConfig(cfg);
 
   // Hapus juga config mode manual kalau ada.
-  let removedManual = false;
-  let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
-  for (const key of ["OBSIDIAN_VAULT_PATH", "OBSIDIAN_MODE"]) {
-    if (new RegExp(`^${key}=.*$`, "m").test(content)) {
-      content = content.replace(new RegExp(`^${key}=.*$`, "m"), "").replace(/\n{2,}/g, "\n");
-      removedManual = true;
-    }
-  }
-  if (removedManual) fs.writeFileSync(ENV_PATH, content.trimEnd() + "\n");
+  deleteConfig("OBSIDIAN_VAULT_PATH");
+  deleteConfig("OBSIDIAN_MODE");
 
-  if (cfg.servers.length < before) successLine("Konfigurasi MCP Obsidian dihapus.");
-  else if (removedManual) successLine("Konfigurasi manual (vault path) dihapus dari .env.");
-  else warnLine("Tidak ada konfigurasi Obsidian untuk dihapus.");
+  successLine("Konfigurasi MCP Obsidian & vault path dihapus.");
 }
 
 export async function cmdObsidian(argv) {

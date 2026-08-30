@@ -33,29 +33,9 @@ import * as ollamaMod from "./provider/ollama/index.js";
 const C = { line: chalk.hex("#58a6ff")("  │") };
 
 // ─────────────────────────────────────────────
-// .ENV HELPERS
+// CONFIG.YML HELPERS (core/config.js)
 // ─────────────────────────────────────────────
-const ENV_PATH = "./.env";
-
-function readEnv() {
-  if (!fs.existsSync(ENV_PATH)) return "";
-  return fs.readFileSync(ENV_PATH, "utf8");
-}
-
-function setEnv(key, value) {
-  let content = readEnv();
-  const regex = new RegExp(`^${key}=.*$`, "m");
-  const line  = `${key}=${value}`;
-  content = regex.test(content)
-    ? content.replace(regex, line)
-    : content + (content.endsWith("\n") || content === "" ? "" : "\n") + line;
-  fs.writeFileSync(ENV_PATH, content.trim() + "\n");
-}
-
-function getEnv(key) {
-  const match = readEnv().match(new RegExp(`^${key}=(.*)$`, "m"));
-  return match ? match[1].trim() : "";
-}
+import { getEnv, setEnv, getConfig, setConfig } from "./core/config.js";
 
 /** Deteksi first-run: belum pernah setup provider sama sekali. */
 function isFirstRun() {
