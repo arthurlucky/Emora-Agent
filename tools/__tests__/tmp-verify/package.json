@@ -1,1 +1,0 @@
-{"name":"fixture","scripts":{"test":"node --eval 'console.log(1)'"}}
