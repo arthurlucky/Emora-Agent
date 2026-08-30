@@ -336,6 +336,8 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       } catch (e) {
         return { type: "error", message: `Bot Error: ${e.message}` };
       }
+    }
+
     case "records": {
       try {
         const { isVaultInitialized } = await import("../core/recordsManager.js");
