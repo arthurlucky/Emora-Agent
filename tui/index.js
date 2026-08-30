@@ -162,21 +162,25 @@ export async function runTUI(options = {}) {
 
       // Auto Record on Exit (EMORA RECORDS Vault)
       try {
-        const { loadSession } = await import("../core/sessionStore.js");
-        const { extractAndRecordSession, hasPersonalitySignals, isVaultInitialized } = await import("../core/recordsManager.js");
-        if (isVaultInitialized()) {
-          const msgs = await loadSession(sid);
-          if (hasPersonalitySignals(msgs)) {
-            const masterPwd = process.env.EMORA_RECORDS_KEY || "";
-            if (masterPwd) {
-              const res = await extractAndRecordSession(msgs, masterPwd);
-              if (res.extractedCount > 0) {
-                console.log(chalk.green(`  🔐 [EMORA RECORDS] Otomatis merekam ${res.extractedCount} fakta kepribadian baru ke vault terenkripsi.`));
-                console.log("");
-              }
+        import("../core/sessionStore.js").then(({ loadSession }) => {
+          import("../core/recordsManager.js").then(({ extractAndRecordSession, hasPersonalitySignals, isVaultInitialized }) => {
+            if (isVaultInitialized()) {
+              loadSession(sid).then((msgs) => {
+                if (hasPersonalitySignals(msgs)) {
+                  const masterPwd = process.env.EMORA_RECORDS_KEY || "";
+                  if (masterPwd) {
+                    extractAndRecordSession(msgs, masterPwd).then((res) => {
+                      if (res && res.extractedCount > 0) {
+                        console.log(chalk.green(`  🔐 [EMORA RECORDS] Otomatis merekam ${res.extractedCount} fakta kepribadian baru ke vault terenkripsi.`));
+                        console.log("");
+                      }
+                    }).catch(() => {});
+                  }
+                }
+              }).catch(() => {});
             }
-          }
-        }
+          }).catch(() => {});
+        }).catch(() => {});
       } catch { /* silent auto-record fallback */ }
     } catch {}
   };
