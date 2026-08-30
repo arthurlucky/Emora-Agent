@@ -14,7 +14,7 @@ import { Box, Text, useInput, useStdout, useApp } from "ink";
 
 import { createInitialState, reducer } from "./state.js";
 import { computeScreen } from "./screen.js";
-import { createAgentController } from "./agentController.js";
+import { createAgentController } from "./ctl.js";
 import { handleKey } from "./keys.js";
 
 const h = React.createElement;
@@ -63,23 +63,36 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
   // Spinner tick buat animasi "sedang berpikir..." — HANYA saat thinking.
   // Dulu interval jalan terus walau idle → re-render 8x/detik + computeScreen
   // penuh tiap tick = CPU terbakar di sesi panjang.
+  // BUGFIX (TUI kelap-kelip pas AI merespon): tiap tick = computeScreen()
+  // dipanggil ulang PENUH + Ink nge-erase & nulis ulang SELURUH layar (Ink
+  // gak diff per-baris buat konten non-Static, jadi render ulang total tiap
+  // ada perubahan state). 120ms (~8x/detik) kegedean buat ini — dinaikkan
+  // ke 150ms: animasi masih halus di mata, tapi jumlah repaint layar penuh
+  // per detik berkurang.
   const statusRef = useRef(state.status);
   statusRef.current = state.status;
   useEffect(() => {
     const id = setInterval(() => {
       if (statusRef.current === "thinking") dispatch({ type: "SPINNER_TICK" });
-    }, 120);
+    }, 150);
     return () => clearInterval(id);
   }, []);
 
-  // Resize terminal
+  // Resize terminal — di-debounce dikit. Beberapa terminal ngirim banyak
+  // event "resize" beruntun pas window di-drag-resize, dan tiap event di
+  // sini sebelumnya langsung dispatch → 1 repaint Ink full-screen per
+  // event. Ikut nyumbang kelap-kelip kalau gak ditahan.
   useEffect(() => {
     if (!stdout) return;
+    let debounceId = null;
     const onResize = () => {
-      dispatch({ type: "SET_TERMINAL_SIZE", columns: stdout.columns, rows: stdout.rows });
+      clearTimeout(debounceId);
+      debounceId = setTimeout(() => {
+        dispatch({ type: "SET_TERMINAL_SIZE", columns: stdout.columns, rows: stdout.rows });
+      }, 60);
     };
     stdout.on("resize", onResize);
-    return () => stdout.off("resize", onResize);
+    return () => { clearTimeout(debounceId); stdout.off("resize", onResize); };
   }, [stdout]);
 
   // Pickup LLM baru kalau wizard baru aja ganti provider (lihat tui/keys.js)

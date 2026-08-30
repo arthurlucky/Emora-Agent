@@ -8,8 +8,8 @@
  */
 import { listSessions, renameSession, deleteSession } from "../core/sessionStore.js";
 import { loadSession } from "../core/memory.js";
-import { listSkillsForMenu, toggleSkill } from "./skillsMenu.js";
-import skillRegistry from "../core/skillRegistry.js";
+import { listSkillsForMenu, toggleSkill } from "./skills.js";
+import skillRegistry from "../core/skill.js";
 import { providerChoices, buildStepSequence, createWizardState } from "./wizard.js";
 import { getManager } from "../gateway/manager.js";
 import { isRunning as daemonIsRunning } from "../gateway/daemon.js";
@@ -20,21 +20,21 @@ import artifactManager from "../core/artifactManager.js";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 import fs from "fs";
 import path from "path";
+// BUGFIX: dipakai di case "model" (baris ~260) buat render daftar provider
+// tersimpan (C.green/C.bold/C.dim/C.faint) tapi gak pernah diimport — bikin
+// "✘ C is not defined" tiap kali /model (tanpa argumen) dijalankan.
+import { C } from "./styles.js";
 
 export const AVAILABLE_COMMANDS = [
-  "/help", "/clear", "/reset", "/mode", "/agentmode", "/stream",
-  "/setup", "/model", "/skin", "/history", "/resume", "/skills", "/tasks",
-  "/gateway", "/undo", "/redo", "/undo-history", "/exit", "/quit",
-  "/plugin", "/artifact", "/learn",
+  "/help", "/clear", "/reset", "/mode", "/stream",
+  "/setup", "/model", "/history", "/skills", "/tasks",
+  "/gateway", "/undo", "/redo", "/exit",
+  "/plugin", "/artifact", "/learn", "/thinking",
+  "/compact", "/copy", "/failover", "/tokens", "/doctor", "/context",
+  "/evolve", "/swarm", "/bot",
 ];
 
 // ── Cache nama skill/command buat autocomplete ──────────────────────────
-// skillRegistry.listAll() itu async (baca disk), sedangkan dropdown
-// autocomplete di tui/keys.js `updateSuggestions()` dipanggil SYNC tiap
-// keystroke — jadi hasil scan disimpan di cache module-level ini, di-refresh
-// di background (fire-and-forget), supaya /guide-emora, skill bawaan
-// lainnya, dan command/skill dari plugin ikut nongol di dropdown yang sama
-// dengan command bawaan TUI, tanpa bikin tiap ketikan nunggu I/O.
 let cachedSkillSlashNames = [];
 
 export function getSkillSuggestionCache() {
@@ -46,32 +46,38 @@ export async function refreshSkillSuggestionCache() {
     const all = await skillRegistry.listAll();
     cachedSkillSlashNames = all.map((s) => `/${s.slashName}`);
   } catch {
-    // gagal baca disk -> biarin cache lama (atau kosong kalau ini refresh pertama)
+    // gagal baca disk -> biarin cache lama
   }
 }
 
 function helpText() {
   return [
-    "Perintah yang tersedia:",
-    "  /help            - tampilkan ini",
-    "  /clear           - bersihkan layar (sesi tetap)",
-    "  /reset           - mulai sesi baru dari nol",
-    "  /mode <safe|autonomous> - kebijakan approval tool",
-    "  /agentmode <chat|simple|planned|deep> - gaya respons agent",
-    "  /stream          - toggle typewriter effect",
-    "  /setup           - wizard ganti provider/model AI",
-    "  /model [nama]    - pakai profile tersimpan; /model list|save|rm",
-    "  /history         - browser sesi tersimpan",
-    "  /resume <judul>  - lanjutkan sesi dari history by keyword",
-    "  /skills          - kelola skill (on/off)",
-    "  /tasks           - lihat background task",
-    "  /gateway         - status gateway Telegram/WhatsApp/Discord",
-    "  /plugin [list|disable|enable|reload|install] <nama|url> - kelola tool/plugin",
-    "  /artifact [list|get|delete] <id> - kelola Artifact tersimpan",
-    "  /learn <nama_skill> - susun sesi chat ini jadi Skill baru",
-    "  /<nama_skill_atau_command> [argumen] - jalankan skill/command apa pun (bawaan/plugin) langsung",
-    "  /undo /redo /undo-history - lihat catatan di bawah",
-    "  /exit, /quit     - keluar",
+    "Perintah utama yang tersedia:",
+    "  /help            - Tampilkan pesan bantuan ini",
+    "  /clear           - Bersihkan layar TUI (Ctrl+L)",
+    "  /reset           - Mulai sesi obrolan baru dari nol",
+    "  /mode <mode>     - Mode approval (autonomous | safe | plan)",
+    "  /thinking <mode> - Toggle reasoning mode (on | off | auto)",
+    "  /stream          - Toggle efek ngetik (typewriter streaming)",
+    "  /setup           - Wizard interaktif ganti provider/model/toolset",
+    "  /model [nama]    - Pilih/ganti model realtime (/model save|rm)",
+    "  /history         - Browser riwayat sesi tersimpan (Ctrl+R)",
+    "  /context [facts] - Status konteks, system prompt, & fakta tersimpan",
+    "  /evolve          - Self-Evolution Engine (auto-patch & self-healing)",
+    "  /swarm <tugas>   - Eksekusi tugas paralel serentak via Swarm Sub-Agents",
+    "  /compact         - Ringkas memori & simpan fakta durabel",
+    "  /copy            - Salin balasan/kode terakhir ke clipboard (Ctrl+Y)",
+    "  /failover        - Cek/atur urutan provider cadangan",
+    "  /tokens          - Tampilkan pemakaian token & link budget",
+    "  /doctor          - Diagnosa mandiri & auto-repair sistem",
+    "  /skills          - Kelola & aktifkan skill",
+    "  /tasks           - Lihat daftar background task",
+    "  /gateway         - Status messaging gateway (Telegram/WA/Discord)",
+    "  /plugin          - Kelola plugin & tool tambahan",
+    "  /artifact        - Lihat & kelola output artifact",
+    "  /learn <nama>    - Buat skill baru dari pengalaman sesi ini",
+    "  /undo / /redo    - Batalkan / ulangi perubahan file",
+    "  /exit            - Keluar dari EMORA CLI",
   ].join("\n");
 }
 
@@ -92,6 +98,245 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     case "clear":
       dispatch({ type: "SCROLL_RESET" });
       return { type: "notice", message: "Layar dibersihkan (riwayat tetap tersimpan)." };
+
+    case "compact":
+    case "compress": {
+      try {
+        const { loadSession } = await import("../core/memory.js");
+        const { extractSemanticFacts } = await import("../core/sessionMemory.js");
+        const memory = await loadSession(state.sessionId);
+        if (memory.length > 2) {
+          const { createLLM } = await import("../provider/index.js");
+          const llm = await createLLM([]);
+          await extractSemanticFacts(state.sessionId, memory, llm);
+        }
+        dispatch({ type: "SCROLL_RESET" });
+        return { type: "notice", message: "✓ Memori sesi diringkas & fakta penting berhasil disimpan durabel." };
+      } catch (e) {
+        return { type: "error", message: `Gagal kompresi: ${e.message}` };
+      }
+    }
+
+    case "copy":
+    case "yank": {
+      const lastMsg = [...(state.messages || [])].reverse().find((m) => m.role === "assistant" || m.role === "ai");
+      if (!lastMsg) return { type: "error", message: "Belum ada balasan AI untuk disalin." };
+      const text = typeof lastMsg.content === "string" ? lastMsg.content : String(lastMsg.content || "");
+      try {
+        const { execSync } = await import("child_process");
+        if (fs.existsSync("/data/data/com.termux")) {
+          execSync("termux-clipboard-set", { input: text });
+          return { type: "notice", message: `✓ Balasan terakhir (${text.length} karakter) disalin ke clipboard Termux!` };
+        } else {
+          execSync("xclip -selection clipboard", { input: text });
+          return { type: "notice", message: `✓ Balasan terakhir (${text.length} karakter) disalin ke clipboard!` };
+        }
+      } catch {
+        return { type: "notice", message: `📋 Balasan terakhir (${text.length} karakter):\n\n${text.slice(0, 300)}...` };
+      }
+    }
+
+    case "failover": {
+      const sub = rest[0]?.toLowerCase();
+      const cur = process.env.MODEL_PROVIDER || "ollama";
+      const chain = process.env.MODEL_FAILOVER || "groq,gemini,openrouter,ollama";
+      if (sub === "set" && rest[1]) {
+        process.env.MODEL_FAILOVER = rest.slice(1).join(",");
+        return { type: "notice", message: `✓ Rantai failover diubah ke: ${process.env.MODEL_FAILOVER}` };
+      }
+      return {
+        type: "notice",
+        message: `🛡️ MULTI-PROVIDER FAILOVER\nProvider aktif: ${cur}\nRantai failover: ${chain}\n\nUbah: /failover set <provider1,provider2,...>`,
+      };
+    }
+
+    case "tokens":
+    case "stats": {
+      const msgs = state.messages || [];
+      const totalChars = msgs.reduce((s, m) => s + (typeof m.content === "string" ? m.content.length : 0), 0);
+      const budget = Number(process.env.LINK_BUDGET) || 200_000;
+      const pct = Math.round((totalChars / budget) * 100);
+      return {
+        type: "notice",
+        message: `📊 STATISTIK SESI\nPesan: ${msgs.length}\nTotal Karakter: ${totalChars.toLocaleString()} chars\nLink Budget: ${budget.toLocaleString()} chars (${pct}% terpakai)`,
+      };
+    }
+
+    case "doctor": {
+      try {
+        const { runDoctor } = await import("../cli/cmd-doctor.js");
+        await runDoctor({ autoRepair: true });
+        return { type: "notice", message: "✓ Pemeriksaan & Auto-Repair Doctor selesai!" };
+      } catch (e) {
+        return { type: "error", message: `Doctor error: ${e.message}` };
+      }
+    }
+
+    case "context": {
+      const sub = rest[0]?.toLowerCase();
+      try {
+        const { listFacts } = await import("../core/sessionMemory.js");
+
+        if (sub === "facts") {
+          const facts = await listFacts(state.sessionId);
+          if (!facts.length) return { type: "notice", message: "Belum ada fakta durabel yang tersimpan untuk sesi ini." };
+          const lines = facts.map((f, i) => `${i + 1}. ${f.fact}`);
+          return { type: "notice", message: `🧠 FAKTA TERSIMPAN (SESI AKTIF):\n\n${lines.join("\n")}` };
+        }
+
+        const fs = await import("fs/promises");
+        const { resolveAgentPath } = await import("../core/agentMode.js");
+
+        const provider = (process.env.MODEL_PROVIDER || "groq").toUpperCase();
+        const model = process.env.MODEL_NAME || "qwen3.8-27b";
+        const maxTokens = Number(process.env.CONTEXT_WINDOW) || (provider.includes("GEMINI") ? 1_000_000 : 128_000);
+
+        const msgs = state.messages || [];
+        let userChars = 0, agentChars = 0, toolChars = 0;
+        for (const m of msgs) {
+          const len = typeof m.content === "string" ? m.content.length : JSON.stringify(m.content || "").length;
+          if (m.role === "user" || m._getType?.() === "human") userChars += len;
+          else if (m.role === "assistant" || m._getType?.() === "ai") agentChars += len;
+          else toolChars += len;
+        }
+
+        const userTokens = Math.round(userChars / 4);
+        const agentTokens = Math.round(agentChars / 4);
+        const toolTokens = Math.round(toolChars / 4);
+        const sysPromptTokens = 2500;
+        const sysToolsTokens = 3500;
+        const skillTokens = 1200;
+
+        const usedTokens = userTokens + agentTokens + toolTokens + sysPromptTokens + sysToolsTokens + skillTokens;
+        const freeTokens = Math.max(0, maxTokens - usedTokens);
+        const pct = Math.min(100, Math.round((usedTokens / maxTokens) * 1000) / 10);
+
+        const undoFiles = await fs.readdir(".emora/undo").catch(() => []);
+        const checkpointsCount = undoFiles.length;
+
+        // Grid renderer: 10 rows x 15 cols = 150 cells
+        const totalCells = 150;
+        const filledCells = Math.min(totalCells, Math.max(0, Math.round((usedTokens / maxTokens) * totalCells)));
+
+        const gridRows = [];
+        for (let r = 0; r < 10; r++) {
+          let rowStr = "";
+          for (let c = 0; c < 15; c++) {
+            const idx = r * 15 + c;
+            rowStr += (idx < filledCells ? "◉ " : "□ ");
+          }
+          gridRows.push(rowStr.trimEnd());
+        }
+
+        const formatK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+        const formatPct = (n) => `${((n / maxTokens) * 100).toFixed(1)}%`;
+
+        const picked = resolveAgentPath({
+          rootDir: process.cwd(),
+          modelId: model,
+        });
+
+        const facts = await listFacts(state.sessionId);
+
+        const rightLines = [
+          `${provider} (${model}) ·`,
+          `${formatK(usedTokens)}/${formatK(maxTokens)} tokens (${pct}%)`,
+          `Token usage by category`,
+          `◉ User messages: ${formatK(userTokens)} tokens (${formatPct(userTokens)})`,
+          `◉ Agent responses: ${formatK(agentTokens)} tokens (${formatPct(agentTokens)})`,
+          `◉ Tool calls: ${formatK(toolTokens)} tokens (${formatPct(toolTokens)})`,
+          `⛁ System prompt: ${formatK(sysPromptTokens)} tokens (${formatPct(sysPromptTokens)})`,
+          `⛁ System tools: ${formatK(sysToolsTokens)} tokens (${formatPct(sysToolsTokens)})`,
+          `⛁ Skills & Plugins: ${formatK(skillTokens)} tokens (${formatPct(skillTokens)})`,
+          `□ Free space: ${formatK(freeTokens)} tokens (${formatPct(freeTokens)})`,
+        ];
+
+        const dashboardLines = gridRows.map((gridRow, i) => {
+          const right = rightLines[i] || "";
+          return `${gridRow.padEnd(35)}  ${right}`;
+        });
+
+        const dashboard = [
+          `──────────────────────────────────────────────────────────────────────────────`,
+          `└ Context Usage`,
+          ...dashboardLines,
+          `                                   ⊠ Checkpoints buffer: ${checkpointsCount} snapshots`,
+          ``,
+          `Checkpoints (${checkpointsCount}) · /undo`,
+          `└ Checkpoint ${checkpointsCount > 0 ? checkpointsCount : 0} (active, in context): steps 1–${msgs.length}`,
+          `  ${facts.length} fakta durabel tersimpan untuk sesi ini (/context facts)`,
+          ``,
+          `System files · auto-loaded`,
+          ` └ ${picked.usedLite ? "AGENT_LITE.md (Mode Ringkas)" : "AGENT.md (Mode Penuh)"}`,
+          ` └ SOUL.md`,
+          ` └ skill/ & plugins/`,
+          ``,
+          `Related: /artifact · /skills · /undo · /context facts`,
+        ].join("\n");
+
+        return { type: "notice", message: dashboard };
+      } catch (e) {
+        return { type: "error", message: `Context error: ${e.message}` };
+      }
+    }
+
+    case "evolve": {
+      try {
+        const { runSelfEvolution } = await import("../core/evolver.js");
+        const res = await runSelfEvolution();
+        return { type: "notice", message: res };
+      } catch (e) {
+        return { type: "error", message: `Self-Evolution Error: ${e.message}` };
+      }
+    }
+
+    case "swarm": {
+      const task = rest.join(" ");
+      if (!task) return { type: "notice", message: "Gunakan: /swarm <deskripsi_tugas_kompleks>" };
+      try {
+        const { runSwarmMesh } = await import("../core/swarmEngine.js");
+        const res = await runSwarmMesh(task);
+        return { type: "notice", message: res };
+      } catch (e) {
+        return { type: "error", message: `Swarm Mesh Error: ${e.message}` };
+      }
+    }
+
+    case "bot": {
+      const sub = (rest[0] || "list").toLowerCase();
+      try {
+        const { listBots, listGroups } = await import("../core/botRegistry.js");
+        const { botMeshTool } = await import("../tools/bot_mesh.js");
+
+        if (sub === "list") {
+          const bots = await listBots();
+          const groups = await listGroups();
+          let msg = "🤖 **DAFTAR BOT PERUSAHAAN & PECAHAN AGENT:**\n\n";
+          for (const b of bots) {
+            msg += `• **${b.name}** (\`${b.id}\`) — ${b.role}\n`;
+          }
+          if (groups.length > 0) {
+            msg += "\n🏢 **DEPARTEMEN / GRUP BOT:**\n";
+            for (const g of groups) {
+              msg += `• **${g.name}** (Leader: \`${g.leaderBotId}\`)\n`;
+            }
+          }
+          return { type: "notice", message: msg };
+        }
+
+        if (sub === "run" || sub === "delegate") {
+          const botId = rest[1];
+          const task = rest.slice(2).join(" ");
+          if (!botId || !task) return { type: "notice", message: "Gunakan: /bot run <bot_id> <deskripsi_tugas>" };
+          const res = await botMeshTool.invoke({ action: "delegate_task", bot_id: botId, task });
+          return { type: "notice", message: res };
+        }
+
+        return { type: "notice", message: "Pakai: /bot list | /bot run <bot_id> <tugas>" };
+      } catch (e) {
+        return { type: "error", message: `Bot Error: ${e.message}` };
+      }
+    }
 
     case "reset": {
       const { createSession } = await import("../core/sessionStore.js");
@@ -141,12 +386,48 @@ export async function runSlashCommand(raw, { state, dispatch }) {
     }
 
     case "agentmode": {
+      return { type: "notice", message: "ℹ /agentmode digabung ke /mode. Gunakan: /mode <autonomous|safe|plan>" };
+    }
+
+    case "thinking": {
+      // /thinking [on|off|auto|status] — toggle soft-switch Qwen3/Qwen3.5
+      // ("/think" / "/no_think" disisip ke tiap pesan user). Lihat
+      // tools/thinking_mode.js untuk detail & alasan kenapa ini bukan tool.
+      const { getThinking, setThinking } = await import("../tools/thinking_mode.js");
       const val = (rest[0] || "").toLowerCase();
-      if (!["chat", "simple", "planned", "deep"].includes(val)) {
-        return { type: "notice", message: `Agent mode saat ini: ${state.agentMode}. Pilihan: chat, simple, planned, deep.` };
+
+      if (!val || val === "status") {
+        const cur = await getThinking();
+        return {
+          type: "notice",
+          message:
+            `Thinking mode saat ini: ${cur}\n\n` +
+            `  auto → model kecil (≤1.5B) otomatis /no_think, model lain ikut default\n` +
+            `  on   → paksa mikir (/think) tiap giliran — lebih akurat, lebih lambat\n` +
+            `  off  → paksa skip mikir (/no_think) tiap giliran — lebih cepat & hemat token\n\n` +
+            `Ganti: /thinking on | /thinking off | /thinking auto`,
+        };
       }
-      dispatch({ type: "SET_AGENT_MODE", agentMode: val });
-      return { type: "handled" };
+
+      if (!["on", "off", "auto"].includes(val)) {
+        return { type: "error", message: "Pakai: /thinking on | off | auto" };
+      }
+
+      const r = await setThinking(val);
+      if (!r.ok) return { type: "error", message: r.error };
+
+      const labels = {
+        on:   "🧠 ON — model dipaksa mikir (/think) tiap giliran.",
+        off:  "⚡ OFF — model skip proses mikir (/no_think), respons lebih cepat & hemat token.",
+        auto: "🔁 AUTO — model kecil (≤1.5B) otomatis diperlakukan seperti OFF; model lain ikut default.",
+      };
+      return {
+        type: "notice",
+        message:
+          `✅ Thinking mode diubah ke "${val}".\n${labels[val]}\n\n` +
+          `Catatan: soft-switch ini cuma berefek nyata di model keluarga Qwen3/Qwen3.5. ` +
+          `Model lain akan mengabaikan tag ini (aman, tidak merusak jawaban).`,
+      };
     }
 
     case "stream":

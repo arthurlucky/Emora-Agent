@@ -22,20 +22,26 @@ export const KEY_URL        = "https://console.groq.com";
 
 export const MODELS = [
   {
-    id:      "llama-3.3-70b-versatile",
-    label:   "llama-3.3-70b-versatile    — Terbaik untuk agent, recommended",
-    context: 128000,
-    tier:    "free",
-  },
-  {
     id:      "llama-3.1-8b-instant",
-    label:   "llama-3.1-8b-instant       — Tercepat, respons <1 detik",
+    label:   "llama-3.1-8b-instant       — Tercepat, respons <1 detik (recommended)",
     context: 128000,
     tier:    "free",
   },
   {
-    id:      "llama-3.3-70b-specdec",
-    label:   "llama-3.3-70b-specdec      — Speculative decoding, lebih cepat",
+    id:      "llama-3.3-70b-versatile",
+    label:   "llama-3.3-70b-versatile    — Terbaik untuk agent 70B",
+    context: 128000,
+    tier:    "free",
+  },
+  {
+    id:      "llama3-8b-8192",
+    label:   "llama3-8b-8192              — Llama 3 8B standar",
+    context: 8192,
+    tier:    "free",
+  },
+  {
+    id:      "llama3-70b-8192",
+    label:   "llama3-70b-8192             — Llama 3 70B standar",
     context: 8192,
     tier:    "free",
   },
@@ -52,34 +58,14 @@ export const MODELS = [
     tier:    "free",
   },
   {
-    id:      "llama-3.2-90b-vision-preview",
-    label:   "llama-3.2-90b-vision       — Support vision (gambar)",
-    context: 8192,
-    tier:    "free",
-    vision:  true,
-  },
-  {
-    id:      "llama-3.2-11b-vision-preview",
-    label:   "llama-3.2-11b-vision       — Vision ringan",
-    context: 8192,
-    tier:    "free",
-    vision:  true,
-  },
-  {
     id:      "deepseek-r1-distill-llama-70b",
     label:   "deepseek-r1-distill-70b    — Reasoning model (thinking)",
     context: 128000,
     tier:    "free",
   },
-  {
-    id:      "qwen-qwq-32b",
-    label:   "qwen-qwq-32b               — Qwen reasoning, kuat di math/code",
-    context: 32768,
-    tier:    "free",
-  },
 ];
 
-export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+export const DEFAULT_MODEL = "llama-3.1-8b-instant";
 
 /**
  * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts

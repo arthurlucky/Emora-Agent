@@ -140,7 +140,22 @@ export async function cmdPlugin(args) {
     return;
   }
 
-  console.log(C.muted("Sub-command tidak dikenal. Gunakan: list | disable <nama> | enable <nama> | reload <id> | install <path> | trust-hooks <id> | untrust-hooks <id> | list-hooks"));
+  if (sub === "remove" || sub === "uninstall" || sub === "delete") {
+    if (!name) return errorLine("Gunakan: emora plugin remove <plugin_id>");
+    try {
+      const ok = await pluginManager.uninstallPlugin(name);
+      if (ok) {
+        successLine(`Plugin "${name}" berhasil dihapus dari direktori plugins.`);
+      } else {
+        errorLine(`Plugin "${name}" tidak ditemukan di folder plugins.`);
+      }
+    } catch (err) {
+      errorLine(`Gagal menghapus plugin: ${err.message}`);
+    }
+    return;
+  }
+
+  console.log(C.muted("Sub-command tidak dikenal. Gunakan: list | disable <nama> | enable <nama> | reload <id> | install <path> | remove <id> | trust-hooks <id> | untrust-hooks <id> | list-hooks"));
 }
 
 /**

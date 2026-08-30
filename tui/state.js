@@ -76,6 +76,9 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
     terminalSize: { columns: columns || 80, rows: rows || 24 },
 
     quit: false,
+    // Timestamp Ctrl+C pertama saat idle (pola "tekan lagi buat keluar").
+    // null = belum "armed". Lihat handleKey()/handleCtrlC() di tui/keys.js.
+    exitArmedAt: null,
   };
 }
 
@@ -119,6 +122,17 @@ export function reducer(state, action) {
         suggestions: null,
         abortController: action.abortController,
         error: null,
+        // BUGFIX: notice (mis. dari /thinking, /mode, dst) sebelumnya cuma
+        // dibersihkan oleh CLEAR_TRANSIENT (Escape) atau ganti view — kalau
+        // user langsung ngirim pesan baru tanpa itu, notice LAMA numpuk di
+        // footer di bawah spinner turn yang baru ("teks hasil perintah gak
+        // pernah hilang"). Turn baru mulai = notice lama otomatis basi.
+        notice: null,
+        noticeBig: false,
+        // Turn baru mulai → lupain status "armed" dari Ctrl+C idle
+        // sebelumnya, supaya Ctrl+C pertama di turn ini PASTI menghentikan
+        // respons, bukan malah langsung keluar gara-gara sisa arming lama.
+        exitArmedAt: null,
         scrollOffset: 0,
       };
     }
@@ -181,7 +195,14 @@ export function reducer(state, action) {
     }
 
     case "AGENT_ABORTED": {
-      return { ...state, status: "idle", progressLines: [], abortController: null, notice: "Dihentikan." };
+      // Kalau abort ini abis dari Ctrl+C (exitArmedAt barusan di-set lewat
+      // ARM_EXIT di handleCtrlC — satu-satunya jalur yang bisa memicu abort
+      // di TUI ini), pertahankan hint "tekan lagi buat keluar" biar gak
+      // ke-timpa notice polos begitu status balik ke idle.
+      const notice = state.exitArmedAt != null
+        ? "Dihentikan. Tekan Ctrl+C sekali lagi untuk keluar."
+        : "Dihentikan.";
+      return { ...state, status: "idle", progressLines: [], abortController: null, notice };
     }
 
     case "APPROVAL_REQUEST":
@@ -316,7 +337,14 @@ export function reducer(state, action) {
       return { ...state, error: action.message };
 
     case "CLEAR_TRANSIENT":
-      return { ...state, error: null, notice: null };
+      return { ...state, error: null, notice: null, exitArmedAt: null };
+
+    case "ARM_EXIT":
+      // Ctrl+C pertama (saat idle) atau abis nyetop respons: "arm" tombol
+      // keluar + kasih notice, tapi belum betulan keluar. Ctrl+C KEDUA
+      // dalam jendela waktu tertentu (EXIT_CONFIRM_MS di keys.js) baru
+      // dispatch QUIT. Lihat handleCtrlC() di tui/keys.js.
+      return { ...state, exitArmedAt: Date.now(), notice: action.notice, noticeBig: false };
 
     case "SCROLL":
       return { ...state, scrollOffset: Math.max(0, state.scrollOffset + action.delta) };

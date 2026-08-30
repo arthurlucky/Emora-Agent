@@ -61,6 +61,17 @@ export function classifyError(err) {
     return { kind: "malformed_tool_call", recovery: RECOVERY.RETRY };
   }
 
+  // ── Ollama/llama.cpp: server jalan tanpa --jinja / template tanpa tools ─
+  // Jika request kirim parameter `tools` tapi Ollama belum/tidak mengaktifkan
+  // tool calling untuk model tersebut. Ini masalah KONFIGURASI server/model,
+  // bukan glitch sesaat — ABORT langsung supaya user dapat penjelasan solusi.
+  if (msg.includes("--jinja") || msg.includes("requires jinja") ||
+      (msg.includes("tools param") && msg.includes("jinja")) ||
+      msg.includes("does not support tools") || msg.includes("does not support function") ||
+      msg.includes("tools are not supported")) {
+    return { kind: "tools_require_jinja", recovery: RECOVERY.ABORT };
+  }
+
   // ── Server error umum ────────────────────────────────────────────────────
   if (status >= 500 && status < 600) {
     return { kind: "server_error", recovery: RECOVERY.RETRY_WITH_BACKOFF, delayMs: 3000 };

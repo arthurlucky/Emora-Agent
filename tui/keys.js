@@ -5,8 +5,8 @@
  * berdasar status/view saat ini — approval prompt & tiap alternate view
  * (history/skills/wizard/dst) punya keybinding sendiri-sendiri.
  */
-import { AVAILABLE_COMMANDS, runSlashCommand, renameSession, deleteSession, getSkillSuggestionCache, refreshSkillSuggestionCache } from "./slashCommands.js";
-import { toggleSkill } from "./skillsMenu.js";
+import { AVAILABLE_COMMANDS, runSlashCommand, renameSession, deleteSession, getSkillSuggestionCache, refreshSkillSuggestionCache } from "./cmd.js";
+import { toggleSkill } from "./skills.js";
 import { loadSession } from "../core/memory.js";
 import {
   providerChoices, needsApiKey, needsUrl, buildStepSequence,
@@ -14,16 +14,32 @@ import {
 } from "./wizard.js";
 import { createLLM, getProviderMeta } from "../provider/index.js";
 
+let cachedFileNames = [];
+async function refreshFileCache() {
+  try {
+    const fs = await import("fs/promises");
+    const files = await fs.readdir(process.cwd(), { withFileTypes: true });
+    cachedFileNames = files
+      .filter((f) => !f.name.startsWith(".") && f.name !== "node_modules")
+      .map((f) => `@${f.name}`);
+  } catch {}
+}
+refreshFileCache();
+
 function updateSuggestions(dispatch, value) {
+  if (value.includes("@")) {
+    const lastWord = value.split(/\s+/).pop() || "";
+    if (lastWord.startsWith("@")) {
+      const matches = cachedFileNames.filter((f) => f.toLowerCase().startsWith(lastWord.toLowerCase()));
+      dispatch({ type: matches.length ? "SET_SUGGESTIONS" : "CLEAR_SUGGESTIONS", suggestions: matches.length ? matches : undefined });
+      return;
+    }
+  }
+
   if (!value.startsWith("/") || value.includes(" ")) {
     dispatch({ type: "CLEAR_SUGGESTIONS" });
     return;
   }
-  // Gabung command bawaan TUI DENGAN nama skill/command (bawaan + plugin,
-  // termasuk bentuk namespaced "/plugin:nama") — dulu dropdown ini cuma
-  // berisi 21 command bawaan, jadi skill/plugin sama sekali gak nongol di
-  // sini walau bisa dipanggil manual. Dedup pakai Set karena nama skill
-  // bawaan bisa saja tabrakan persis sama command bawaan (jarang, tapi aman).
   const combined = [...new Set([...AVAILABLE_COMMANDS, ...getSkillSuggestionCache()])];
   const matches = combined.filter((c) => c.startsWith(value));
   dispatch({ type: matches.length ? "SET_SUGGESTIONS" : "CLEAR_SUGGESTIONS", suggestions: matches.length ? matches : undefined });
@@ -86,13 +102,9 @@ function wordJumpFwd(value, pos) {
 }
 
 // ── Chat view ────────────────────────────────────────────────────────────────
+// Ctrl+C DITANGANI GLOBAL di handleKey() di bawah (lihat handleCtrlC) —
+// supaya jalan konsisten di semua view/status, termasuk pas approval prompt.
 async function handleChatKeys({ state, dispatch, controller, input, key }) {
-  if (key.ctrl && input === "c") {
-    if (state.status === "thinking") controller.stop();
-    else dispatch({ type: "QUIT" });
-    return;
-  }
-
   if (state.suggestions?.length) {
     if (key.upArrow) return dispatch({ type: "MOVE_SUGGESTION", delta: -1 });
     if (key.downArrow) return dispatch({ type: "MOVE_SUGGESTION", delta: 1 });
@@ -310,9 +322,84 @@ async function handleWizardKeys({ state, dispatch, key, input }) {
   }
 }
 
+// ── Ctrl+C: hentikan respons, tekan lagi buat keluar ──────────────────────────
+// Pola dobel-tekan ala CLI modern (Claude Code, npm, dst):
+//   • Ctrl+C PERTAMA: hentikan respons AI yang lagi jalan — apapun bentuknya
+//     (thinking, tool-loop, streaming, ATAU lagi nunggu approval). Kalau
+//     lagi idle (gak ada yang perlu dihentikan), cuma "arm" tombol keluar.
+//   • Ctrl+C KEDUA dalam EXIT_CONFIRM_MS setelah itu (state udah idle lagi)
+//     → betulan keluar dari CLI.
+//
+// SEBELUMNYA Ctrl+C cuma ditangani di dalam handleChatKeys (chat view doang)
+// dan langsung QUIT di penekanan PERTAMA kalau idle, tanpa konfirmasi. Yang
+// lebih parah: approval prompt (handleApprovalKeys), history/skills/wizard/
+// model-picker/dst SAMA SEKALI GAK dengarin Ctrl+C — itu sumber utama bug
+// "stuck, gak bisa keluar": ask() di core/chat.js nyangkut selamanya di
+// `await onApproval(...)` nunggu jawaban yang gak akan pernah datang kalau
+// Ctrl+C diabaikan gitu aja. Makanya sekarang ditangani di SATU tempat, di
+// paling atas handleKey(), SEBELUM routing per-view — supaya Ctrl+C selalu
+// nyala di semua state/view, gak peduli lagi di layar apa.
+const EXIT_CONFIRM_MS = 2000;
+
+function isBusyStatus(status) {
+  return status === "thinking"
+    || status === "approval_pending"
+    || status === "chain_limit_pending"
+    || status === "ask_user_pending";
+}
+
+function handleCtrlC({ state, dispatch, controller }) {
+  const now = Date.now();
+  // exitArmedAt != null (bukan cek truthy) — Date.now() = 0 gak realistis
+  // di dunia nyata (itu epoch 1970), tapi cek eksplisit lebih aman drpd
+  // ngandelin coercion falsy/truthy buat angka.
+  const armed = state.exitArmedAt != null && (now - state.exitArmedAt) <= EXIT_CONFIRM_MS;
+
+  if (isBusyStatus(state.status)) {
+    // controller.stop() juga otomatis nolak approval yang lagi pending
+    // (lihat agentController.js) — jadi ini AMAN dipanggil dari state apa
+    // pun yang dianggap "busy", termasuk approval_pending.
+    controller.stop();
+    dispatch({ type: "ARM_EXIT", notice: "Dihentikan. Tekan Ctrl+C sekali lagi untuk keluar." });
+    return;
+  }
+
+  if (armed) {
+    dispatch({ type: "QUIT" });
+    return;
+  }
+
+  dispatch({ type: "ARM_EXIT", notice: "Tekan Ctrl+C sekali lagi untuk keluar dari EMORA." });
+}
+
 // ── Entry point ──────────────────────────────────────────────────────────────
 export async function handleKey(ctx) {
-  const { state } = ctx;
+  const { state, dispatch, controller, input, key } = ctx;
+
+  if (key.ctrl && input === "c") {
+    handleCtrlC({ state, dispatch, controller });
+    return;
+  }
+
+  // ── Global Keyboard Shortcuts ──────────────────────────────────────────────
+  if (key.ctrl && input === "l") {
+    dispatch({ type: "SCROLL_RESET" });
+    return;
+  }
+
+  if (key.ctrl && input === "r") {
+    const { listSessions } = await import("../core/sessionStore.js");
+    const sessions = await listSessions();
+    dispatch({ type: "SET_HISTORY_VIEW", sessions });
+    return;
+  }
+
+  if (key.ctrl && input === "y") {
+    const { runSlashCommand } = await import("./slashCommands.js");
+    const res = await runSlashCommand("/copy", { state, dispatch });
+    if (res?.message) dispatch({ type: "SET_NOTICE", message: res.message });
+    return;
+  }
 
   if (state.modelPicker) return handleModelPickerKeys(ctx);
   if (state.approval) return handleApprovalKeys(ctx);

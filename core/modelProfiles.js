@@ -41,9 +41,10 @@ export async function listProfiles() {
 
 /** Simpan config .env aktif sebagai profile. Auto-dipanggil oleh emora setup model. */
 export async function saveProfile(name) {
-  if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error("Nama profile tidak valid (huruf/angka/-/_).");
+  if (!name || typeof name !== "string" || !name.trim()) throw new Error("Nama profile tidak boleh kosong.");
+  const profileKey = name.trim();
   const data = await load();
-  data.profiles[name] = {
+  data.profiles[profileKey] = {
     provider: process.env.MODEL_PROVIDER || "",
     apiKey: process.env.MODEL_API || "",
     url: process.env.MODEL_URL || "",
@@ -55,13 +56,13 @@ export async function saveProfile(name) {
   // Juga daftarkan sebagai custom endpoint bila provider=custom.
   if ((process.env.MODEL_PROVIDER || "") === "custom" && process.env.MODEL_URL) {
     await addCustomEndpoint({
-      name,
+      name: profileKey,
       url: process.env.MODEL_URL,
       apiKey: process.env.MODEL_API || "",
       models: [process.env.MODEL_NAME].filter(Boolean),
     });
   }
-  return data.profiles[name];
+  return data.profiles[profileKey];
 }
 
 export async function useProfile(name, setEnvFn) {
@@ -142,28 +143,64 @@ export const COMPAT_TYPES = [
 
 /** Ambil daftar model LIVE dari sebuah URL. Mendukung openai & ollama format.
  *  anthropic/gemini tak punya /models publik → return []. */
-export async function fetchCustomModels(url, apiKey = "", compat = "openai") {
+export async function fetchCustomModels(url, apiKey = "", compat = "auto") {
   if (!url) return [];
-  try {
-    if (compat === "ollama") {
-      const base = url.replace(/\/v1\/?$/, "");
-      const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) return [];
+  const cleanUrl = url.trim().replace(/\/$/, "");
+  const baseOrigin = cleanUrl.replace(/\/v1\/?$/, "").replace(/\/api\/?$/, "");
+
+  // Multi-protocol candidate probe endpoints (OpenAI, Ollama, Anthropic, Groq, Gemini)
+  const endpoints = [
+    { url: `${cleanUrl}/models`, headers: apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey } : {} },
+    { url: `${baseOrigin}/v1/models`, headers: apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey, "anthropic-version": "2023-06-01" } : {} },
+    { url: `${baseOrigin}/api/tags` },
+    { url: `${baseOrigin}/api/models` },
+    { url: `${baseOrigin}/v1beta/models?key=${apiKey}` },
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep.url, {
+        headers: ep.headers || {},
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) continue;
+
       const json = await res.json();
-      return (json.models || []).map(m => ({ id: m.name, name: m.name }));
+
+      // Format 1: OpenAI / Groq / Anthropic ({ data: [ { id: "gpt-4" }, ... ] })
+      if (json.data && Array.isArray(json.data)) {
+        const found = json.data.map(m => ({
+          id: String(m.id || m.name || ""),
+          name: String(m.name || m.id || ""),
+        })).filter(m => m.id);
+        if (found.length > 0) return found;
+      }
+
+      // Format 2: Ollama native ({ models: [ { name: "llama3" }, ... ] })
+      if (json.models && Array.isArray(json.models)) {
+        const found = json.models.map(m => {
+          const rawName = String(m.name || m.displayName || m.id || m.model || "");
+          const cleanName = rawName.replace(/^models\//, "");
+          return { id: cleanName, name: cleanName };
+        }).filter(m => m.id);
+        if (found.length > 0) return found;
+      }
+
+      // Format 3: Array of objects or strings directly ([ "llama3", ... ])
+      if (Array.isArray(json)) {
+        const found = json.map(m => ({
+          id: typeof m === "string" ? m : String(m.id || m.name || m.model || ""),
+          name: typeof m === "string" ? m : String(m.name || m.id || m.model || ""),
+        })).filter(m => m.id);
+        if (found.length > 0) return found;
+      }
+    } catch {
+      // Probe next candidate endpoint
     }
-    // openai-compat: GET {url}/models
-    const base = url.replace(/\/$/, "");
-    const res = await fetch(`${base}/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return (json.data || []).map(m => ({ id: m.id, name: m.id }));
-  } catch {
-    return [];
   }
+
+  return [];
 }
 
 // ── Display ───────────────────────────────────────────────────────────────────

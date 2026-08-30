@@ -20,12 +20,18 @@ export const KEY_URL        = "https://ollama.com";
 
 // Model populer yang support tool calling di Ollama
 export const KNOWN_MODELS = [
+  { id: "qwen2.5:0.5b",          label: "qwen2.5:0.5b           — Ultra ringan, tool calling OK",  context: 32768  },
+  { id: "qwen2.5:1.5b",          label: "qwen2.5:1.5b           — Ringan, tool calling OK",        context: 32768  },
+  { id: "qwen2.5:3b",            label: "qwen2.5:3b             — Cepat & akurat",                  context: 32768  },
+  { id: "qwen2.5:7b",            label: "qwen2.5:7b             — Bagus untuk coding",             context: 128000 },
+  { id: "qwen2.5:14b",           label: "qwen2.5:14b            — Lebih powerful",                 context: 128000 },
+  { id: "qwen2:0.5b",            label: "qwen2:0.5b             — Qwen2 0.5B (Ollama v0.3+ / Jinja)", context: 32768 },
+  { id: "qwen2:1.5b",            label: "qwen2:1.5b             — Qwen2 1.5B",                     context: 32768  },
+  { id: "qwen2:7b",              label: "qwen2:7b               — Qwen2 7B",                       context: 128000 },
   { id: "llama3.2:3b",           label: "llama3.2:3b            — Paling ringan, tool calling OK", context: 128000 },
   { id: "llama3.2:1b",           label: "llama3.2:1b            — Ultra ringan",                   context: 128000 },
   { id: "llama3.1:8b",           label: "llama3.1:8b            — Balance terbaik",                context: 128000 },
   { id: "llama3.1:70b",          label: "llama3.1:70b           — Butuh GPU kuat / RAM 48GB+",     context: 128000 },
-  { id: "qwen2.5:7b",            label: "qwen2.5:7b             — Bagus untuk coding",             context: 128000 },
-  { id: "qwen2.5:14b",           label: "qwen2.5:14b            — Lebih powerful",                 context: 128000 },
   { id: "mistral:7b",            label: "mistral:7b             — Stabil, tool calling support",   context: 32768  },
   { id: "mistral-nemo:12b",      label: "mistral-nemo:12b       — Nemo, context 128K",            context: 128000 },
   { id: "deepseek-r1:7b",        label: "deepseek-r1:7b         — Reasoning lokal",               context: 128000 },
@@ -75,5 +81,5 @@ export function createLLM({ apiKey, model, tools = [], ollamaHost } = {}) {
     modelKwargs: { keep_alive: "5m" },
   });
 
-  return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
+  return tools.length ? llm.bindTools(tools) : llm;
 }

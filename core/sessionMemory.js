@@ -177,4 +177,42 @@ export async function searchHistory(query, { excludeSessionId = null, limit = 5 
   return results.slice(0, limit);
 }
 
-export default { rememberFact, listFacts, forgetFact, formatFactsForPrompt, searchHistory };
+/**
+ * Semantic Memory Compaction (Feature #5):
+ * Ekstrak fakta-fakta penting dari riwayat pesan lalu simpan secara durabel ke sessionMemory.
+ */
+export async function extractSemanticFacts(sessionId, messages, llm) {
+  if (!sessionId || !messages || messages.length < 3 || !llm) return;
+  try {
+    const { SystemMessage, HumanMessage } = await import("@langchain/core/messages");
+    const toAnalyze = messages
+      .map((m) => `${m.role || m._getType?.() || "msg"}: ${String(m.content).slice(0, 300)}`)
+      .join("\n");
+
+    const prompt = [
+      new SystemMessage(
+        "Tugas Anda: Ekstrak fakta penting (preferensi user, keputusan teknis, detail proyek, aturan yang disepakati) dari percakapan berikut. " +
+        "Kembalikan HANYA JSON array string, contoh: [\"User suka warna biru\", \"Project menggunakan React\"]. Jika tidak ada fakta baru, kembalikan []."
+      ),
+      new HumanMessage(toAnalyze.slice(0, 15_000)),
+    ];
+
+    const res = await llm.invoke(prompt);
+    const content = typeof res.content === "string" ? res.content : String(res.content ?? "");
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const facts = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(facts)) {
+        for (const fact of facts) {
+          if (typeof fact === "string" && fact.trim() && fact.trim().length > 3) {
+            await rememberFact(sessionId, fact.trim());
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[sessionMemory] extractSemanticFacts error (diabaikan): ${err.message}`);
+  }
+}
+
+export default { rememberFact, listFacts, forgetFact, formatFactsForPrompt, searchHistory, extractSemanticFacts };

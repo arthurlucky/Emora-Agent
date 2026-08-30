@@ -47,6 +47,7 @@
 import fs from "fs/promises";
 import fssync from "fs";
 import path from "path";
+import os from "os";
 import { wrapUntrustedContent } from "./promptSafety.js";
 
 const ROOT = process.cwd();
@@ -298,13 +299,83 @@ async function scanPluginSkillsAndCommands() {
 // scanBuiltinSkills + scanPluginSkillsAndCommands baca disk tiap panggil
 // (47-264ms). Cache hasil, invalidate otomatis kalau mtime skill/ atau
 // plugins/ berubah — jadi install/uninstall skill tetap live tanpa restart.
+const GLOBAL_SKILLS_DIRS = [
+  path.join(os.homedir(), ".emora", "skills"),
+  path.join(os.homedir(), ".agents", "skills"),
+  path.join(os.homedir(), ".gemini", "skills"),
+  path.join(os.homedir(), ".gemini", "antigravity-cli", "builtin", "skills"),
+];
+
+async function scanGlobalSkills() {
+  const out = [];
+  const visitedDirs = new Set();
+
+  for (const baseDir of GLOBAL_SKILLS_DIRS) {
+    if (!fssync.existsSync(baseDir)) continue;
+
+    let entries;
+    try {
+      entries = await fs.readdir(baseDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name.endsWith(".disabled")) continue;
+
+      const dir = path.join(baseDir, e.name);
+      if (visitedDirs.has(dir)) continue;
+      visitedDirs.add(dir);
+
+      const mdPath = await findSkillFile(dir);
+      if (!mdPath) continue;
+
+      let description = null;
+      let categories = [];
+      let version = null;
+
+      try {
+        const mdRaw = await fs.readFile(mdPath, "utf8");
+        const { meta } = parseFrontmatter(mdRaw);
+        if (meta.description) description = meta.description;
+        if (meta.categories) {
+          categories = String(meta.categories).split(",").map((c) => c.trim()).filter(Boolean);
+        }
+        if (meta.version) version = meta.version;
+      } catch { /* noop */ }
+
+      out.push({
+        id: e.name,
+        namespace: "global",
+        name: sanitizeSegment(e.name),
+        slashName: `global:${sanitizeSegment(e.name)}`,
+        kind: "skill",
+        source: "global",
+        pluginId: "global",
+        description: description || `Global skill (${e.name})`,
+        categories,
+        version,
+        mdPath,
+      });
+    }
+  }
+  return out;
+}
+
+// ── Cache listAll (PERF) ────────────────────────────────────────────────────
 let _listAllCache = null;
 let _listAllCacheKey = "";
 
 async function _dirMtimeKey() {
   const fsSync = await import("fs");
   const keys = [];
-  for (const dir of [SKILL_DIR, path.join(process.cwd(), "plugins")]) {
+  const checkDirs = [
+    SKILL_DIR,
+    path.join(process.cwd(), "plugins"),
+    ...GLOBAL_SKILLS_DIRS,
+  ];
+  for (const dir of checkDirs) {
     try {
       const st = await fsSync.promises.stat(dir);
       keys.push(`${dir}:${Math.floor(st.mtimeMs / 1000)}`);
@@ -317,11 +388,12 @@ export async function listAll() {
   const key = await _dirMtimeKey();
   if (_listAllCache && key === _listAllCacheKey) return _listAllCache;
 
-  const [builtin, plugin] = await Promise.all([
+  const [builtin, globalSkills, plugin] = await Promise.all([
     scanBuiltinSkills(),
+    scanGlobalSkills(),
     scanPluginSkillsAndCommands(),
   ]);
-  _listAllCache = [...builtin, ...plugin];
+  _listAllCache = [...builtin, ...globalSkills, ...plugin];
   _listAllCacheKey = key;
   return _listAllCache;
 }

@@ -14,7 +14,8 @@
     "postinstall": "chmod +x bin/emora.js 2>/dev/null || true",
     "webui:install": "npm install --prefix webui",
     "webui:dev": "npm run dev --prefix webui",
-    "webui:build": "npm run build --prefix webui"
+    "webui:build": "npm run build --prefix webui",
+    "web": "node webui/server.js"
   },
   "keywords": [
     "ai",
@@ -35,9 +36,11 @@
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "axios": "^1.9.0",
+    "better-sqlite3": "^13.0.3",
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "cli-highlight": "^2.1.11",
+    "cors": "^2.8.5",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
     "ejs": "^3.1.10",
@@ -55,6 +58,7 @@
     "pino": "^8.14.1",
     "react": "^18.3.1",
     "telegraf": "^4.16.3",
+    "vite": "^5.3.0",
     "zod": "^3.24.2"
   },
   "engines": {

@@ -90,152 +90,9 @@ function showSetupBanner() {
 // ─────────────────────────────────────────────
 // SECTION: AI PROVIDER
 // ─────────────────────────────────────────────
-async function setupProvider() {
-  sectionHeader("AI PROVIDER", "Pilih provider untuk model bahasa EMORA");
-
-  const provider = await select("Pilih provider AI:", [
-    { label: "Groq               — Gratis, cepat, llama/gemma",   value: "groq",        hint: "GRATIS" },
-    { label: "Google Gemini      — Gratis, gemini-2.0-flash",      value: "gemini",      hint: "GRATIS" },
-    { label: "OpenRouter         — Multi-model, ada yg gratis",    value: "openrouter",  hint: "GRATIS" },
-    { label: "NVIDIA NIM         — Gratis, llama enterprise",      value: "nvidia",      hint: "GRATIS" },
-    { label: "HuggingFace        — Custom model, gratis/pro",      value: "huggingface", hint: "GRATIS" },
-    { label: "Anthropic Claude   — Claude 3.5/4, terbaik",         value: "anthropic",   hint: "BAYAR"  },
-    { label: "OpenAI             — GPT-4o, paling populer",        value: "openai",      hint: "BAYAR"  },
-    { label: "Ollama (Lokal)     — Jalankan model di device sendiri", value: "ollama",   hint: "LOKAL"  },
-    { label: "Custom Endpoint    — LM Studio, vLLM, dsb",          value: "custom",      hint: "CUSTOM" },
-  ]);
-
-  setEnv("MODEL_PROVIDER", provider);
-
-  if (provider === "ollama") {
-    const host = await input("Ollama host:", getEnv("OLLAMA_HOST") || "http://localhost:11434");
-    const hostClean = host.replace(/\/$/, "");
-    setEnv("OLLAMA_HOST", hostClean);
-    setEnv("MODEL_URL", `${hostClean}/v1`);
-    setEnv("MODEL_API", "ollama");
-
-    const doScan = await confirm("Auto scan model dari Ollama?", { default: true });
-    let modelName = "";
-
-    if (doScan) {
-      const spinner = ora("  Scanning model...").start();
-      try {
-        const res  = await fetch(`${hostClean}/api/tags`, { signal: AbortSignal.timeout(4000) });
-        const data = await res.json();
-        const models = (data.models || []).map(m => m.name);
-
-        if (!models.length) {
-          spinner.warn("Tidak ada model. Pilih dari daftar populer atau ketik manual.");
-          const known = ollamaMod.KNOWN_MODELS.map(m => ({ label: m.label, value: m.id }));
-          known.push({ label: "Ketik sendiri...", value: "__manual__" });
-          let chosen = await select("Pilih model:", known);
-          modelName = chosen === "__manual__" ? await input("Nama model:") : chosen;
-        } else {
-          spinner.succeed(`Ditemukan ${models.length} model`);
-          modelName = await select("Pilih model:", models.map(m => ({ label: m, value: m })));
-        }
-      } catch {
-        spinner.fail("Ollama tidak bisa dijangkau.");
-        modelName = await input("Nama model:", ollamaMod.DEFAULT_MODEL);
-      }
-    } else {
-      const known = ollamaMod.KNOWN_MODELS.map(m => ({ label: m.label, value: m.id }));
-      known.push({ label: "Ketik sendiri...", value: "__manual__" });
-      let chosen = await select("Pilih model:", known);
-      modelName = chosen === "__manual__" ? await input("Nama model:") : chosen;
-    }
-
-    setEnv("MODEL_NAME", modelName);
-
-    const spin2 = ora(`  Test koneksi ke ${modelName}...`).start();
-    try {
-      const r = await fetch(`${hostClean}/api/show`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: modelName }),
-        signal: AbortSignal.timeout(4000),
-      });
-      r.ok ? spin2.succeed("Model tersedia!") : spin2.warn("Model mungkin belum didownload — jalankan: ollama pull " + modelName);
-    } catch {
-      spin2.fail("Gagal terhubung ke Ollama saat test.");
-    }
-
-  } else {
-    const modPath   = provider === "custom" ? "./provider/customEndpoint/index.js" : `./provider/${provider}/index.js`;
-    let provMod     = {};
-    try { provMod = await import(modPath); } catch {}
-
-    const keyUrl    = provMod.KEY_URL || null;
-    const baseUrl   = provMod.BASE_URL || null;
-    const models    = provMod.MODELS   || [];
-    const defModel  = provMod.DEFAULT_MODEL || "";
-
-    console.log(C.line);
-
-    if (provider === "anthropic") {
-      warnLine("Butuh extra package: npm install @langchain/anthropic");
-    }
-
-    if (keyUrl) infoLine("Dapatkan API key di:", keyUrl, "cyan");
-    console.log(C.line);
-
-    if (provider === "ollama") {
-      // skip — sudah ditangani di branch atas
-    } else if (provider === "custom") {
-      const customUrl = await input("Base URL endpoint (mis. http://localhost:1234/v1):", getEnv("MODEL_URL") || "");
-      setEnv("MODEL_URL", customUrl);
-      const apiKey = await input("API Key (kosong jika tidak ada):", "", false);
-      if (apiKey) setEnv("MODEL_API", apiKey);
-    } else {
-      const envKeyName = {
-        anthropic:   "ANTHROPIC_API_KEY",
-        huggingface: "HUGGINGFACE_API_KEY",
-        openai:      "OPENAI_API_KEY",
-      }[provider] || "MODEL_API";
-
-      const apiKey = await input(`${PROVIDERS[provider]?.label || provider} API Key:`, "", true);
-      setEnv(envKeyName,  apiKey);
-      setEnv("MODEL_API", apiKey);
-      if (baseUrl) setEnv("MODEL_URL", baseUrl);
-    }
-
-    if (provider === "huggingface") {
-      const useCustom = await confirm("Punya HF Dedicated Endpoint?", { default: false });
-      if (useCustom) {
-        const endpoint = await input("URL Dedicated Endpoint:");
-        setEnv("HUGGINGFACE_ENDPOINT_URL", endpoint);
-        setEnv("MODEL_URL", endpoint.endsWith("/v1") ? endpoint : `${endpoint.replace(/\/$/, "")}/v1`);
-        setEnv("MODEL_NAME", "tgi");
-        successLine("Custom endpoint disimpan");
-        successLine("Konfigurasi provider berhasil disimpan");
-        sectionFooter();
-        return;
-      }
-    }
-
-    if (models.length) {
-      const choices = models.map(m => ({ label: m.label || m.id, value: m.id }));
-      choices.push({ label: "Ketik nama model sendiri...", value: "__custom__" });
-      let chosen = await select("Pilih model:", choices);
-      if (chosen === "__custom__") chosen = await input("Nama model:");
-      setEnv("MODEL_NAME", chosen);
-    } else {
-      setEnv("MODEL_NAME", await input("Nama model:", defModel));
-    }
-  }
-
-  if (!getEnv("TAVILY_API_KEY")) {
-    console.log(C.line);
-    const setTavily = await confirm("Setup Tavily API (web search)? Bisa dilewati", { default: false });
-    if (setTavily) {
-      warnLine("Dapatkan di: https://app.tavily.com (gratis 1000 req/bln)");
-      const tavilyKey = await input("Tavily API Key:", "", true);
-      setEnv("TAVILY_API_KEY", tavilyKey);
-    }
-  }
-
-  successLine("Konfigurasi provider berhasil disimpan");
-  sectionFooter();
+async function setupModel() {
+  const { cmdModel } = await import("./cli/cmd-model.js");
+  await cmdModel();
 }
 
 // ─────────────────────────────────────────────
@@ -417,6 +274,67 @@ async function setupAdvancedBehavior() {
 }
 
 // ─────────────────────────────────────────────
+// SECTION: TOOLSET MANAGER (Aktifkan / Nonaktifkan Tool)
+// ─────────────────────────────────────────────
+async function setupToolset() {
+  const ts = await import("./utils/toolsets.js");
+  const presets = Object.keys(ts.PRESETS);
+
+  let running = true;
+  while (running) {
+    const activeGroups = await ts.getActiveGroups();
+    sectionHeader("TOOLSET MANAGER", `Grup Aktif: ${activeGroups.join(", ")}`);
+    infoLine("Fungsi Toolset", "membatasi / memilih daftar tool yang dapat dipanggil agen untuk menghemat token", "cyan");
+    console.log(C.line);
+
+    const action = await select("Pilih opsi pengaturan toolset:", [
+      { label: "📦  Pilih Preset Toolset (coding, chat, full, minimal)", value: "preset" },
+      { label: "⚙️   Aktifkan / Nonaktifkan Grup Tool Spesifik",         value: "toggle_group" },
+      { label: "←   Kembali ke Menu utama",                           value: "back" },
+    ]);
+
+    if (action === "back") {
+      running = false;
+      break;
+    }
+
+    if (action === "preset") {
+      const presetChoices = presets.map((p) => ({
+        label: `${p.padEnd(12)} — grup: ${ts.PRESETS[p].join(", ")}`,
+        value: p,
+      }));
+      const chosen = await select("Pilih Preset Toolset:", presetChoices);
+      await ts.applyPreset(chosen);
+      const { reloadToolset } = await import("./core/tools.js");
+      const n = await reloadToolset();
+      successLine(`Preset "${chosen}" berhasil diterapkan (${n} tools live).`);
+    } else if (action === "toggle_group") {
+      const ALL_GROUPS = Object.keys(ts.TOOL_GROUPS);
+      const choices = ALL_GROUPS.map((g) => {
+        const active = activeGroups.includes(g);
+        const count = (ts.TOOL_GROUPS[g] || []).length;
+        return {
+          label: `${active ? "🟢 [AKTIF]   " : "🔴 [NONAKTIF]"} ${g.padEnd(12)} (${count} tools)`,
+          value: g,
+        };
+      });
+      const groupToToggle = await select("Pilih grup tool untuk di-toggle:", choices);
+      const isCurrentlyActive = activeGroups.includes(groupToToggle);
+      const nextGroups = isCurrentlyActive
+        ? activeGroups.filter((g) => g !== groupToToggle)
+        : [...new Set([...activeGroups, groupToToggle])];
+
+      await ts.setGroups(nextGroups);
+      const { reloadToolset } = await import("./core/tools.js");
+      const n = await reloadToolset();
+      successLine(`Grup "${groupToToggle}" sekarang ${isCurrentlyActive ? "NONAKTIF" : "AKTIF"} (${n} tools live).`);
+    }
+    console.log(C.line);
+  }
+  sectionFooter();
+}
+
+// ─────────────────────────────────────────────
 // SECTION: WEB UI
 // ─────────────────────────────────────────────
 async function setupWebUI() {
@@ -504,7 +422,7 @@ async function runQuickSetup() {
   infoLine("Langkah 3/3", "(Opsional) hubungkan ke Telegram/WhatsApp/dst",  "cyan");
   sectionFooter();
 
-  await setupProvider();
+  await setupModel();
   await setupName();
 
   const wantGateway = await confirm("Mau langsung hubungkan ke Telegram/WhatsApp/Discord/Slack/Matrix sekarang?", { default: false });
@@ -534,23 +452,57 @@ function printFinalSummary() {
 // langsung berlaku tanpa restart (lihat core/chat.js).
 // ─────────────────────────────────────────────
 async function setupContextFiles() {
-  const files = [
-    { label: "AGENT.md — aturan & protokol agent", value: "AGENT.md" },
-    { label: "SOUL.md  — kepribadian agent",       value: "SOUL.md"  },
-    { label: "Kembali ke menu utama",              value: "__back"   },
+  const options = [
+    { label: "✏️   Edit AGENT.md (Protokol Penuh)",          value: "AGENT.md" },
+    { label: "⚡  Edit AGENT_LITE.md (Protokol Ringkas)",      value: "AGENT_LITE.md" },
+    { label: "🔄  Pilih Mode Aktif (Auto | Lite | Full)",     value: "switch_mode" },
+    { label: "📋  Ganti AGENT.md dengan AGENT_LITE.md",      value: "copy_lite" },
+    { label: "🎭  Edit SOUL.md (Kepribadian Agent)",          value: "SOUL.md" },
+    { label: "↩️   Kembali ke menu utama",                    value: "__back" },
   ];
 
   let running = true;
   while (running) {
     sectionHeader("CONTEXT FILES", "File yang disuntik ke system prompt di SETIAP turn");
-    for (const f of ["AGENT.md", "SOUL.md"]) {
+    for (const f of ["AGENT.md", "AGENT_LITE.md", "SOUL.md"]) {
       const lines = fs.existsSync(f) ? fs.readFileSync(f, "utf8").split("\n").length : 0;
       infoLine(f, `${lines} baris`, lines > 0 ? "green" : "yellow");
     }
+    const currentMode = getEnv("AGENT_MODE") || "auto (otomatis pilih berdasarkan ukuran model)";
+    infoLine("AGENT_MODE aktif", currentMode, "cyan");
     console.log(C.line);
 
-    const pick = await select("Kelola file mana?", files);
+    const pick = await select("Pilih opsi pengelolaan:", options);
     if (pick === "__back") { running = false; break; }
+
+    if (pick === "switch_mode") {
+      const mode = await select("Pilih mode AGENT_MODE:", [
+        { label: "Auto  - Otomatis pilih LITE untuk model kecil/8b, FULL untuk model besar", value: "auto" },
+        { label: "Lite  - Paksa selalu gunakan AGENT_LITE.md (Hemat Token)",                   value: "lite" },
+        { label: "Full  - Paksa selalu gunakan AGENT.md (Protokol Penuh)",                     value: "full" },
+      ]);
+      setEnv("AGENT_MODE", mode);
+      try {
+        const { invalidateSystemPromptCache } = await import("./core/chat.js");
+        invalidateSystemPromptCache();
+      } catch {}
+      successLine(`AGENT_MODE diset ke "${mode}". System prompt di-refresh.`);
+      continue;
+    }
+
+    if (pick === "copy_lite") {
+      if (fs.existsSync("AGENT_LITE.md")) {
+        fs.copyFileSync("AGENT_LITE.md", "AGENT.md");
+        try {
+          const { invalidateSystemPromptCache } = await import("./core/chat.js");
+          invalidateSystemPromptCache();
+        } catch {}
+        successLine("Isi AGENT_LITE.md berhasil disalin menggantikan AGENT.md!");
+      } else {
+        warnLine("Berkas AGENT_LITE.md tidak ditemukan di direktori root.");
+      }
+      continue;
+    }
 
     const editor = process.env.EDITOR || process.env.VISUAL || "vi";
     const { spawnSync } = await import("child_process");
@@ -728,7 +680,7 @@ categories:
 // ─────────────────────────────────────────────
 // MAIN MENU
 // ─────────────────────────────────────────────
-async function setup() {
+export async function runSetup() {
   showSetupBanner();
 
   for (const dir of ["./uploads", "./downloads", "./memory", "./backups", "./plugins", "./library"]) {
@@ -740,18 +692,30 @@ async function setup() {
     console.log(chalk.hex("#3fb950")("  ✓ File .env dibuat\n"));
   }
 
-  // First-run: tawarkan jalur cepat dulu, biar gak langsung diberondong
-  // menu 10-item buat orang yang baru pertama kali pakai. Re-run (sudah
-  // ada MODEL_PROVIDER tersimpan) langsung ke menu lengkap seperti biasa.
-  if (isFirstRun()) {
-    const path = await select("Ini instalasi pertama kamu. Mau mulai dari mana?", [
-      { label: "🚀  Panduan Cepat — 3 langkah, cocok buat pemula", value: "quick" },
-      { label: "📋  Menu Lengkap — akses semua opsi dari awal",    value: "full"  },
-    ]);
-    if (path === "quick") {
-      await runQuickSetup();
-      showSetupBanner();
-    }
+  // Langkah 0: User milih alur setup (Step-by-Step Berurutan vs Menu Manual)
+  const setupMode = await select("Pilih metode setup EMORA:", [
+    { label: "🚀  Step-by-Step (Panduan 5 Langkah Berurutan)", value: "stepByStep" },
+    { label: "📋  Menu Manual (Akses semua opsi dari menu)",     value: "manual" },
+  ]);
+
+  if (setupMode === "stepByStep") {
+    sectionHeader("LANGKAH 1/5", "Setup AI Provider & Model Utama");
+    await setupModel();
+
+    sectionHeader("LANGKAH 2/5", "Mode Keamanan & Approval Agent");
+    await setupAdvancedBehavior();
+
+    sectionHeader("LANGKAH 3/5", "Preset Toolset Manager");
+    await setupToolset();
+
+    sectionHeader("LANGKAH 4/5", "Identitas & Nama Agent");
+    await setupName();
+
+    sectionHeader("LANGKAH 5/5", "Messaging Gateway / Integrasi");
+    await setupGateway();
+
+    printFinalSummary();
+    process.exit(0);
   }
 
   let running = true;
@@ -784,6 +748,7 @@ async function setup() {
       { label: "🗒️   Obsidian (via MCP)",         value: "obsidian" },
       { label: "🔌  MCP Servers",                value: "mcp",      hint: `${mcpServerCount} server` },
       { label: "🧩  Plugin Manager",             value: "plugins",  hint: `${pluginCount} terpasang` },
+      { label: "🧰  Toolset Manager (Aktifkan/Nonaktifkan Tool)", value: "toolset", hint: "kelola grup tool" },
       { label: "⚙️   Advanced Behavior",          value: "advanced", hint: getEnv("DEFAULT_MODE") || "autonomous" },
       { label: "🌐  Web UI",                     value: "webui",    hint: getEnv("WEBUI") === "true" ? "aktif" : "nonaktif" },
       { label: "✏️   Nama & Identitas Agent",     value: "name",     hint: getEnv("NAME") || "Emora" },
@@ -795,11 +760,12 @@ async function setup() {
     ]);
 
     switch (choice) {
-      case "provider": await setupProvider();         break;
+      case "provider": await setupModel();            break;
       case "gateway":  await setupGateway();           break;
       case "obsidian": await setupObsidian();           break;
       case "mcp":      await setupMcpServers();         break;
       case "plugins":  await setupPlugins();            break;
+      case "toolset":  await setupToolset();            break;
       case "advanced": await setupAdvancedBehavior();  break;
       case "webui":    await setupWebUI();              break;
       case "name":     await setupName();               break;
@@ -810,6 +776,7 @@ async function setup() {
       case "exit":
         running = false;
         printFinalSummary();
+        process.exit(0);
         break;
     }
 
@@ -817,7 +784,9 @@ async function setup() {
   }
 }
 
-setup().catch((err) => {
-  console.error(chalk.hex("#f85149")(`\n[SETUP ERROR] ${err.message}\n`));
-  process.exit(1);
-});
+if (process.argv[1] && process.argv[1].endsWith("setup.js")) {
+  runSetup().catch((err) => {
+    console.error(chalk.hex("#f85149")(`\n[SETUP ERROR] ${err.message}\n`));
+    process.exit(1);
+  });
+}

@@ -16,10 +16,10 @@ import {
 } from "./memory.js";
 
 import { recordToolSequence, SKILL_THRESHOLD } from "../utils/patternTracker.js";
-import skillRegistry from "./skillRegistry.js";
-import pluginHooks from "./pluginHooks.js";
-import { sanitizeOwnContextFile } from "./promptSafety.js";
-import sessionMemory from "./sessionMemory.js";
+import skillRegistry from "./skill.js";
+import pluginHooks from "./hooks.js";
+import { sanitizeOwnContextFile } from "./safety.js";
+import sessionMemory from "./mem.js";
 import { detectProvider } from "../provider/index.js";
 
 // ==========================================
@@ -31,23 +31,21 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const SKILL_DIR = path.join(ROOT_DIR, 'skill');
 
 let cachedSystemPrompts = {};
+let cachedSkillCatalog = null;
+let cachedLibrarySummary = null;
 
-// Dipanggil oleh Web UI setelah AGENT.md / SOUL.md disimpan, supaya
-// system prompt yang sedang di-cache di memori langsung ke-refresh
-// tanpa perlu restart proses EMORA. Juga dipanggil skill_factory.js
-// setiap kali skill baru dibuat, supaya katalog skill (lihat
-// buildSkillCatalog di bawah) langsung ke-refresh tanpa restart juga.
 export function invalidateSystemPromptCache() {
   cachedSystemPrompts = {};
+  cachedSkillCatalog = null;
+  cachedLibrarySummary = null;
 }
 
 /**
  * Bangun katalog ringkas (nama + deskripsi) SEMUA skill & command yang
- * dikenal EMORA — bawaan (./skill/) MAUPUN dari plugin (./plugins/<id>/
- * skills|commands/, format standar Claude Code/Hermes Agent) — untuk
- * disisipkan ke system prompt.
+ * dikenal EMORA — bawaan (./skill/) MAUPUN dari plugin — dengan in-memory cache.
  */
 async function buildSkillCatalog() {
+  if (cachedSkillCatalog) return cachedSkillCatalog;
   const all = await skillRegistry.listAll();
   if (!all.length) return "(Belum ada skill tersimpan.)";
 
@@ -55,7 +53,8 @@ async function buildSkillCatalog() {
     .filter((s) => s.description)
     .map((s) => skillRegistry.toCatalogLine(s));
 
-  return lines.length ? lines.join("\n") : "(Belum ada skill tersimpan.)";
+  cachedSkillCatalog = lines.length ? lines.join("\n") : "(Belum ada skill tersimpan.)";
+  return cachedSkillCatalog;
 }
 
 export { buildSkillCatalog as buildSkillCatalogForCLI, getSystemPrompt };
@@ -65,6 +64,7 @@ export { buildSkillCatalog as buildSkillCatalogForCLI, getSystemPrompt };
  * Hanya daftar topik+subtopik+jumlah file — TIDAK membaca isi file sama sekali.
  */
 async function buildLibrarySummary() {
+  if (cachedLibrarySummary) return cachedLibrarySummary;
   try {
     const { listTopics, loadIndex } = await import("../library/index.js");
     const topics  = listTopics();
@@ -78,7 +78,8 @@ async function buildLibrarySummary() {
     for (const [topic, subs] of Object.entries(topics)) {
       lines.push(`• ${topic}: ${subs.join(", ")}`);
     }
-    return lines.join("\n");
+    cachedLibrarySummary = lines.join("\n");
+    return cachedLibrarySummary;
   } catch {
     return "(Library tidak tersedia atau belum diinisialisasi.)";
   }
@@ -309,6 +310,41 @@ async function invokeWithRetry(llm, messages, { signal, maxRetries = 3 } = {}) {
   }
 }
 
+/**
+ * Feature #2: Multi-Provider Failover Engine
+ * Jika provider utama (misal Groq/Gemini) error (Rate limit 429, 503 Overloaded, Quota 402),
+ * EMORA otomatis mencoba provider cadangan di background secara transparan.
+ */
+async function invokeWithFailover(primaryLLM, messages, tools, { signal } = {}) {
+  try {
+    return await invokeWithRetry(primaryLLM, messages, { signal });
+  } catch (primaryErr) {
+    const curProvider = detectProvider();
+    const failoverConfig = process.env.MODEL_FAILOVER || "groq,gemini,openrouter,ollama";
+    const failoverList = failoverConfig
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((p) => p && p !== curProvider);
+
+    if (!failoverList.length || signal?.aborted) throw primaryErr;
+
+    for (const fbProvider of failoverList) {
+      try {
+        console.warn(`[failover] Provider "${curProvider}" gagal (${primaryErr.message}). Mencoba provider cadangan "${fbProvider}"...`);
+        const { createLLM } = await import("../provider/index.js");
+        const fbLLM = await createLLM(tools, fbProvider);
+        const res = await invokeWithRetry(fbLLM, messages, { signal });
+        console.warn(`[failover] ✓ Berhasil terhubung & merespon via provider cadangan "${fbProvider}"!`);
+        return res;
+      } catch (fbErr) {
+        console.warn(`[failover] Provider cadangan "${fbProvider}" gagal: ${fbErr.message}`);
+      }
+    }
+
+    throw primaryErr;
+  }
+}
+
 /** Kompaksi darurat saat context overflow (aturan Hermes context_compressor). */
 async function emergencyCompact(llm, messages, { signal } = {}) {
   try {
@@ -428,6 +464,16 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
     if (onEvent) onEvent({ type: "skill_read", name: manualInvocation.entry.slashName });
   }
 
+  // Thinking mode toggle (Qwen3/Qwen3.5 soft-switch "/think" | "/no_think",
+  // lihat tools/thinking_mode.js & /thinking di TUI) — cuma manipulasi teks
+  // di effectiveInput, JANGAN sentuh `input` (biar tidak ikut kesimpan
+  // permanen ke session memory & tidak dobel nempel tiap turn berikutnya).
+  try {
+    const { getThinking, applyThinkingTag } = await import("../tools/thinking_mode.js");
+    const thinkingMode = await getThinking();
+    effectiveInput = applyThinkingTag(effectiveInput, thinkingMode, process.env.MODEL_NAME || "");
+  } catch { /* opsional — gagal baca -> biarkan default model, tanpa tag */ }
+
   // Anthropic native prompt caching: stable block dengan cache_control.
   const systemMessage = detectProvider() === "anthropic"
     ? new SystemMessage({
@@ -451,23 +497,32 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
     const budget = Number(process.env.LINK_BUDGET) || 200_000;
     const totalChars = messages.reduce((s, m) => s + (m.content?.length || 0), 0);
 
-    // COMPACTION: kalau melewati 80% budget & ada cukup riwayat → ringkas
-    // pesan-pesan lama jadi satu summary (dipanggil sekali per turn).
+    // Feature #5: SEMANTIC MEMORY COMPACTION & FACT EXTRACTION
+    // Kalau melewati 80% budget & ada cukup riwayat → ekstrak fakta durabel ke sessionMemory
+    // lalu ringkas pesan-pesan lama jadi satu semantic summary.
     if (totalChars > budget * 0.8 && messages.length >= 10) {
       try {
         const oldMsgs = messages.slice(1, -4); // sisakan system + 3 pesan terakhir
-        const toSummarize = oldMsgs.map((m) => `${m.role}: ${String(m.content).slice(0, 300)}`).join("\n");
-        const summaryRes = await invokeWithRetry(llm, [
+
+        // Step 1: Semantic Fact Extraction ke sessionMemory
+        try {
+          const { extractSemanticFacts } = await import("./sessionMemory.js");
+          extractSemanticFacts(sessionId, oldMsgs, llm).catch(() => {});
+        } catch {}
+
+        // Step 2: Semantic Compression
+        const toSummarize = oldMsgs.map((m) => `${m.role || "msg"}: ${String(m.content).slice(0, 300)}`).join("\n");
+        const summaryRes = await invokeWithFailover(llm, [
           new SystemMessage("Ringkas percakapan berikut menjadi poin-poin fakta penting maksimal 200 kata. Fokus pada keputusan, preferensi user, dan konteks teknis. Tanpa basa-basi."),
           new HumanMessage(toSummarize.slice(0, 30_000)),
-        ], { signal });
+        ], tools, { signal });
         const summary = typeof summaryRes.content === "string" ? summaryRes.content : String(summaryRes.content ?? "");
         if (summary.trim()) {
           messages.splice(1, oldMsgs.length,
-            new HumanMessage(`[RINGKASAN PERCAKAPAN SEBELUMNYA]\n${summary.trim()}`));
-          console.warn(`[chat] compaction: ${oldMsgs.length} pesan diringkas (${totalChars} chars)`);
+            new HumanMessage(`[RINGKASAN SEMANTIK PERCAKAPAN SEBELUMNYA]\n${summary.trim()}`));
+          console.warn(`[chat] semantic compaction: ${oldMsgs.length} pesan diringkas (${totalChars} chars)`);
         }
-      } catch { /* gagal ringkas → fallback ke pemotongan biasa di bawah */ }
+      } catch { /* gagal ringkas → fallback ke pemotongan biasa */ }
     }
 
     const lb = enforceLinkBudget(messages, budget);
@@ -480,37 +535,90 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
   } catch { /* guard opsional */ }
 
   let response;
+  const { resolveLazyTools } = await import("./tools.js");
+  const activeTools = resolveLazyTools(input, tools);
 
   try {
     try {
-      response = await invokeWithRetry(llm, messages, { signal });
+      response = await invokeWithFailover(llm, messages, activeTools, { signal });
     } catch (err) {
-      // Context overflow → kompak darurat lalu coba SEKALI lagi (aturan Hermes:
-      // context_overflow = compress, not failover).
+      // Context overflow → kompak darurat lalu coba SEKALI lagi
       if (!err.__compactFirst || signal?.aborted) throw err;
       console.warn("[chat] context overflow — kompresi darurat...");
       const okCompact = await emergencyCompact(llm, messages, { signal });
       if (!okCompact) throw err;
-      response = await llm.invoke(messages, { signal: AbortSignal.any([signal, AbortSignal.timeout(60000)].filter(Boolean)) });
+      response = await invokeWithFailover(llm, messages, activeTools, { signal });
     }
   } catch (err) {
     if (err?.aborted) throw err;
-    // Log ke file untuk diagnosa (emora doctor membaca ini).
     try {
       const { logLine } = await import("../utils/logger.js");
       logLine("error", `LLM invoke gagal: ${err.message}`);
     } catch {}
+
     if (err?.status === 401 || err?.message?.includes("Invalid API Key") || err?.code === "invalid_api_key") {
+      const activeProvider = (process.env.MODEL_PROVIDER || "ai").toLowerCase();
+      const providerKeyUrls = {
+        groq: "https://console.groq.com",
+        gemini: "https://aistudio.google.com/app/apikey",
+        openrouter: "https://openrouter.ai/keys",
+        openai: "https://platform.openai.com/api-keys",
+        anthropic: "https://console.anthropic.com/settings/keys",
+        huggingface: "https://huggingface.co/settings/tokens",
+        mistral: "https://console.mistral.ai/api-keys",
+      };
+      const specificUrl = providerKeyUrls[activeProvider];
+
+      let keyHelp = `1. Ketik **\`emora model\`** atau **\`emora setup\`** di terminal untuk memasukkan API Key baru.`;
+      if (specificUrl) {
+        keyHelp += `\n2. Dapatkan API Key baru untuk **${activeProvider}** di: ${specificUrl}`;
+      } else {
+        keyHelp += `\n2. Buat API Key baru dari dashboard provider **${activeProvider}**.`;
+      }
+
       return (
         `⚠️ **[ERROR AUTHENTICATION - 401 Invalid API Key]**\n\n` +
-        `API key yang dikonfigurasi di file \`.env\` untuk provider **${process.env.MODEL_PROVIDER || 'AI'}** tidak valid atau sudah tidak aktif.\n\n` +
+        `API Key yang dikonfigurasi di file \`.env\` untuk provider **${activeProvider}** tidak valid atau sudah tidak aktif.\n\n` +
         `💡 **Cara Mengatasi:**\n` +
-        `1. Ketik **\`emora model\`** atau **\`emora setup\`** di terminal untuk memasukkan API Key baru.\n` +
-        `2. Atau buat API Key gratis baru dari:\n` +
-        `   - **Groq:** https://console.groq.com\n` +
-        `   - **Google Gemini:** https://aistudio.google.com/app/apikey`
+        keyHelp
       );
     }
+
+    // Feature #1: REACT FALLBACK ENGINE INTEGRATION
+    const isToolErr = err?.message?.includes("--jinja") || err?.message?.includes("requires jinja") ||
+      err?.message?.includes("does not support tools") || err?.message?.includes("does not support function") ||
+      err?.message?.includes("tools are not supported");
+
+    if (isToolErr) {
+      try {
+        console.warn("[chat] Model tidak mendukung native tool-calling — otomatis beralih ke ReAct Fallback Engine (text-based tool execution)...");
+        const { createLLM } = await import("../provider/index.js");
+        const { runReActLoop } = await import("./reactEngine.js");
+        const plainLLM = await createLLM([], detectProvider());
+
+        return await runReActLoop({
+          llm: plainLLM,
+          messages,
+          tools,
+          executeTool,
+          onEvent,
+          signal,
+        });
+      } catch (reactErr) {
+        const modelName = process.env.MODEL_NAME || "(model kamu)";
+        return (
+          `⚠️ **[ERROR: Ollama server / model tidak support tool calling]**\n\n` +
+          `EMORA mencoba menjalankan tools via native API dan ReAct engine, namun gagal dengan pesan:\n` +
+          `\`${reactErr.message || err.message}\`\n\n` +
+          `💡 **Cara Mengatasi (Pilih salah satu):**\n` +
+          `1. **Gunakan qwen2.5:0.5b / qwen2.5:1.5b** — jalankan \`ollama pull qwen2.5:0.5b\` lalu ganti model dengan **\`emora model\`**.\n` +
+          `2. **Update Ollama ke versi terbaru**:\n` +
+          `   \`curl -fsSL https://ollama.com/install.sh | sh\`\n` +
+          `3. **Ganti ke provider Cloud gratis (Groq / Gemini)** yang 100% mendukung tool-calling.`
+        );
+      }
+    }
+
     console.error("\n[LLM ERROR]");
     console.dir(err, { depth: null });
     throw err;
@@ -543,40 +651,58 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
       }
       workMessages.push(aiMsg);
 
-      for (const toolCall of toolCalls) {
-        if (signal?.aborted) break;
+      // FEATURE #1: PARALLEL TOOL EXECUTION via Promise.all
+      // FEATURE #4: SMART TOOL OUTPUT TRUNCATION
+      const toolResults = await Promise.all(
+        toolCalls.map(async (toolCall) => {
+          if (signal?.aborted) return null;
 
-        if (onEvent) onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
+          if (onEvent) onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
 
-        // Opsi "2. Yes, selalu" di turn ini: skip approval untuk tool yang sama.
-        let decision;
-        if (alwaysAllowedThisTurn.has(toolCall.name)) {
-          decision = { allowed: true, autoApproved: true };
-        } else {
-          decision = await resolveApproval(toolCall.name, toolCall.args, mode, onApproval);
-          if (decision.alwaysThisTurn) alwaysAllowedThisTurn.add(toolCall.name);
-        }
-        if (!decision.allowed) {
-          workMessages.push(new ToolMessage({
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: false, error: decision.reason || "Ditolak oleh user." }),
-          }));
-          continue;
-        }
+          // Opsi "2. Yes, selalu" di turn ini: skip approval untuk tool yang sama.
+          let decision;
+          if (alwaysAllowedThisTurn.has(toolCall.name)) {
+            decision = { allowed: true, autoApproved: true };
+          } else {
+            decision = await resolveApproval(toolCall.name, toolCall.args, mode, onApproval);
+            if (decision.alwaysThisTurn) alwaysAllowedThisTurn.add(toolCall.name);
+          }
 
-        const tTool = Date.now();
-        const result = await executeTool(toolCall, tools, { signal });
-        if (onEvent) onEvent({ type: "tool_result", name: toolCall.name, durationMs: Date.now() - tTool });
+          if (!decision.allowed) {
+            return new ToolMessage({
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ success: false, error: decision.reason || "Ditolak oleh user." }),
+            });
+          }
 
-        // Lacak pola pemakaian tool (skill factory).
-        try {
-          recordToolSequence(sessionId, toolCall.name);
-        } catch { /* non-kritis */ }
+          const tTool = Date.now();
+          let result = await executeTool(toolCall, tools, { signal });
+          if (onEvent) onEvent({ type: "tool_result", name: toolCall.name, durationMs: Date.now() - tTool });
 
-        workMessages.push(result);
+          // FEATURE #4: Smart Output Truncation (Pelindung Context Overflow)
+          if (result && typeof result.content === "string" && result.content.length > 12_000) {
+            const content = result.content;
+            const keep = 6_000;
+            const head = content.slice(0, keep);
+            const tail = content.slice(-keep);
+            const cut = content.length - (keep * 2);
+            result.content = `${head}\n\n... [TRUNCATED ${cut.toLocaleString()} KARAKTER TERPOTONG DENGAN RINGKASAN] ...\n\n${tail}`;
+          }
+
+          // Lacak pola pemakaian tool (skill factory).
+          try {
+            recordToolSequence(sessionId, toolCall.name);
+          } catch { /* non-kritis */ }
+
+          return result;
+        })
+      );
+
+      for (const res of toolResults.filter(Boolean)) {
+        workMessages.push(res);
       }
 
-      aiMsg = await invokeWithRetry(llm, workMessages, { signal });
+      aiMsg = await invokeWithFailover(llm, workMessages, tools, { signal });
       finalText = typeof aiMsg.content === "string"
         ? aiMsg.content
         : (aiMsg.content?.map?.((c) => c.text || "").join("") || String(aiMsg.content ?? ""));

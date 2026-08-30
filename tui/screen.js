@@ -144,24 +144,33 @@ function renderInputArea(state, width) {
   const availW = Math.max(10, width - 4); // "> " kiri + cursor
   const { input, cursorPos } = state;
 
-  let windowStart = 0;
-  if (input.length > availW) {
-    windowStart = Math.max(0, Math.min(cursorPos - Math.floor(availW / 2), input.length - availW));
-  }
-  const windowEnd = Math.min(input.length, windowStart + availW);
-  const visible = input.slice(windowStart, windowEnd);
-  const relCursor = cursorPos - windowStart;
-
+  const lineCount = input.split("\n").length;
   let styled;
-  if (relCursor >= visible.length) {
-    styled = visible + C.inverse(" ");
-  } else if (relCursor < 0) {
-    styled = C.inverse(" ") + visible;
+  let leftMark = "";
+  let rightMark = "";
+
+  if (lineCount >= 5 || input.length > 300) {
+    const pasteBadge = `[Pasted Text #${state.pasteCount || 1} +${lineCount} Lines] `;
+    styled = C.cyan.bold(pasteBadge) + C.inverse(" ");
   } else {
-    styled = visible.slice(0, relCursor) + C.inverse(visible[relCursor] || " ") + visible.slice(relCursor + 1);
+    let windowStart = 0;
+    if (input.length > availW) {
+      windowStart = Math.max(0, Math.min(cursorPos - Math.floor(availW / 2), input.length - availW));
+    }
+    const windowEnd = Math.min(input.length, windowStart + availW);
+    const visible = input.slice(windowStart, windowEnd);
+    const relCursor = cursorPos - windowStart;
+
+    if (relCursor >= visible.length) {
+      styled = visible + C.inverse(" ");
+    } else if (relCursor < 0) {
+      styled = C.inverse(" ") + visible;
+    } else {
+      styled = visible.slice(0, relCursor) + C.inverse(visible[relCursor] || " ") + visible.slice(relCursor + 1);
+    }
+    leftMark = windowStart > 0 ? C.faint("…") : "";
+    rightMark = windowEnd < input.length ? C.faint("…") : "";
   }
-  const leftMark = windowStart > 0 ? C.faint("…") : "";
-  const rightMark = windowEnd < input.length ? C.faint("…") : "";
 
   // Status ringkas kanan pada garis atas (model · mode · timer).
   const modelName = truncate(state.provider?.model || "-", 18);
@@ -288,15 +297,22 @@ const _mdCache = new Map();
 function renderMessageBlock(msg, width) {
   const lines = [];
   if (msg.role === "user") {
-    // Ala TUI.md Contoh 2: pesan user polos tanpa header blok.
-    for (const l of wrapPlain(msg.content, width - 4)) lines.push("   " + C.text(l));
+    const content = String(msg.content || "");
+    const lineCount = content.split("\n").length;
+    if (lineCount >= 5 || content.length > 300) {
+      const pasteNum = msg.pasteNum || 1;
+      const preview = content.split("\n")[0].slice(0, 40).trim();
+      lines.push("   " + C.cyan.bold(`[Pasted Text #${pasteNum} +${lineCount} Lines]`) + (preview ? C.faint(` "${preview}..."`) : ""));
+    } else {
+      for (const l of wrapPlain(content, width - 4)) lines.push("   " + C.text(l));
+    }
   } else {
     // Ala Contoh 1: tiap blok respons diawali bullet ● ungu, teks lanjutan menjorok.
     const key = `${msg.content.length}:${width}`;
     let bodyLines = _mdCache.get(key);
     if (!bodyLines) {
       bodyLines = renderMarkdown(msg.content, width - 6);
-      if (_mdCache.size > 500) _mdCache.clear(); // ponytail: clear-all, LRU kalau memory jadi masalah
+      if (_mdCache.size > 500) _mdCache.clear();
       _mdCache.set(key, bodyLines);
     }
     bodyLines.forEach((l, i) => lines.push((i === 0 ? C.yellow("● ") : "  ") + " " + l));
@@ -441,21 +457,58 @@ function renderHistoryView(state, width, height) {
 }
 
 function renderSkillsView(state, width, height) {
-  const out = [C.primaryBold(" Skills Manager "), hr(width)];
   const { list, index } = state.skills;
-  if (!list.length) {
+  const total = list.length;
+  const out = [
+    C.primaryBold("Skills"),
+    C.bold(`${total} skills`),
+    "",
+    C.bold("Create new skills"),
+    C.faint("  Workspace: ./skill/{skill_name}/skill.md"),
+    C.faint("  Global:    ~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md"),
+    C.faint("  Shared:    ~/.gemini/skills/{skill_name}/SKILL.md"),
+    "",
+  ];
+
+  if (!total) {
     out.push(C.faint("  Belum ada skill. Skill dibuat otomatis lewat percakapan (skill_factory)."));
   } else {
-    for (let i = 0; i < list.length; i++) {
-      const s = list[i];
-      const isSel = i === index;
-      const marker = isSel ? C.primary("❯ ") : "  ";
-      const status = s.toggleable === false ? C.faint("[plg]") : (s.enabled ? C.green("[on] ") : C.faint("[off]"));
-      const name = truncate(s.name, width - 40);
-      out.push(marker + status + " " + (isSel ? C.primaryBold(name) : C.text(name)) + (s.source && s.source !== "builtin" ? C.faint(`  (${s.source})`) : ""));
-      if (isSel) out.push("      " + C.faint(truncate(s.description, width - 10)));
+    // Window scroll
+    const maxVisible = Math.max(5, height - 14);
+    let windowStart = Math.max(0, index - Math.floor(maxVisible / 2));
+    windowStart = Math.min(windowStart, Math.max(0, total - maxVisible));
+    const windowEnd = Math.min(total, windowStart + maxVisible);
+    const visibleItems = list.slice(windowStart, windowEnd);
+
+    let lastGroup = null;
+    for (let i = 0; i < visibleItems.length; i++) {
+      const globalIdx = windowStart + i;
+      const s = visibleItems[i];
+      const isSel = globalIdx === index;
+
+      // Group header
+      const groupName = s.source === "builtin" ? "built-in skills · From ./skill/" : `${s.source} · From ./plugins/`;
+      if (groupName !== lastGroup) {
+        lastGroup = groupName;
+        out.push(C.cyan.bold(groupName));
+      }
+
+      const cursor = isSel ? C.primaryBold("› ") : "  ";
+      const statusStr = s.toggleable === false ? C.faint("[plg]") : s.enabled ? C.green("[on]") : C.faint("[off]");
+      const nameStr = truncate(s.name, 35).padEnd(36);
+      const descStr = truncate(s.description || "(tanpa deskripsi)", Math.max(10, width - 48));
+
+      if (isSel) {
+        out.push(`${cursor}${statusStr} ${C.primaryBold(nameStr)} ${C.text(descStr)}`);
+      } else {
+        out.push(`${cursor}${statusStr} ${C.text(nameStr)} ${C.faint(descStr)}`);
+      }
     }
+
+    out.push("");
+    out.push(C.faint(`  [${windowStart + 1}-${windowEnd} of ${total} items]`));
   }
+
   out.push("");
   out.push(C.dim(truncate("  ↑↓ pilih · Space toggle on/off · Esc kembali", width)));
   return padScreen(out, width, height);

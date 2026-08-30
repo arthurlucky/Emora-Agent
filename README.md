@@ -43,14 +43,17 @@ Dashboard kontrol berbasis browser dengan *Server-Sent Events* untuk melihat pro
 ### ⏱️ Cron Scheduler & 🕵️ Web Research
 Jadwalkan EMORA menjalankan tugas berkala lewat `/cron` dari chat manapun, plus pencarian web (Tavily) & scraping halaman langsung untuk jawaban yang selalu up-to-date.
 
-### 🤖 Multi-Provider + Model Profiles
-Groq, Google Gemini, OpenRouter (422+ model live), NVIDIA NIM, HuggingFace, Anthropic, OpenAI, Ollama (lokal), atau custom endpoint (LM Studio/vLLM). Simpan banyak konfigurasi sebagai **profile** dan pindah antar model dalam sekali perintah.
+### 🏢 Multi-Bot Enterprise Mesh (`emora bot`)
+Pecahan agent spesialis dengan kustomisasi nama, peran (persona), warna tampilan (coloris), serta daftar tools & skills. Bot dapat membentuk **grup/departemen perusahaan** dan **saling mendelegasikan tugas** secara otomatis layaknya struktur organisasi profesional.
 
-### 🎛️ Toolset System & Context Control
-Grup tool bisa on/off per preset (`full/coding/chat/minimal`) — hemat token dan fokuskan agent. Ukuran context window (jumlah riwayat yang dikirim ke model) diatur dari setup, plus link-budget guard otomatis.
+### 🌐 Global Skills Discovery
+EMORA secara otomatis memindai dan mendaftarkan skill global dari seluruh direktori sistem pengguna (`~/.emora/skills/`, `~/.agents/skills/`, `~/.gemini/skills/`, dan `~/.gemini/antigravity-cli/builtin/skills/`) yang dapat langsung digunakan via slash command (`/global:<skill>` atau `/<skill>`).
 
-### 🧬 Dual System Prompt (Full/Lite)
-Model flagship dapat `AGENT.md` lengkap; model kecil (≤1.5B, mini/nano) otomatis dapat `AGENT_LITE.md` ringkas — deteksi dari nama model, override manual via `AGENT_MODE=lite`.
+### 📡 Multi-Protocol Live Scan & Custom Endpoints
+Mendukung *auto-probing* live model untuk endpoint custom lokal atau remote (Ollama `/api/tags`, OpenAI-compat `/v1/models`, Anthropic Claude dengan header `x-api-key` & `anthropic-version`, Groq, dan Gemini).
+
+### 🤖 Multi-Provider + Model Profiles & Windowed Navigation
+Groq, Google Gemini, OpenRouter (422+ model live), NVIDIA NIM, HuggingFace, Anthropic, OpenAI, Ollama (lokal), atau custom endpoint (LM Studio/vLLM). Simpan banyak konfigurasi sebagai **profile** (`★`) di urutan paling atas menu, lengkap dengan navigasi tombol pintas `ESC` (kembali) dan `CTRL+C` (keluar).
 
 ---
 
@@ -130,6 +133,7 @@ Butuh Node.js **v20+**. Cek versi: `node -v`.
 | `emora -s list\|delete\|title` | Kelola sesi: daftar, hapus (`delete all` = semua), regen judul |
 | `emora setup` | Wizard setup interaktif (provider AI, gateway, MCP, plugin, context window) |
 | `emora model list\|set\|save\|use\|rm` | Provider/model & profile multi-konfigurasi |
+| `emora bot list\|add\|rm\|run` | Kelola Bot Perusahaan (pecahan agent spesialis dengan peran & warna) |
 | `emora config list\|get\|set` | Baca/tulis `.env` langsung |
 | `emora toolset list\|use\|on\|off` | Preset grup tool aktif (full/coding/chat/minimal) |
 | `emora backends add\|list` | Backend SSH untuk shell_exec remote |

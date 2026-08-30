@@ -114,12 +114,63 @@ export async function createLLM(tools = [], provider, opts = {}) {
 }
 
 /**
- * Ambil daftar model untuk provider tertentu.
+ * Ambil daftar model untuk provider tertentu — mencoba live online scan terlebih dahulu
+ * jika terhubung & API key tersedia, lalu fallback ke hardcoded MODELS bawaan.
  * Dipakai oleh `emora model` dan `emora setup`.
  */
-export async function getProviderModels(providerKey) {
+export async function getProviderModels(providerKey, apiKeyOverride = "") {
   try {
     const mod = await loadProviderModule(providerKey);
+    const apiKey = apiKeyOverride || process.env.MODEL_API || process.env[`${providerKey.toUpperCase()}_API_KEY`] || "";
+
+    // 1. Ollama live scan (/api/tags)
+    if (providerKey === "ollama" && typeof mod.scanModels === "function") {
+      try {
+        const live = await mod.scanModels();
+        if (live && live.length > 0) {
+          return live.map((m) => ({ id: m, label: `${m.padEnd(28)} [LOKAL]` }));
+        }
+      } catch {}
+    }
+
+    // 2. OpenRouter custom fetchModels
+    if (providerKey === "openrouter" && typeof mod.fetchModels === "function") {
+      try {
+        const live = await mod.fetchModels({ force: true });
+        if (live && live.length > 0) {
+          return live.map((m) => ({
+            id: m.id,
+            label: `${m.id.padEnd(38)} [${m.free ? "FREE" : "PAID"}]`,
+          }));
+        }
+      } catch {}
+    }
+
+    // 3. Generic OpenAI-compatible endpoints (Groq, OpenAI, DeepSeek, NVIDIA, HuggingFace, Custom)
+    const baseUrl = mod.BASE_URL || (providerKey === "custom" ? process.env.MODEL_URL : null);
+    if (baseUrl) {
+      try {
+        const url = `${baseUrl.replace(/\/$/, "")}/models`;
+        const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+        if (providerKey === "openrouter") headers["HTTP-Referer"] = "https://github.com/arthurlucky/Emora-Agent";
+        
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const json = await res.json();
+          const liveData = json.data || json.models || [];
+          if (Array.isArray(liveData) && liveData.length > 0) {
+            return liveData
+              .map((m) => {
+                const id = m.id || m.name;
+                return id ? { id, label: `${id.padEnd(34)} [LIVE]` } : null;
+              })
+              .filter(Boolean);
+          }
+        }
+      } catch {}
+    }
+
+    // Fallback: hardcoded MODELS / KNOWN_MODELS bawaan provider
     return mod.MODELS || mod.KNOWN_MODELS || [];
   } catch {
     return [];

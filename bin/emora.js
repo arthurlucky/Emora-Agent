@@ -255,13 +255,21 @@ switch (subCmd) {
   }
 
   case "setup": {
-    await import("../setup.js");
+    const { runSetup } = await import("../setup.js");
+    await runSetup();
+    process.exit(0);
     break;
   }
 
   case "model": {
     const { cmdModel } = await import("../cli/cmd-model.js");
     await cmdModel(rest);
+    break;
+  }
+
+  case "bot": {
+    const { cmdBot } = await import("../cli/cmd-bot.js");
+    await cmdBot(rest);
     break;
   }
 

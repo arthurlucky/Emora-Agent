@@ -55,70 +55,104 @@ export function select(question, choices, { default: defaultIdx = 0 } = {}) {
   return new Promise((resolve, reject) => {
     let idx = defaultIdx;
     const total = choices.length;
+    let lastRenderedLines = 0;
 
     function render(first = false) {
-      if (!first) clearLines(total + 1);
+      if (!first && lastRenderedLines > 0) {
+        clearLines(lastRenderedLines);
+      }
+
+      const cols = process.stdout.columns || 80;
+      let lineCount = 0;
 
       // Question line
-      process.stdout.write(
-        C.cyan("  ❯ ") + chalk.bold(question) + "\n"
-      );
+      const qText = `  ❯ ${question}`;
+      lineCount += Math.max(1, Math.ceil(qText.length / cols));
+      process.stdout.write(C.cyan("  ❯ ") + chalk.bold(question) + "\n");
 
-      // Choices
-      choices.forEach((c, i) => {
+      // Choices (windowed to max 10 visible items for long lists like OpenRouter)
+      const maxVisible = 10;
+      let startIdx = Math.max(0, idx - Math.floor(maxVisible / 2));
+      startIdx = Math.min(startIdx, Math.max(0, total - maxVisible));
+      const endIdx = Math.min(total, startIdx + maxVisible);
+
+      for (let i = startIdx; i < endIdx; i++) {
+        const c = choices[i];
         const isSelected = i === idx;
         const isDisabled = c.disabled;
-        const cursor = isSelected ? C.cursor("  ❯ ") : "    ";
+        const cursorStr = isSelected ? "  ❯ " : "    ";
+        const fullText = cursorStr + c.label + (c.hint ? `  (${c.hint})` : "");
+        lineCount += Math.max(1, Math.ceil(fullText.length / cols));
+
         let labelStr = isDisabled
           ? C.hint(c.label)
           : isSelected
           ? C.selected(c.label)
           : C.dimLabel(c.label);
         const hintStr = c.hint ? "  " + C.hint(`(${c.hint})`) : "";
-        process.stdout.write(cursor + labelStr + hintStr + "\n");
-      });
+        process.stdout.write((isSelected ? C.cursor("  ❯ ") : "    ") + labelStr + hintStr + "\n");
+      }
+
+      if (total > maxVisible) {
+        const scrollInfo = `    … [${idx + 1}/${total}] (gunakan panah ↑↓ untuk scroll)`;
+        lineCount += Math.max(1, Math.ceil(scrollInfo.length / cols));
+        process.stdout.write(C.hint(scrollInfo) + "\n");
+      }
+
+      // Shortcut Hint
+      const shortcutHint = `    ${chalk.dim("[ESC: kembali • CTRL+C: keluar]")}`;
+      lineCount += Math.max(1, Math.ceil(shortcutHint.length / cols));
+      process.stdout.write(shortcutHint + "\n");
+
+      lastRenderedLines = lineCount;
     }
 
     // Initial render
     hideCursor();
     render(true);
 
+    const startTime = Date.now();
+
     // Raw mode
     const stdin = process.stdin;
-    const wasRaw = stdin.isRaw;
-    const wasPaused = !stdin.readable;
-
-    if (stdin.isTTY) stdin.setRawMode(true);
     stdin.resume();
+    if (stdin.isTTY) stdin.setRawMode(true);
     stdin.setEncoding("utf8");
 
     function cleanup() {
-      if (stdin.isTTY) stdin.setRawMode(wasRaw || false);
-      if (wasPaused) stdin.pause();
+      if (stdin.isTTY) stdin.setRawMode(false);
       stdin.removeListener("data", onKey);
       showCursor();
     }
 
     function onKey(key) {
-      // FIX: bytes bisa datang tergabung dalam satu "data" event (keyboard
-      // cepat / pipe / Termux) — "\x1b[B\x1b[B\r" dulu dianggap satu key
-      // asing dan SEMUA input hilang. Pecah jadi token individual:
-      // escape sequence arrow (\x1b[A/B/C/D) atau single char.
-      const tokens = String(key).match(/\x1b\[[A-D]|\x1b\[|\r|\n|\x7F|\x03|[\s\S]/g) || [key];
+      const tokens = String(key).match(/\x1b\[[A-D]|\x1b\[|\x1b|\r|\n|\x7F|\x03|[\s\S]/g) || [key];
 
       for (const k of tokens) {
         if (k === "\x03") { // Ctrl+C
           cleanup();
-          clearLines(total + 1);
-          process.stdout.write(C.red("  ✗ Dibatalkan\n\n"));
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
+          process.stdout.write(C.red("  ✗ Dibatalkan (CTRL+C)\n\n"));
           process.exit(0);
         }
 
+        if (k === "\x1b" || k === "\x1b\x1b") { // ESC key
+          cleanup();
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
+          process.stdout.write(C.hint("  ← Kembali (ESC)\n"));
+          stdin.removeListener("data", onKey);
+          resolve("__back__");
+          return;
+        }
+
         if (k === "\r" || k === "\n") {
+          // Abaikan enter otomatis dari sisa buffer stdin dalam 150ms pertama
+          if (Date.now() - startTime < 150) continue;
+
           cleanup();
           const chosen = choices[idx];
           if (!chosen || chosen.disabled) continue;
-          clearLines(total + 1);
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
           process.stdout.write(
             C.cyan("  ❯ ") + chalk.bold(question) + "  " + C.green(chosen.label) + "\n"
           );
@@ -163,6 +197,7 @@ export function confirm(question, { default: defaultVal = true } = {}) {
  */
 export function input(prompt, defaultVal = "", secret = false) {
   return new Promise((resolve) => {
+    process.stdin.resume();
     const rl = readline.createInterface({
       input: process.stdin,
       output: secret ? null : process.stdout,
@@ -183,7 +218,6 @@ export function input(prompt, defaultVal = "", secret = false) {
       function onChar(c) {
         if (c === "\r" || c === "\n") {
           if (process.stdin.isTTY) process.stdin.setRawMode(false);
-          process.stdin.pause();
           process.stdin.removeListener("data", onChar);
           process.stdout.write("\n");
           rl.close();

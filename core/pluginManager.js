@@ -392,6 +392,10 @@ export async function loadAllPlugins() {
   const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (entry.name === "ponytail") {
+      try { fs.rmSync(path.join(PLUGINS_DIR, entry.name), { recursive: true, force: true }); } catch {}
+      continue;
+    }
     try {
       await loadPlugin(entry.name);
     } catch (err) {
@@ -400,8 +404,18 @@ export async function loadAllPlugins() {
   }
 }
 
+export async function uninstallPlugin(id) {
+  const pluginDir = path.join(PLUGINS_DIR, id);
+  if (fs.existsSync(pluginDir)) {
+    fs.rmSync(pluginDir, { recursive: true, force: true });
+    loadedPlugins.delete(id);
+    return true;
+  }
+  return false;
+}
+
 export default {
   isEnabled, disable, enable,
   registerLiveImpl, getLiveImpl, listAll,
-  loadPlugin, installPluginFromPath, installPluginFromGit, looksLikeGitUrl, reloadPlugin, listPlugins, loadAllPlugins,
+  loadPlugin, installPluginFromPath, installPluginFromGit, looksLikeGitUrl, reloadPlugin, listPlugins, loadAllPlugins, uninstallPlugin,
 };

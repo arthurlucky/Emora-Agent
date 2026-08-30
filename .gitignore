@@ -7,6 +7,8 @@ mcp.config.json
 memory/
 .emora_projects/
 emora.zip
+EMORA.zip
+*.zip
 
 # Web UI (Vite)
 webui/node_modules/

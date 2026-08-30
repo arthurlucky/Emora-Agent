@@ -15,7 +15,7 @@ function getEnv(k) { const m = (fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PA
 function setEnv(k,v) { let c=fs.existsSync(ENV_PATH)?fs.readFileSync(ENV_PATH,"utf8"):""; const re=new RegExp(`^${k}=.*$`,"m"); c=re.test(c)?c.replace(re,`${k}=${v}`):c+(c.endsWith("\n")||c===""?"":"\n")+`${k}=${v}`; fs.writeFileSync(ENV_PATH,c.trim()+"\n"); }
 
 export async function cmdModel(args = []) {
-  const { saveProfile, useProfile, removeProfile, listProfiles, formatList } =
+  const { saveProfile, useProfile, removeProfile, listProfiles, formatList, listCustomEndpoints, removeCustomEndpoint, fetchCustomModels } =
     await import("../core/modelProfiles.js");
 
   // ── Profile multi-konfigurasi ─────────────────────────────────────────
@@ -74,15 +74,90 @@ export async function cmdModel(args = []) {
 
   sectionHeader("MODEL SELECTOR", `Aktif: ${curProvider}  /  ${curModel}`);
 
-  const providerChoices = Object.entries(PROVIDERS).map(([key, meta]) => ({
-    label: `${meta.label.padEnd(26)} [${meta.tier.toUpperCase()}]`,
-    value: key,
-  }));
+  const savedProfiles = await listProfiles();
+  const mainChoices = [];
 
-  const newProvider = await select("Pilih provider:", providerChoices,
-    { default: Math.max(0, providerChoices.findIndex(c => c.value === curProvider)) }
-  );
+  // 1. Model / Profile Tersimpan (Tampil Paling Atas)
+  const savedKeys = Object.keys(savedProfiles);
+  if (savedKeys.length > 0) {
+    savedKeys.forEach(name => {
+      const p = savedProfiles[name];
+      const activeMarker = (p.provider === curProvider && p.model === curModel) ? " [AKTIF]" : "";
+      mainChoices.push({
+        label: `★ ${name.padEnd(28)} (${p.provider}/${p.model})${activeMarker}`,
+        value: `profile:${name}`,
+      });
+    });
+  }
 
+  // 2. Pilihan Provider Standar
+  Object.entries(PROVIDERS).forEach(([key, meta]) => {
+    mainChoices.push({
+      label: `${meta.label.padEnd(28)} [${meta.tier.toUpperCase()}]`,
+      value: `provider:${key}`,
+    });
+  });
+
+  // 3. Opsi Hapus Profile / Custom Model (Tampil Paling Bawah)
+  mainChoices.push({
+    label: "🗑️  Hapus Model Custom / Profile Tersimpan",
+    value: "__delete__",
+  });
+
+  const selectedChoice = await select("Pilih model tersimpan, provider baru, atau kelola profile:", mainChoices);
+
+  if (selectedChoice === "__back__") {
+    sectionFooter();
+    return;
+  }
+
+  // Hapus profile / custom model
+  if (selectedChoice === "__delete__") {
+    const allProfiles = await listProfiles();
+    const customEps = await listCustomEndpoints();
+    const deleteChoices = [];
+
+    Object.keys(allProfiles).forEach(name => {
+      deleteChoices.push({ label: `Profile: ${name}`, value: `profile:${name}` });
+    });
+    Object.keys(customEps).forEach(name => {
+      if (!allProfiles[name]) {
+        deleteChoices.push({ label: `Custom Endpoint: ${name}`, value: `ep:${name}` });
+      }
+    });
+
+    if (deleteChoices.length === 0) {
+      warnLine("Belum ada model tersimpan atau custom profile yang bisa dihapus.");
+      sectionFooter();
+      return;
+    }
+
+    const toDelete = await select("Pilih model custom/profile yang akan dihapus:", deleteChoices);
+    const [type, targetName] = toDelete.split(":");
+    
+    if (type === "profile") {
+      await removeProfile(targetName).catch(() => {});
+      await removeCustomEndpoint(targetName).catch(() => {});
+    } else {
+      await removeCustomEndpoint(targetName).catch(() => {});
+    }
+
+    successLine(`Model custom/profile "${targetName}" berhasil dihapus.`);
+    sectionFooter();
+    return;
+  }
+
+  // Pakai profile tersimpan langsung
+  if (selectedChoice.startsWith("profile:")) {
+    const profileName = selectedChoice.replace("profile:", "");
+    const p = await useProfile(profileName, setEnv);
+    successLine(`Berhasil beralih ke profile tersimpan "${profileName}": ${p.provider} / ${p.model}`);
+    sectionFooter();
+    return;
+  }
+
+  // Setup Provider Baru
+  const newProvider = selectedChoice.replace("provider:", "");
   setEnv("MODEL_PROVIDER", newProvider);
 
   // Update BASE_URL otomatis dari provider module
@@ -92,6 +167,87 @@ export async function cmdModel(args = []) {
       setEnv("MODEL_URL", mod.BASE_URL);
     }
   } catch {}
+
+  // Wajib selalu menanyakan API Key di semua provider (kecuali ollama tanpa auth)
+  let curKey = getEnv("MODEL_API") || getEnv(`${newProvider.toUpperCase()}_API_KEY`) || "";
+  if (newProvider !== "ollama") {
+    try {
+      const mod = await import(`../provider/${newProvider === "custom" ? "customEndpoint" : newProvider}/index.js`);
+      if (mod.KEY_URL) {
+        console.log(`  ℹ Dapatkan API Key ${PROVIDERS[newProvider]?.label || newProvider} di: ${mod.KEY_URL}`);
+      }
+    } catch {}
+
+    const promptLabel = curKey
+      ? `${PROVIDERS[newProvider]?.label || newProvider} API Key (Enter untuk tetap pakai yang tersimpan):`
+      : `${PROVIDERS[newProvider]?.label || newProvider} API Key:`;
+    
+    const inputKey = await input(promptLabel, "", true);
+    if (inputKey.trim()) {
+      curKey = inputKey.trim();
+      setEnv("MODEL_API", curKey);
+      const envKeyName = {
+        anthropic:   "ANTHROPIC_API_KEY",
+        huggingface: "HUGGINGFACE_API_KEY",
+        openai:      "OPENAI_API_KEY",
+        groq:        "GROQ_API_KEY",
+        gemini:      "GEMINI_API_KEY",
+        openrouter:  "OPENROUTER_API_KEY",
+      }[newProvider];
+      if (envKeyName) setEnv(envKeyName, curKey);
+    }
+  }
+
+  // Custom Endpoint & Alias Setup
+  if (newProvider === "custom") {
+    const customEndpoints = await listCustomEndpoints();
+    const customChoices = Object.entries(customEndpoints).map(([name, ep]) => ({
+      label: `${name} (${ep.url})`,
+      value: name,
+    }));
+
+    customChoices.push({ label: "➕ Tambah Custom Endpoint URL Baru...", value: "__new__" });
+
+    const chosenEp = await select("Pilih Custom Endpoint:", customChoices);
+
+    let targetUrl = "";
+    let epName = "";
+
+    if (chosenEp === "__new__") {
+      targetUrl = await input("Masukkan URL Custom Endpoint (mis. http://localhost:11434/v1):");
+      epName = await input("Nama Alias untuk model ini (mis. duzzu(gemini 3.6 flash)):");
+    } else {
+      targetUrl = customEndpoints[chosenEp].url;
+      epName = chosenEp;
+    }
+
+    setEnv("MODEL_URL", targetUrl);
+
+    // Live scan model dari URL custom
+    const spin = ora(`  Live scanning models dari ${targetUrl}...`).start();
+    const liveModels = await fetchCustomModels(targetUrl, curKey);
+
+    let selectedModel = "";
+    if (liveModels.length > 0) {
+      spin.succeed(`Ditemukan ${liveModels.length} model live dari ${targetUrl}`);
+      const modelChoices = liveModels.map(m => ({ label: m.name, value: m.id }));
+      modelChoices.push({ label: "Ketik nama model manual...", value: "__manual__" });
+      selectedModel = await select("Pilih model live:", modelChoices);
+      if (selectedModel === "__manual__") selectedModel = await input("Nama model:");
+    } else {
+      spin.fail("Gagal scan live model dari URL tersebut.");
+      selectedModel = await input("Nama model manual:");
+    }
+
+    setEnv("MODEL_NAME", selectedModel);
+
+    // Format alias: duzzu(gemini 3.6 flash)
+    const finalAlias = epName.includes("(") ? epName : `${epName}(${selectedModel})`;
+    await saveProfile(finalAlias);
+    successLine(`Model custom tersimpan dengan alias "${finalAlias}"`);
+    sectionFooter();
+    return;
+  }
 
   if (newProvider === "ollama") {
     const host = getEnv("MODEL_URL")?.replace("/v1","") || "http://localhost:11434";
@@ -115,18 +271,27 @@ export async function cmdModel(args = []) {
       setEnv("MODEL_NAME", await input("Nama model:", ollamaMod.DEFAULT_MODEL));
     }
   } else {
-    const models = await getProviderModels(newProvider);
+    const spin = ora(`  Scanning live models dari ${PROVIDERS[newProvider]?.label || newProvider}...`).start();
+    const models = await getProviderModels(newProvider, curKey);
     if (models.length) {
+      spin.succeed(`Ditemukan ${models.length} model (live scan)`);
       const choices = models.map(m => ({ label: m.label || m.id, value: m.id }));
       choices.push({ label: "Ketik nama model sendiri...", value: "__custom__" });
       let chosen = await select("Pilih model:", choices);
       if (chosen === "__custom__") chosen = await input("Nama model:");
       setEnv("MODEL_NAME", chosen);
     } else {
+      spin.fail("Gagal scan live model.");
       setEnv("MODEL_NAME", await input("Nama model:"));
     }
   }
 
-  successLine(`Provider: ${newProvider}  →  Model: ${getEnv("MODEL_NAME")}`);
+  // Auto-save ke profile tersimpan dengan alias
+  const activeModel = getEnv("MODEL_NAME");
+  const defaultAlias = `${newProvider}(${activeModel})`;
+  const aliasInput = await input(`Nama alias untuk profile ini (default: ${defaultAlias}):`, defaultAlias);
+  await saveProfile(aliasInput.trim() || defaultAlias);
+
+  successLine(`Provider: ${newProvider}  →  Model: ${activeModel} (Alias: ${aliasInput})`);
   sectionFooter();
 }
