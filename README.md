@@ -25,6 +25,21 @@ Tiga cara utama berinteraksi dengan EMORA — semuanya berbagi *engine* yang sam
 ### 🧠 Knowledge Library (RAG internal)
 Basis pengetahuan permanen milik EMORA sendiri di folder `library/`, dengan indeks pencarian otomatis (TF-IDF) — jadi EMORA bisa **menyimpan dan mencari pengetahuan lintas-sesi tanpa terhalang *token limit* LLM**. Alurnya: `check` (cari dulu di library sebelum browsing web) → `collect` (kumpulkan info baru dari web search kalau belum ada) → `write` (simpan setelah diverifikasi, lewat pipeline validasi) → `read`/`read_latest` (ambil lagi kapan saja). Hasilnya, EMORA makin lama makin "pintar" soal topik yang sering ditanyakan, bukan mulai dari nol tiap sesi baru.
 
+### 🤖 Asynchronous Subagent System (Background Tasks)
+Mesin peluncur *subagent* pekerja asinkron (*fire-and-forget*) yang terintegrasi penuh dengan TUI. Main agent dapat mendelegasikan tugas berat ke latar belakang tanpa memblokir interaksi dengan pengguna. Termasuk perlindungan anti-halusinasi, *deduplication* (mencegah *spam* delegasi berulang), batasan memori cerdas, dan interaksi *messaging* antar-agent.
+
+### 🏭 Auto-Skill Factory (Pattern Tracker)
+EMORA mampu secara otomatis mengubah alur kerja kompleks menjadi Skill/Plugin permanen. Dengan melacak kebiasaan penggunaan *tools* secara cerdas, jika sebuah rutinitas melebihi batas repetisi tertentu (threshold) atau dinilai sangat berhasil, EMORA dapat mengekstraknya menjadi *skill* baru secara otomatis!
+
+### ⏪ Snapshot-based Undo/Redo System
+Sistem keamanan modifikasi *file*. Setiap kali agen melakukan aksi destruktif (seperti menulis, menghapus, atau nge-*patch* file), snapshot diambil dan disimpan dalam sistem memori berbasis FIFO. Gunakan alat `undo` dan `redo` untuk mengembalikan *file* ke versi aman kapan saja jika percobaan gagal.
+
+### 🧠 "Thinking Mode" Soft-Switch (Qwen-Ready)
+Pengaturan pintar (`/think` atau `/no_think`) untuk beradaptasi dengan model beralasan (seperti Qwen3). Sistem dapat menyuntikkan *tag reasoning* secara dinamis tanpa bergantung pada API eksternal, dan akan otomatis non-aktif jika mendeteksi model kecil (≤ 1.5B) untuk menghemat waktu dan *token*.
+
+### 🌐 EMORA Community Hub Integration
+Ekosistem pusat untuk mencari (search), mendownload, dan meng-upload (publish) *skills* atau *tools* langsung dari/ke *registry* komunitas (download ZIP) dengan sangat mudah.
+
 ### 🧩 Sistem Plugin Terstandardisasi
 Format plugin sama seperti Claude Code/Codex/Hermes Agent (`skills/`, `commands/`, `hooks/`, `.mcp.json`) — plugin pihak ketiga dari GitHub bisa langsung dipasang lewat `emora plugin install <url>` tanpa modifikasi apa pun. Mendukung plugin yang punya perilaku "selalu aktif" lewat hooks (`SessionStart`/`UserPromptSubmit`), dengan mekanisme *trust* eksplisit sebelum hook dieksekusi (keamanan seperti Claude Code).
 
