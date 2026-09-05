@@ -7,9 +7,12 @@
  * biasa, konsisten dengan gaya chalk yang sudah dipakai di main.js lama &
  * cli/select.js.
  */
+import fs from "fs";
+import path from "path";
 import { C, ICONS, hr, truncate, padVisible, stripAnsi, spinnerFrame, wrapPlain } from "./styles.js";
 import { renderMarkdown } from "./markdown.js";
 import { getSkin, rpgHeader, rpgWelcome } from "./theme-rpg.js";
+import { getActiveSubagents } from "../core/ag_subagent_engine.js";
 
 const MIN_WIDTH = 40;
 const MIN_HEIGHT = 12;
@@ -172,10 +175,32 @@ function renderInputArea(state, width) {
     rightMark = windowEnd < input.length ? C.faint("…") : "";
   }
 
-  // Status ringkas kanan pada garis atas (model · mode · timer).
+  // Status ringkas kanan pada garis atas (model · mode · timer · artifact).
   const modelName = truncate(state.provider?.model || "-", 18);
   const modeTag = state.mode === "safe" ? "safe" : state.mode === "plan" ? "plan" : "auto";
+  
+  let artTag = "";
+  try {
+    // Membaca artifact secara background/non-blocking untuk menghindari lag ketikan (computeScreen jalan tiap keystroke).
+    if (!globalThis.__artLastCheck || Date.now() - globalThis.__artLastCheck > 2000) {
+      globalThis.__artLastCheck = Date.now();
+      const { resolveWorkspacePath } = require("../utils/workspace.js");
+      const dir = resolveWorkspacePath(".emora_artifacts");
+      fs.promises.readdir(dir).then(files => {
+        globalThis.__artCount = files.filter(f => f.endsWith(".json")).length;
+      }).catch(() => {
+        globalThis.__artCount = 0;
+      });
+    }
+    const c = globalThis.__artCount || 0;
+    if (c > 0) artTag = `${c} artifact${c > 1 ? 's' : ''}`;
+  } catch (e) {
+    // Abaikan jika fs belum bisa diakses
+  }
+
   let rightInfo = `${modelName} · ${modeTag}`;
+  if (artTag) rightInfo += ` · ${artTag}`;
+  
   if (state.status === "thinking" && state.turnStartedAt) {
     rightInfo += ` · ${Math.floor((Date.now() - state.turnStartedAt) / 1000)}s`;
   }
@@ -312,7 +337,14 @@ function renderMessageBlock(msg, width) {
     let bodyLines = _mdCache.get(key);
     if (!bodyLines) {
       bodyLines = renderMarkdown(msg.content, width - 6);
-      if (_mdCache.size > 500) _mdCache.clear();
+      if (_mdCache.size > 500) {
+        // Evict oldest (Map maintains insertion order)
+        _mdCache.delete(_mdCache.keys().next().value);
+      }
+      _mdCache.set(key, bodyLines);
+    } else {
+      // Refresh order for LRU
+      _mdCache.delete(key);
       _mdCache.set(key, bodyLines);
     }
     bodyLines.forEach((l, i) => lines.push((i === 0 ? C.yellow("● ") : "  ") + " " + l));
@@ -382,16 +414,30 @@ function renderApprovalOverlay(state, width) {
     }
   }
 
+  const idx = state.approval.selectedIndex || 0;
+  
+  const options = [
+    { label: "1. Yes", desc: "setujui sekali ini" },
+    { label: "2. Yes, selalu", desc: "izinkan tool ini turn ini" },
+    { label: "3. No", desc: "tolak" }
+  ];
+
+  const renderedOptions = options.map((opt, i) => {
+    const isSel = idx === i;
+    const marker = isSel ? C.primary("❯ ") : "  ";
+    const title = isSel ? C.primaryBold(opt.label) : C.text(opt.label);
+    const spacing = opt.label === "3. No" ? "        " : opt.label === "1. Yes" ? "      " : "  ";
+    return marker + title + C.dim(spacing + opt.desc);
+  });
+
   return [
     hr(width),
     C.red.bold(`${ICONS.warn} Perlu izin: `) + C.bold(toolName),
     C.faint("  " + argsPreview),
     ...preview,
     "",
-    C.primary("❯ 1. Yes") + C.dim("      setujui sekali ini"),
-    "  " + C.text("2. Yes, selalu") + C.dim("  izinkan tool ini turn ini"),
-    "  " + C.text("3. No") + C.dim("        tolak"),
-    C.dim(truncate("  [1/Enter] yes · [2] selalu · [3/n] no", width)),
+    ...renderedOptions,
+    C.dim(truncate("  ↑↓ select · Enter confirm · [1/2/3] quick shortcut", width)),
   ];
 }
 
@@ -434,6 +480,63 @@ function renderModelPickerOverlay(state, width) {
 }
 
 // ── Alternate full-screen views ─────────────────────────────────────────────
+function renderArtifactsView(state, width, height) {
+  const out = [C.primaryBold("Artifacts")];
+  const { list, index } = state.artifacts;
+  
+  if (!list.length) {
+    out.push(C.faint("  Belum ada artifact."));
+  } else {
+    const visibleCount = Math.min(list.length, height - 5);
+    const start = Math.max(0, Math.min(index - Math.floor(visibleCount / 2), list.length - visibleCount));
+    
+    for (let i = start; i < start + visibleCount && i < list.length; i++) {
+      const a = list[i];
+      const isSel = i === index;
+      const marker = isSel ? C.primaryBold("› ") : "  ";
+      const name = truncate(a.name || a.id, width - 15);
+      const actionTxt = isSel ? C.primaryBold("   open") : "";
+      out.push(marker + (isSel ? C.primaryBold(name) : C.text(name)) + actionTxt);
+    }
+  }
+  
+  out.push("");
+  out.push(C.dim(truncate("Keyboard: ↑/↓ Navigate  p preview  enter open  ctrl+g open in editor", width)));
+  out.push(C.dim("  esc Dismiss"));
+  return padScreen(out, width, height);
+}
+
+function renderArtifactPagerView(state, width, height) {
+  const { artifact, lines, offset, showLines } = state.artifactPager;
+  const out = ["  " + C.primaryBold(artifact.name || artifact.id)];
+  
+  const contentHeight = height - 5;
+  const total = lines.length;
+  const visible = lines.slice(offset, offset + contentHeight);
+  
+  for (let i = 0; i < visible.length; i++) {
+    const l = visible[i];
+    const num = offset + i + 1;
+    const isSel = i === 0;
+    const cursor = isSel ? C.primaryBold("> ") : "  ";
+    if (showLines) {
+      out.push(cursor + C.faint(String(num).padStart(3) + " ") + "    " + l);
+    } else {
+      out.push(cursor + "    " + l);
+    }
+  }
+  
+  while (out.length < contentHeight + 1) out.push("");
+  
+  const endLine = Math.min(offset + contentHeight, total);
+  const pct = total > 0 ? Math.round((endLine / total) * 100) : 0;
+  out.push(`  [${pct}%  L${offset + 1}  ${offset + 1}-${endLine}/${total}]`);
+  out.push("");
+  out.push(C.dim(truncate("  ↑/↓ scroll · pgup/pgdown page · shift+g bottom · g top", width)));
+  out.push(C.dim(truncate("  c comment · ctrl+g editor · / search · l hide lines · esc close", width)));
+  return padScreen(out, width, height);
+}
+
 function renderHistoryView(state, width, height) {
   const out = [C.primaryBold(" Riwayat Sesi "), hr(width)];
   const { sessions, index } = state.history;
@@ -446,7 +549,7 @@ function renderHistoryView(state, width, height) {
       const s = sessions[i];
       const isSel = i === index;
       const marker = isSel ? C.primary("❯ ") : "  ";
-      const title = truncate(s.title || "(tanpa judul)", width - 30);
+      const title = truncate(s.name || "(tanpa judul)", width - 30);
       const date = new Date(s.updatedAt || s.createdAt || Date.now()).toLocaleString("id-ID");
       out.push(marker + (isSel ? C.primaryBold(title) : C.text(title)) + "  " + C.faint(date));
     }
@@ -604,6 +707,8 @@ export function computeScreen(state) {
   const { columns, rows } = clampSize(state);
 
   if (state.view === "history") return renderHistoryView(state, columns, rows).join("\n");
+  if (state.view === "artifacts") return renderArtifactsView(state, columns, rows).join("\n");
+  if (state.view === "artifact_pager") return renderArtifactPagerView(state, columns, rows).join("\n");
   if (state.view === "skills") return renderSkillsView(state, columns, rows).join("\n");
   if (state.view === "wizard") return renderWizardView(state, columns, rows).join("\n");
   if (state.view === "gatewayStatus") return renderGatewayStatusView(state, columns, rows).join("\n");
@@ -635,7 +740,42 @@ export function computeScreen(state) {
   const inputLine = renderInputArea(state, columns);
   // Notice fitur ala Contoh 2 ("* Voice mode is now available · /voice to enable").
   const featureNotice = state.featureNotice ? ["", C.dim(`* ${state.featureNotice}`)] : [];
-  const essentialFooter = [...inputLine]; // ini gak boleh ke-drop
+  
+  let subagentsLines = [];
+  try {
+      const active = getActiveSubagents();
+      // Hanya tampilkan yang masih relevan (running atau punya inbox unread)
+      const visible = active.filter(a => a.status === 'running' || a.unread > 0);
+      if (visible.length > 0) {
+          // Cap di 3 baris agar tidak mendorong body content
+          const shown = visible.slice(0, 3);
+          for (const a of shown) {
+              let statusIcon, statusText;
+              if (a.status === 'running') {
+                statusIcon = C.green("●");
+                statusText = C.green("Working");
+              } else if (a.status === 'done') {
+                statusIcon = C.cyan("●");
+                statusText = C.cyan("Done");
+              } else if (a.status === 'error') {
+                statusIcon = C.red("●");
+                statusText = C.red("Error");
+              } else {
+                statusIcon = C.faint("●");
+                statusText = C.faint(a.status);
+              }
+              const timeStr = C.faint(`${a.elapsed}s`);
+              const inboxTag = a.unread > 0 ? C.cyan(` · 📩 ${a.unread} inbox`) : "";
+              subagentsLines.push(`  ${statusIcon} Agent(${C.primaryBold(a.role)})  ${statusText} · ${timeStr}${inboxTag}`);
+          }
+          if (visible.length > 3) {
+              subagentsLines.push(C.faint(`  … +${visible.length - 3} subagent lainnya`));
+          }
+          subagentsLines.push(hr(columns));
+      }
+  } catch (e) { /* engine belum ready */ }
+
+  const essentialFooter = [...inputLine, ...subagentsLines]; // ini gak boleh ke-drop
   const optionalFooter = [...overlay, ...noticeLines, ...suggestions, ...featureNotice];
 
   const minBodyHeight = 1;

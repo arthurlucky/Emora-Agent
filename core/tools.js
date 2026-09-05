@@ -30,7 +30,6 @@ import { gitManagerTool } from "../tools/git_manager.js";
 import knowledgeLibraryTool from "../tools/kl.js";
 import { loadMCPTools } from "../tools/mcp_bridge.js";
 import { swarmDelegateTool } from "../tools/swarm.js";
-import subagentTool from "../tools/subagent.js";
 import titleGeneratorTool from "../tools/title.js";
 import { artifactTool } from "../tools/artifact.js";
 import { sessionMemoryTool } from "../tools/mem.js";
@@ -41,8 +40,12 @@ import { undoTool, redoTool } from "../tools/undo.js";
 import { verifyTool } from "../tools/verify.js";
 import changeModeTool from "../tools/change_mode.js";
 import { botMeshTool } from "../tools/bot_mesh.js";
+import { invokeSubagentTool, sendMessageTool, manageSubagentsTool } from "../tools/ag_subagents.js";
 
 const tools = [
+  invokeSubagentTool,
+  sendMessageTool,
+  manageSubagentsTool,
   botMeshTool,
   SearchWebTool,
   FetchPageTool,
@@ -74,7 +77,6 @@ const tools = [
   groupManagerTool,
   knowledgeLibraryTool,
   swarmDelegateTool,
-  subagentTool,
   titleGeneratorTool,
   artifactTool,
   sessionMemoryTool,
@@ -192,7 +194,7 @@ export async function reloadToolset() {
     const { applyToolset } = await import("../utils/toolsets.js");
     const fresh = await applyToolset(allTools);
     filteredTools.length = 0;
-    filteredTools.push(...fresh, ...filteredTools.filter((t) => !fresh.includes(t)));
+    filteredTools.push(...fresh);
     return filteredTools.length;
   } catch (err) {
     console.error(`  ⚠️  Toolset reload gagal: ${err.message}`);
@@ -223,9 +225,9 @@ export function resolveLazyTools(inputPrompt, allTools) {
 
   const text = inputPrompt.trim().toLowerCase();
 
-  // If casual smalltalk / greeting / short confirmation, return [] (no tools bound, max speed)
-  const isSmalltalk = /^(hai|halo+|hi|hei|hy|hello|hey|p+ag+i|si+ang|so+re|ma+lam|thanks?|thx|makasih|terima\s*kasih|oke*|ok|sip|mantap|ya|iya|gpp|santai|wkwk+|haha+|bye|dadah)[\s!.,?]*$/i.test(text);
-  if (isSmalltalk || (text.length <= 12 && !/[?\/]/.test(text))) {
+  // Only strip tools for OBVIOUS smalltalk patterns, never based on length alone
+  const SMALLTALK_RE = /^(hai|halo+|hi|hei|hy|hello|hey|p+ag+i|si+ang|so+re|ma+lam|thanks?|thx|makasih|terima\s*kasih|oke*|ok|sip|mantap|ya|iya|gpp|santai|wkwk+|haha+|bye|dadah|see\s*ya)[\s!.,?]*$/i;
+  if (SMALLTALK_RE.test(text)) {
     return [];
   }
 
@@ -240,6 +242,8 @@ export function resolveLazyTools(inputPrompt, allTools) {
     terminal: ["shell_exec", "verify", "git_manager", "project_manager", "system_monitor"],
     memory: ["session_memory", "knowledge_library", "skill_factory", "artifact_tool"],
     messaging: ["group_manager", "title_generator", "scheduler_tool"],
+    subagent: ["invoke_subagent", "send_message", "manage_subagents"],
+    hub: ["emora_hub"],
   };
 
   const matched = new Set();
@@ -247,19 +251,30 @@ export function resolveLazyTools(inputPrompt, allTools) {
   if (/\b(search|cari|google|web|http|url|buka|link|website)\b/i.test(text)) {
     categories.web.forEach((t) => matched.add(t));
   }
-  if (/\b(file|baca|tulis|edit|patch|folder|direktori|zip|kompres|buat|hapus|undo|redo)\b/i.test(text)) {
+  if (/\b(file|baca|tulis|edit|patch|folder|direktori|zip|kompres|buat|hapus|undo|redo|download|unduh|upload|unggah)\b/i.test(text)) {
     categories.file.forEach((t) => matched.add(t));
   }
-  if (/\b(cmd|command|perintah|terminal|bash|shell|exec|git|commit|push|npm|node|python|run|install|verify|check|linter|cpu|ram)\b/i.test(text)) {
+  if (/\b(cmd|command|perintah|terminal|bash|shell|exec|git|commit|push|npm|node|python|run|install|verify|check|linter|cpu|ram|code|script|program|debug|error|bug|project|proyek|task|tugas|plan|monitor|pantau|health|status)\b/i.test(text)) {
     categories.terminal.forEach((t) => matched.add(t));
   }
   if (/\b(fakta|memori|ingat|knowledge|artikel|buku|dokumen|skill|learn|artifact|laporan)\b/i.test(text)) {
     categories.memory.forEach((t) => matched.add(t));
   }
+  if (/\b(send|kirim|pesan|group|broadcast)\b/i.test(text)) {
+    categories.messaging.forEach((t) => matched.add(t));
+  }
+  if (/\b(subagent|sub.?agent|agent|delegasi|delegat|background|latar\s*belakang|spawn|inbox|parallel)\b/i.test(text)) {
+    categories.subagent.forEach((t) => matched.add(t));
+  }
+  if (/\b(hub|community|komunitas|install|pasang)\b/i.test(text)) {
+    categories.hub.forEach((t) => matched.add(t));
+  }
 
   if (matched.size === 0) return allTools;
 
-  matched.add("datetime");
+  // Essential tools always included when any category matches
+  const ESSENTIAL = ["datetime", "shell_exec", "read_file", "write_file", "session_memory"];
+  ESSENTIAL.forEach((t) => matched.add(t));
   return allTools.filter((t) => matched.has(t.name));
 }
 

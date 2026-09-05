@@ -6,8 +6,16 @@ const PATTERNS_FILE = path.join(FACTORY_DIR, "patterns.json");
 export const SKILL_THRESHOLD = 5; // Berapa kali pattern muncul sebelum disarankan jadi skill
 
 // ==========================================
-// PERSISTENCE
+// PERSISTENCE (ATOMIC & QUEUED)
 // ==========================================
+
+let _queue = Promise.resolve();
+
+async function enqueue(taskFn) {
+  const run = _queue.then(taskFn, taskFn); // always run even if previous failed
+  _queue = run.catch(() => {});
+  return run;
+}
 
 async function ensureDir() {
   await fs.mkdir(FACTORY_DIR, { recursive: true });
@@ -24,10 +32,10 @@ async function loadPatterns() {
 
 async function savePatterns(data) {
   await ensureDir();
-  await fs.writeFile(PATTERNS_FILE, JSON.stringify(data, null, 2));
+  const tmpFile = `${PATTERNS_FILE}.${Date.now()}.tmp`;
+  await fs.writeFile(tmpFile, JSON.stringify(data, null, 2));
+  await fs.rename(tmpFile, PATTERNS_FILE); // Atomic write
 }
-
-// ==========================================
 // PATTERN KEY
 // Tool sequence direpresentasikan sebagai string: "tool_a>tool_b>tool_c"
 // ==========================================
@@ -41,40 +49,39 @@ export function buildKey(toolSequence) {
 // ==========================================
 
 export async function recordToolSequence(sessionId, toolSequence) {
-  // Abaikan sequence < 2 tool (terlalu trivial)
   if (!toolSequence || toolSequence.length < 2) return null;
 
-  const data = await loadPatterns();
-  const key = buildKey(toolSequence);
+  return enqueue(async () => {
+    const data = await loadPatterns();
+    const key = buildKey(toolSequence);
 
-  if (!data.patterns[key]) {
-    data.patterns[key] = {
-      sequence: toolSequence,
-      count: 0,
-      sessions: [],
-      first_seen: Date.now(),
-      last_seen: null,
-      skill_created: false,
-      skill_name: null,
-    };
-  }
+    if (!data.patterns[key]) {
+      data.patterns[key] = {
+        sequence: toolSequence,
+        count: 0,
+        sessions: [],
+        first_seen: Date.now(),
+        last_seen: null,
+        skill_created: false,
+        skill_name: null,
+      };
+    }
 
-  const p = data.patterns[key];
-  p.count++;
-  p.last_seen = Date.now();
+    const p = data.patterns[key];
+    p.count++;
+    p.last_seen = Date.now();
 
-  if (!p.sessions.includes(sessionId)) {
-    p.sessions.push(sessionId);
-  }
+    if (!p.sessions.includes(sessionId)) {
+      p.sessions.push(sessionId);
+    }
 
-  await savePatterns(data);
+    await savePatterns(data);
 
-  // Return trigger info hanya saat tepat menyentuh threshold (bukan setiap kali)
-  if (p.count === SKILL_THRESHOLD && !p.skill_created) {
-    return { key, pattern: p };
-  }
-
-  return null;
+    if (p.count === SKILL_THRESHOLD && !p.skill_created) {
+      return { key, pattern: p };
+    }
+    return null;
+  });
 }
 
 // ==========================================
@@ -96,26 +103,32 @@ export async function getPatternByKey(key) {
 // ==========================================
 
 export async function markSkillCreated(key, skillName) {
-  const data = await loadPatterns();
-  if (data.patterns[key]) {
-    data.patterns[key].skill_created = true;
-    data.patterns[key].skill_name = skillName;
-  }
-  await savePatterns(data);
+  return enqueue(async () => {
+    const data = await loadPatterns();
+    if (data.patterns[key]) {
+      data.patterns[key].skill_created = true;
+      data.patterns[key].skill_name = skillName;
+    }
+    await savePatterns(data);
+  });
 }
 
 export async function resetPatternCount(key) {
-  const data = await loadPatterns();
-  if (data.patterns[key]) {
-    data.patterns[key].count = 0;
-    data.patterns[key].skill_created = false;
-    data.patterns[key].skill_name = null;
-  }
-  await savePatterns(data);
+  return enqueue(async () => {
+    const data = await loadPatterns();
+    if (data.patterns[key]) {
+      data.patterns[key].count = 0;
+      data.patterns[key].skill_created = false;
+      data.patterns[key].skill_name = null;
+    }
+    await savePatterns(data);
+  });
 }
 
 export async function deletePattern(key) {
-  const data = await loadPatterns();
-  delete data.patterns[key];
-  await savePatterns(data);
+  return enqueue(async () => {
+    const data = await loadPatterns();
+    delete data.patterns[key];
+    await savePatterns(data);
+  });
 }

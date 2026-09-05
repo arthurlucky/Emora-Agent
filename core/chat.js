@@ -30,6 +30,8 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SKILL_DIR = path.join(ROOT_DIR, 'skill');
 
+const compactionCooldown = new Map();
+
 let cachedSystemPrompts = {};
 let cachedSkillCatalog = null;
 let cachedLibrarySummary = null;
@@ -85,17 +87,18 @@ async function buildLibrarySummary() {
   }
 }
 
-async function getSystemPrompt() {
+async function getSystemPrompt(envOverride = {}) {
+  const env = { ...process.env, ...envOverride };
   const { resolveAgentPath } = await import("./agentMode.js");
-  const rootAgentPath = process.env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
+  const rootAgentPath = env.EMORA_AGENT_PATH || path.join(ROOT_DIR, 'AGENT.md');
 
   // Pilih AGENT.md vs AGENT_LITE.md (core/agentMode.js) — generik semua
   // provider. Override manual AGENT_MODE=lite|full di .env menang.
   const picked = resolveAgentPath({
     rootDir: ROOT_DIR,
-    modelId: process.env.MODEL_NAME || "",
+    modelId: env.MODEL_NAME || "",
   });
-  const effectiveAgentPath = process.env.EMORA_AGENT_PATH || picked.path;
+  const effectiveAgentPath = env.EMORA_AGENT_PATH || picked.path;
   const cacheKey = effectiveAgentPath; // cache terpisah per file AGENT
   if (cachedSystemPrompts[cacheKey]) {
     return cachedSystemPrompts[cacheKey];
@@ -107,8 +110,8 @@ async function getSystemPrompt() {
   if (picked.usedLite) console.log(`[chat] mode LITE aktif — ${picked.reason}`);
 
   try {
-    const name = process.env.NAME || "Emora";
-    const soulPath = process.env.EMORA_SOUL_PATH || path.join(ROOT_DIR, 'SOUL.md');
+    const name = env.NAME || "Emora";
+    const soulPath = env.EMORA_SOUL_PATH || path.join(ROOT_DIR, 'SOUL.md');
 
     // PERF #1: I/O paralel via Promise.all.
     const [soulRaw, agentRaw, skillCatalog, librarySummary] = await Promise.all([
@@ -310,6 +313,8 @@ async function invokeWithRetry(llm, messages, { signal, maxRetries = 3 } = {}) {
   }
 }
 
+const failoverCache = new Map();
+
 /**
  * Feature #2: Multi-Provider Failover Engine
  * Jika provider utama (misal Groq/Gemini) error (Rate limit 429, 503 Overloaded, Quota 402),
@@ -329,10 +334,15 @@ async function invokeWithFailover(primaryLLM, messages, tools, { signal } = {}) 
     if (!failoverList.length || signal?.aborted) throw primaryErr;
 
     for (const fbProvider of failoverList) {
+      if (fbProvider === curProvider) continue;
+      console.warn(`[failover] Provider "${curProvider}" gagal (${primaryErr?.message || String(primaryErr)}). Mencoba provider cadangan "${fbProvider}"...`);
       try {
-        console.warn(`[failover] Provider "${curProvider}" gagal (${primaryErr.message}). Mencoba provider cadangan "${fbProvider}"...`);
-        const { createLLM } = await import("../provider/index.js");
-        const fbLLM = await createLLM(tools, fbProvider);
+        let fbLLM = failoverCache.get(fbProvider);
+        if (!fbLLM) {
+          const { createLLM } = await import("../provider/index.js");
+          fbLLM = await createLLM(tools, fbProvider);
+          failoverCache.set(fbProvider, fbLLM);
+        }
         const res = await invokeWithRetry(fbLLM, messages, { signal });
         console.warn(`[failover] ✓ Berhasil terhubung & merespon via provider cadangan "${fbProvider}"!`);
         return res;
@@ -417,10 +427,10 @@ async function resolveManualSlashInvocation(rawInput) {
 // ==========================================
 // MAIN ENTRY — ask()
 // ==========================================
-export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, mode = "autonomous", signal } = {}) {
+export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, mode = "autonomous", signal, envOverride = {} } = {}) {
   const t0 = Date.now();
   if (signal?.aborted) throw abortError();
-  const systemPrompt = await getSystemPrompt();
+  const systemPrompt = await getSystemPrompt(envOverride);
   const memory = await loadSession(sessionId);
 
   // STABLE vs VOLATILE tiering — systemPrompt (stable, cache-friendly)
@@ -507,7 +517,13 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
         // Step 1: Semantic Fact Extraction ke sessionMemory
         try {
           const { extractSemanticFacts } = await import("./sessionMemory.js");
-          extractSemanticFacts(sessionId, oldMsgs, llm).catch(() => {});
+          const lastCompaction = compactionCooldown.get(sessionId) || 0;
+          if (Date.now() - lastCompaction > 10 * 60 * 1000) { // 10 minutes cooldown
+            compactionCooldown.set(sessionId, Date.now());
+            extractSemanticFacts(sessionId, oldMsgs, llm).catch((err) => {
+              console.error(`[COMPACTION] Error: ${err.message}`);
+            });
+          }
         } catch {}
 
         // Step 2: Semantic Compression
@@ -683,20 +699,24 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
           if (result && typeof result.content === "string" && result.content.length > 12_000) {
             const content = result.content;
             const keep = 6_000;
-            const head = content.slice(0, keep);
-            const tail = content.slice(-keep);
-            const cut = content.length - (keep * 2);
-            result.content = `${head}\n\n... [TRUNCATED ${cut.toLocaleString()} KARAKTER TERPOTONG DENGAN RINGKASAN] ...\n\n${tail}`;
+            let head = content.slice(0, keep);
+            let tail = content.slice(-keep);
+            // Align to nearest newline if possible
+            const headNewline = head.lastIndexOf('\n');
+            if (headNewline > keep * 0.8) head = head.slice(0, headNewline);
+            const tailNewline = tail.indexOf('\n');
+            if (tailNewline !== -1 && tailNewline < keep * 0.2) tail = tail.slice(tailNewline);
+            
+            result.content = `${head}\n\n... [TRUNCATED DUE TO LENGTH] ...\n\n${tail}`;
           }
-
-          // Lacak pola pemakaian tool (skill factory).
-          try {
-            recordToolSequence(sessionId, toolCall.name);
-          } catch { /* non-kritis */ }
 
           return result;
         })
       );
+
+      try {
+        recordToolSequence(sessionId, toolCalls.map(t => t.name));
+      } catch { /* non-kritis */ }
 
       for (const res of toolResults.filter(Boolean)) {
         workMessages.push(res);

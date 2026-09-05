@@ -150,9 +150,8 @@ export async function runTUI(options = {}) {
       const title = session.name || session.title || "Sesi baru";
       const msgCount = session.messageCount ?? "?";
       console.log("");
-      console.log(chalk.yellow("  Resume this session with:"));
-      console.log(`    ${cyan(`emora --resume ${sid}`)}`);
-      console.log(`    ${cyan(`emora -c "${title.replace(/"/g, "").slice(0, 60)}"`)}`);
+      console.log(chalk.yellow("  Resume conversation with:"));
+      console.log(`    ${cyan(`emora -r ${sid}`)}`);
       console.log("");
       console.log(`  ${dim("Session:")}        ${sid}`);
       console.log(`  ${dim("Title:")}          ${title.slice(0, 70)}`);
@@ -206,6 +205,10 @@ export async function runTUI(options = {}) {
 
   await app.waitUntilExit();
   cleanup();
+  
+  // Berikan petunjuk cara melanjutkan obrolan ini
+  console.log(`\n\x1b[36mResume this conversation with: \x1b[1memora -r ${session.id}\x1b[0m\n`);
+
   // BUGFIX (stuck, gak bisa keluar): jaring pengaman kalau ada handle yang
   // nyangkut (request LLM yang belum bener-bener ke-abort di level socket,
   // timer nyasar, dst) sehingga event loop gak kosong walau user udah minta
