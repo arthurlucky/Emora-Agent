@@ -55,7 +55,7 @@ export async function mount(root) {
 
   async function load() {
     try {
-      const { gateways } = await api.getGateway();
+      const { gateways } = await api.gatewayApi.list();
       render(gateways);
     } catch (err) {
       grid.innerHTML = `<div class="empty-state"><span class="glyph">!</span><span>Gagal memuat status gateway: ${escapeHtml(err.message)}</span></div>`;
@@ -63,8 +63,8 @@ export async function mount(root) {
   }
 
   function render(gateways) {
-    const tg = gateways.telegram;
-    const wa = gateways.whatsapp;
+    const tg = gateways.find(g => g.id === "telegram") || { config: {} };
+    const wa = gateways.find(g => g.id === "whatsapp") || { config: {} };
 
     grid.innerHTML =
       cardTemplate({
@@ -80,7 +80,7 @@ export async function mount(root) {
               type="text"
               class="input"
               data-field="token"
-              placeholder="${tg.hasToken ? escapeHtml(tg.token) : "Belum diisi — tempel token dari @BotFather"}"
+              placeholder="${tg.config.token ? escapeHtml(tg.config.token) : "Belum diisi — tempel token dari @BotFather"}"
               autocomplete="off"
             />
             <p class="field-hint">Kosongkan kalau gak mau ganti token yang sudah tersimpan.</p>
@@ -91,7 +91,7 @@ export async function mount(root) {
               type="text"
               class="input"
               data-field="allowedIds"
-              value="${escapeHtml(tg.allowedIds)}"
+              value="${escapeHtml(tg.config.allowedIds || '')}"
               placeholder="123456789, 987654321"
               autocomplete="off"
             />
@@ -110,7 +110,7 @@ export async function mount(root) {
               type="text"
               class="input"
               data-field="phoneNumber"
-              value="${escapeHtml(wa.phoneNumber)}"
+              value="${escapeHtml(wa.config.phoneNumber || '')}"
               placeholder="62812xxxxxxx"
               autocomplete="off"
             />
@@ -121,7 +121,7 @@ export async function mount(root) {
               type="text"
               class="input"
               data-field="allowedNumbers"
-              value="${escapeHtml(wa.allowedNumbers)}"
+              value="${escapeHtml(wa.config.allowedNumbers || '')}"
               placeholder="62812xxxxxxx, 62813xxxxxxx"
               autocomplete="off"
             />
@@ -145,11 +145,14 @@ export async function mount(root) {
       if (key === "telegram") {
         const token = form.querySelector('[data-field="token"]').value;
         const allowedIds = form.querySelector('[data-field="allowedIds"]').value;
-        result = await api.saveTelegramGateway({ enabled, token, allowedIds });
+        const config = {};
+        if (token) config.token = token;
+        if (allowedIds) config.allowedIds = allowedIds;
+        result = await api.gatewayApi.update([{ id: 'telegram', enabled, config }]);
       } else {
         const phoneNumber = form.querySelector('[data-field="phoneNumber"]').value;
         const allowedNumbers = form.querySelector('[data-field="allowedNumbers"]').value;
-        result = await api.saveWhatsappGateway({ enabled, phoneNumber, allowedNumbers });
+        result = await api.gatewayApi.update([{ id: 'whatsapp', enabled, config: { phoneNumber, allowedNumbers } }]);
       }
       toast.success(result.message || "Konfigurasi disimpan.");
       await load();

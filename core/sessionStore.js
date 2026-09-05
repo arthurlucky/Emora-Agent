@@ -55,7 +55,9 @@ async function loadMeta() {
 
 async function saveMeta(meta) {
   await ensureMemoryDir();
-  await fs.writeFile(META_FILE, JSON.stringify(meta, null, 2));
+  const tmp = META_FILE + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(meta, null, 2));
+  await fs.rename(tmp, META_FILE);
 }
 
 function defaultName(sessionId) {
@@ -238,6 +240,14 @@ export async function touchSession(id, firstPrompt = null) {
 }
 
 export async function getSession(id) {
-  const sessions = await listSessions();
-  return sessions.find((s) => s.id === id) || null;
+  if (!UUID_RE.test(id)) return null;
+  const meta = await loadMeta();
+  const fileStat = await fs.stat(path.join(MEMORY_DIR, `${id}.json`)).catch(() => null);
+  if (!fileStat && !meta[id]) return null;
+  return {
+    id,
+    name: meta[id]?.name || defaultName(id),
+    createdAt: meta[id]?.createdAt || fileStat?.birthtimeMs || Date.now(),
+    updatedAt: meta[id]?.updatedAt || fileStat?.mtimeMs || Date.now(),
+  };
 }

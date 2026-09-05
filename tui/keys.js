@@ -5,7 +5,8 @@
  * berdasar status/view saat ini — approval prompt & tiap alternate view
  * (history/skills/wizard/dst) punya keybinding sendiri-sendiri.
  */
-import { AVAILABLE_COMMANDS, runSlashCommand, renameSession, deleteSession, getSkillSuggestionCache, refreshSkillSuggestionCache } from "./cmd.js";
+import { AVAILABLE_COMMANDS, runSlashCommand, getSkillSuggestionCache, refreshSkillSuggestionCache } from "./cmd.js";
+import { deleteSession, renameSession } from "../core/sessionStore.js";
 import { toggleSkill } from "./skills.js";
 import { loadSession } from "../core/memory.js";
 import {
@@ -14,11 +15,13 @@ import {
 } from "./wizard.js";
 import { createLLM, getProviderMeta } from "../provider/index.js";
 
+import { WORKSPACE_DIR } from "../utils/workspace.js";
+
 let cachedFileNames = [];
 async function refreshFileCache() {
   try {
     const fs = await import("fs/promises");
-    const files = await fs.readdir(process.cwd(), { withFileTypes: true });
+    const files = await fs.readdir(WORKSPACE_DIR, { withFileTypes: true });
     cachedFileNames = files
       .filter((f) => !f.name.startsWith(".") && f.name !== "node_modules")
       .map((f) => `@${f.name}`);
@@ -127,8 +130,16 @@ async function handleChatKeys({ state, dispatch, controller, input, key }) {
     return;
   }
 
-  if (key.pageUp) return dispatch({ type: "SCROLL", delta: 5 });
-  if (key.pageDown) return dispatch({ type: "SCROLL", delta: -5 });
+  if (key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+    const s = state.scrollSensitivity || "medium";
+    const arrowDelta = s === "low" ? 1 : s === "medium" ? 3 : 10;
+    const pageDelta = s === "low" ? 5 : s === "medium" ? 10 : 20;
+    
+    if (key.pageUp) return dispatch({ type: "SCROLL", delta: pageDelta });
+    if (key.pageDown) return dispatch({ type: "SCROLL", delta: -pageDelta });
+    if (key.upArrow) return dispatch({ type: "SCROLL", delta: arrowDelta });
+    if (key.downArrow) return dispatch({ type: "SCROLL", delta: -arrowDelta });
+  }
 
   if (key.return) {
     if (state.status !== "idle") return; // lagi mikir, gak bisa kirim lagi
@@ -143,7 +154,14 @@ async function handleChatKeys({ state, dispatch, controller, input, key }) {
 }
 
 async function submitText(text, { state, dispatch, controller }) {
-  const trimmed = text.trim();
+  let finalInput = text;
+  if (state.pasteAttachments?.length) {
+    for (const p of state.pasteAttachments) {
+      finalInput = finalInput.replace(p.marker, p.text);
+    }
+  }
+
+  const trimmed = finalInput.trim();
   if (!trimmed) return;
 
   if (trimmed.startsWith("/")) {
@@ -166,10 +184,21 @@ async function submitText(text, { state, dispatch, controller }) {
 }
 
 // ── Approval prompt ──────────────────────────────────────────────────────────
-function handleApprovalKeys({ controller, input, key }) {
+function handleApprovalKeys({ state, dispatch, controller, input, key }) {
+  if (key.upArrow) return dispatch({ type: "APPROVAL_MOVE", delta: -1 });
+  if (key.downArrow) return dispatch({ type: "APPROVAL_MOVE", delta: 1 });
+  
   const c = (input || "").toLowerCase();
-  // Dialog bernomor ala TUI.md: 1=Yes · 2=Yes selalu (turn ini) · 3/n=No.
-  if (c === "1" || key.return || c === "y") controller.resolveApproval(true);
+  if (key.return) {
+    const idx = state.approval.selectedIndex || 0;
+    if (idx === 0) controller.resolveApproval(true);
+    else if (idx === 1) controller.resolveApproval("always");
+    else controller.resolveApproval(false);
+    return;
+  }
+  
+  // Shortcut numpad/char tetap berfungsi sbg fallback
+  if (c === "1" || c === "y") controller.resolveApproval(true);
   else if (c === "2" || c === "a") controller.resolveApproval("always");
   else if (c === "3" || c === "n") controller.resolveApproval(false);
 }
@@ -382,6 +411,11 @@ export async function handleKey(ctx) {
   }
 
   // ── Global Keyboard Shortcuts ──────────────────────────────────────────────
+  if (key.ctrl && input === "o") {
+    dispatch({ type: "TOGGLE_LOGS_VIEW" });
+    return;
+  }
+
   if (key.ctrl && input === "l") {
     dispatch({ type: "SCROLL_RESET" });
     return;
@@ -409,12 +443,110 @@ export async function handleKey(ctx) {
 
   switch (state.view) {
     case "history": return handleHistoryKeys(ctx);
+    case "artifacts": return handleArtifactsKeys(ctx);
+    case "artifact_pager": return handleArtifactPagerKeys(ctx);
     case "skills": return handleSkillsKeys(ctx);
+    case "scrollConfig": return handleScrollConfigKeys(ctx);
     case "wizard": return handleWizardKeys(ctx);
     case "gatewayStatus":
     case "tasks":
       return handleReadonlyKeys(ctx);
     default:
       return handleChatKeys(ctx);
+  }
+}
+
+// ── Artifacts menu ───────────────────────────────────────────────────────────
+async function handleArtifactsKeys({ state, dispatch, key, input }) {
+  if (key.escape) return dispatch({ type: "SET_VIEW", view: "chat" });
+  if (key.upArrow) return dispatch({ type: "MOVE_ARTIFACTS_SELECTION", delta: -1 });
+  if (key.downArrow) return dispatch({ type: "MOVE_ARTIFACTS_SELECTION", delta: 1 });
+
+  const sel = state.artifacts.list[state.artifacts.index];
+  if (!sel) return;
+
+  if (input === "p" || key.return) {
+    const { getArtifact } = await import("../core/artifactManager.js");
+    try {
+      const art = getArtifact(sel.id);
+      const lines = art.content.split("\n");
+      dispatch({ type: "SET_ARTIFACT_PAGER_VIEW", artifact: art, lines });
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", message: err.message });
+    }
+    return;
+  }
+
+  if (key.ctrl && input === "g") {
+    // Export ke file sementara lalu buka di editor
+    const { getArtifact } = await import("../core/artifactManager.js");
+    const { resolveWorkspacePath } = await import("../utils/workspace.js");
+    const fs = await import("fs");
+    const cp = await import("child_process");
+    
+    try {
+      const art = getArtifact(sel.id);
+      const tmpPath = resolveWorkspacePath(`.emora_tmp_art_${sel.id}.${art.type === 'markdown' ? 'md' : 'txt'}`);
+      fs.writeFileSync(tmpPath, art.content);
+      
+      const editor = process.env.EDITOR || "nano";
+      dispatch({ type: "SET_VIEW", view: "chat" }); 
+      console.clear();
+      cp.execSync(`${editor} "${tmpPath}"`, { stdio: "inherit" });
+      
+      dispatch({ type: "SET_NOTICE", message: `Artifact ${sel.id} dibuka di ${editor}` });
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", message: `Gagal buka editor: ${err.message}` });
+    }
+  }
+}
+
+// ── Artifacts Pager ──────────────────────────────────────────────────────────
+async function handleArtifactPagerKeys({ state, dispatch, key, input }) {
+  if (key.escape || input === "q") return dispatch({ type: "SET_VIEW", view: "artifacts" });
+  
+  if (key.upArrow || input === "k") return dispatch({ type: "PAGER_SCROLL", delta: -1 });
+  if (key.downArrow || input === "j") return dispatch({ type: "PAGER_SCROLL", delta: 1 });
+  if (key.pageUp) return dispatch({ type: "PAGER_SCROLL", delta: -20 });
+  if (key.pageDown) return dispatch({ type: "PAGER_SCROLL", delta: 20 });
+  if (input === "g") return dispatch({ type: "PAGER_SCROLL", delta: -999999 }); // top
+  if (key.shift && input === "G") return dispatch({ type: "PAGER_SCROLL", delta: 999999 }); // bottom
+  if (input === "l") return dispatch({ type: "PAGER_TOGGLE_LINES" });
+
+  if (key.ctrl && input === "g") {
+    const sel = state.artifactPager.artifact;
+    const { resolveWorkspacePath } = await import("../utils/workspace.js");
+    const fs = await import("fs");
+    const cp = await import("child_process");
+    
+    try {
+      const tmpPath = resolveWorkspacePath(`.emora_tmp_art_${sel.id}.${sel.type === 'markdown' ? 'md' : 'txt'}`);
+      fs.writeFileSync(tmpPath, sel.content);
+      
+      const editor = process.env.EDITOR || "nano";
+      dispatch({ type: "SET_VIEW", view: "chat" }); 
+      console.clear();
+      cp.execSync(`${editor} "${tmpPath}"`, { stdio: "inherit" });
+      
+      dispatch({ type: "SET_NOTICE", message: `Artifact ${sel.id} dibuka di ${editor}` });
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", message: `Gagal buka editor: ${err.message}` });
+    }
+  }
+}
+
+// ── Scroll Config ────────────────────────────────────────────────────────────
+function handleScrollConfigKeys({ state, dispatch, key, input }) {
+  if (key.escape || key.return || input === "q") return dispatch({ type: "SET_VIEW", view: "chat" });
+  const levels = ["low", "medium", "high"];
+  const curr = levels.indexOf(state.scrollSensitivity || "medium");
+  
+  if (key.leftArrow) {
+    const next = Math.max(0, curr - 1);
+    dispatch({ type: "SET_SCROLL_SENSITIVITY", level: levels[next] });
+  }
+  if (key.rightArrow) {
+    const next = Math.min(2, curr + 1);
+    dispatch({ type: "SET_SCROLL_SENSITIVITY", level: levels[next] });
   }
 }

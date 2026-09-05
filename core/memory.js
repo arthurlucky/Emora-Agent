@@ -24,6 +24,7 @@ if (!fsSync.existsSync(MEMORY_DIR)) {
 const sessionCache = new Map(); // sessionId -> { data: messages[], timestamp: number }
 const MAX_CACHE_SESSIONS = 50; // batas ramah perangkat seluler (Termux)
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 menit
+const MAX_MESSAGES_PER_SESSION = 500;
 
 function touchCache(sessionId, data) {
   sessionCache.delete(sessionId);
@@ -57,13 +58,19 @@ export async function loadSession(sessionId) {
 }
 
 export async function saveSession(sessionId, messages) {
-  touchCache(sessionId, messages);
+  const trimmed = messages.length > MAX_MESSAGES_PER_SESSION 
+    ? messages.slice(-MAX_MESSAGES_PER_SESSION) 
+    : messages;
+
+  touchCache(sessionId, trimmed);
 
   const file = path.join(MEMORY_DIR, `${sessionId}.json`);
+  const tmp = file + '.tmp';
   await fs.writeFile(
-    file,
-    JSON.stringify(messages, null, 2)
+    tmp,
+    JSON.stringify(trimmed, null, 2)
   );
+  await fs.rename(tmp, file);
 }
 
 /**
@@ -73,3 +80,12 @@ export async function saveSession(sessionId, messages) {
 export function invalidateSessionCache(sessionId) {
   sessionCache.delete(sessionId);
 }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, cached] of sessionCache.entries()) {
+    if (now - cached.timestamp >= CACHE_TTL_MS) {
+      sessionCache.delete(id);
+    }
+  }
+}, 5 * 60 * 1000).unref();

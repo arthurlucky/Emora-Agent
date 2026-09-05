@@ -86,7 +86,7 @@ export async function mount(root) {
     renderSidebar();
     renderPanel();
     try {
-      const { messages } = await api.getMessages(id);
+      const messages = await api.getHistory(id);
       if (state.activeSessionId !== id) return; // user udah pindah sesi sebelum respons datang
       state.messages = messages;
       state.loadingMessages = false;
@@ -154,7 +154,8 @@ export async function mount(root) {
     renderPanel();
 
     try {
-      const { reply } = await api.sendChat(sessionId, text);
+      const response = await api.sendMessage(sessionId, text);
+      const reply = response.content;
       if (state.activeSessionId === sessionId) {
         state.messages = [...state.messages, { role: "assistant", content: reply, timestamp: Date.now() }];
       }

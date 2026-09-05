@@ -215,7 +215,7 @@ export function renderMarkdown(text, width = 80) {
     if (headerMatch) {
       const level = headerMatch[1].length;
       const headerText = styleInline(headerMatch[2]);
-      const color = level === 1 ? C.primaryBold : level === 2 ? chalk.bold(C.purple) : chalk.bold;
+      const color = level === 1 ? C.primaryBold : level === 2 ? C.purple.bold : chalk.bold;
       out.push(color(headerText));
       if (level <= 2) out.push(hr(Math.min(width, stripAnsi(headerText).length + 2)));
       i++;

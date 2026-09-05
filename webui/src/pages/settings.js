@@ -106,7 +106,9 @@ export async function mount(root) {
       saveBtn.disabled = true;
       saveBtn.textContent = "Menyimpan…";
       try {
-        await api.saveConfig({ [activeKey]: content[activeKey] });
+        const payload = { agent: undefined, soul: undefined };
+        payload[activeKey] = content[activeKey];
+        await api.configApi.save(payload.agent, payload.soul);
         original[activeKey] = content[activeKey];
         updateDirtyDots();
         renderEditor();
@@ -119,7 +121,7 @@ export async function mount(root) {
   });
 
   try {
-    const data = await api.getConfig();
+    const data = await api.configApi.get();
     content.agent = data.agent || "";
     content.soul = data.soul || "";
     original.agent = content.agent;

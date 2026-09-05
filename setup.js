@@ -254,6 +254,53 @@ async function setupAdvancedBehavior() {
 }
 
 // ─────────────────────────────────────────────
+// SECTION: SECURITY & PRIVACY
+// ─────────────────────────────────────────────
+async function setupSecurity() {
+  sectionHeader("SECURITY & PRIVACY", "Kunci EMORA dengan seedphrase untuk melindungi privasi sesi.");
+  
+  const currentHash = getEnv("SEED_HASH");
+  if (currentHash) {
+    infoLine("Status", "EMORA saat ini TERKUNCI oleh seedphrase.", "yellow");
+    const remove = await confirm("Hapus kunci (unlock) EMORA?", { default: false });
+    if (remove) {
+      setEnv("SEED_HASH", "");
+      successLine("Kunci EMORA berhasil dihapus.");
+    }
+    
+    if (fs.existsSync("./memory_backup.enc")) {
+       const doRestore = await confirm("Ditemukan backup terenkripsi. Pulihkan sesi sekarang?", { default: false });
+       if (doRestore) {
+         const { restoreMemory } = await import("./core/security.js");
+         const sp = await input("Masukkan seedphrase lama untuk memulihkan: ", "", true);
+         const ok = await restoreMemory(sp);
+         if (ok) successLine("Sesi berhasil dipulihkan!");
+         else errorLine("Seedphrase salah. Gagal memulihkan.");
+       }
+    }
+  } else {
+    infoLine("Status", "EMORA saat ini TIDAK TERKUNCI.", "green");
+    const set = await confirm("Setel seedphrase untuk mengunci EMORA?", { default: true });
+    if (set) {
+      console.log(chalk.yellow("Masukkan seedphrase. Bebas, bisa 12 kata, PIN, atau password."));
+      console.log(chalk.yellow("JIKA ANDA LUPA SEEDPHRASE, SESI TIDAK BISA DIPULIHKAN JIKA TERHAPUS!"));
+      const seed1 = await input("Seedphrase: ", "", true);
+      const seed2 = await input("Konfirmasi seedphrase: ", "", true);
+      
+      if (seed1 && seed1 === seed2) {
+         const crypto = await import("crypto");
+         const hash = crypto.createHash("sha256").update(seed1.trim()).digest("hex");
+         setEnv("SEED_HASH", hash);
+         successLine("EMORA berhasil dikunci. Seedphrase aman tersimpan sebagai hash.");
+      } else {
+         errorLine("Seedphrase tidak cocok atau kosong. Dibatalkan.");
+      }
+    }
+  }
+  sectionFooter();
+}
+
+// ─────────────────────────────────────────────
 // SECTION: TOOLSET MANAGER (Aktifkan / Nonaktifkan Tool)
 // ─────────────────────────────────────────────
 async function setupToolset() {
@@ -469,6 +516,7 @@ async function setupContextFiles() {
     { label: "⚡  Edit AGENT_LITE.md (Protokol Ringkas)",      value: "AGENT_LITE.md" },
     { label: "🔄  Pilih Mode Aktif (Auto | Lite | Full)",     value: "switch_mode" },
     { label: "📋  Ganti AGENT.md dengan AGENT_LITE.md",      value: "copy_lite" },
+    { label: "📋  Ganti AGENT_LITE.md dengan AGENT.md",      value: "copy_full" },
     { label: "🎭  Edit SOUL.md (Kepribadian Agent)",          value: "SOUL.md" },
     { label: "↩️   Kembali ke menu utama",                    value: "__back" },
   ];
@@ -512,6 +560,20 @@ async function setupContextFiles() {
         successLine("Isi AGENT_LITE.md berhasil disalin menggantikan AGENT.md!");
       } else {
         warnLine("Berkas AGENT_LITE.md tidak ditemukan di direktori root.");
+      }
+      continue;
+    }
+
+    if (pick === "copy_full") {
+      if (fs.existsSync("AGENT.md")) {
+        fs.copyFileSync("AGENT.md", "AGENT_LITE.md");
+        try {
+          const { invalidateSystemPromptCache } = await import("./core/chat.js");
+          invalidateSystemPromptCache();
+        } catch {}
+        successLine("Isi AGENT.md berhasil disalin menggantikan AGENT_LITE.md!");
+      } else {
+        warnLine("Berkas AGENT.md tidak ditemukan di direktori root.");
       }
       continue;
     }
@@ -761,6 +823,7 @@ export async function runSetup() {
       { label: "⚙️   Advanced Behavior",          value: "advanced", hint: getEnv("DEFAULT_MODE") || "autonomous" },
       { label: "🌐  Web UI",                     value: "webui",    hint: getEnv("WEBUI") === "true" ? "aktif" : "nonaktif" },
       { label: "✏️   Nama & Identitas Agent",     value: "name",     hint: getEnv("NAME") || "Emora" },
+      { label: "🔒  Security & Privacy (App Lock)",value: "security", hint: getEnv("SEED_HASH") ? "locked" : "unlocked" },
       { label: "🔐  EMORA RECORDS Vault",        value: "records",  hint: "kepribadian terenkripsi" },
       { label: "📄  Context Files (AGENT.md/SOUL.md)", value: "context", hint: "shape setiap percakapan" },
       { label: "🏗️   Architecture",               value: "arch"     },
@@ -780,6 +843,7 @@ export async function runSetup() {
       case "webui":    await setupWebUI();              break;
       case "name":     await setupName();               break;
       case "records":  await setupRecordsVault();        break;
+      case "security": await setupSecurity();            break;
       case "context":  await setupContextFiles();       break;
       case "arch":     await showArchitecture();        break;
       case "skillsHub": await setupSkillsHub();         break;

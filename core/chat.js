@@ -206,7 +206,10 @@ const ALWAYS_SAFE_TOOLS = new Set([
   "session_memory",
 ]);
 
-const LIGHT_WRITE_TOOLS = new Set(["write_file", "create_folder"]);
+const LIGHT_WRITE_TOOLS = new Set([
+  "write_file", "create_folder",
+  "invoke_subagent", "send_message", "manage_subagents"
+]);
 
 /**
  * Putuskan apakah sebuah tool call butuh persetujuan user sebelum
@@ -644,7 +647,8 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
   // TOOL LOOP — eksekusi tool calls sampai selesai.
   // [RECONSTRUCTED] — pola standar LangChain tool loop + approval gate.
   // ==========================================
-  const toolCalls = response.tool_calls || [];
+  const _globalUsedToolsSet = new Set();
+  let toolCalls = response.tool_calls || [];
   let finalText = typeof response.content === "string"
     ? response.content
     : (response.content?.map?.((c) => c.text || "").join("") || String(response.content ?? ""));
@@ -673,7 +677,8 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
         toolCalls.map(async (toolCall) => {
           if (signal?.aborted) return null;
 
-          if (onEvent) onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
+          const isInternalRouter = ["invoke_subagent", "send_message", "manage_subagents"].includes(toolCall.name);
+          if (onEvent && !isInternalRouter) onEvent({ type: "tool_use", name: toolCall.name, args: toolCall.args });
 
           // Opsi "2. Yes, selalu" di turn ini: skip approval untuk tool yang sama.
           let decision;
@@ -685,15 +690,15 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
           }
 
           if (!decision.allowed) {
-            return new ToolMessage({
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ success: false, error: decision.reason || "Ditolak oleh user." }),
-            });
+            const err = new Error(decision.reason || "Ditolak oleh user.");
+            err.aborted = true; // Sinyal ke agentController untuk abort turn tanpa generate response
+            err.isUserAbort = true;
+            throw err;
           }
 
           const tTool = Date.now();
           let result = await executeTool(toolCall, tools, { signal });
-          if (onEvent) onEvent({ type: "tool_result", name: toolCall.name, durationMs: Date.now() - tTool });
+          if (onEvent && !isInternalRouter) onEvent({ type: "tool_result", name: toolCall.name, durationMs: Date.now() - tTool });
 
           // FEATURE #4: Smart Output Truncation (Pelindung Context Overflow)
           if (result && typeof result.content === "string" && result.content.length > 12_000) {
@@ -726,15 +731,24 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
       finalText = typeof aiMsg.content === "string"
         ? aiMsg.content
         : (aiMsg.content?.map?.((c) => c.text || "").join("") || String(aiMsg.content ?? ""));
-      if (!(aiMsg.tool_calls || []).length) break;
+      toolCalls.forEach(t => _globalUsedToolsSet.add(t.name));
+      toolCalls = aiMsg.tool_calls || [];
+      if (toolCalls.length === 0) break;
     }
   }
 
-  // Skill threshold check — sarankan buat skill kalau pola berulang.
+  // Skill Extraction: Evaluasi task secara asinkron di background
   try {
-    const { shouldSuggestSkill } = await import("../utils/patternTracker.js").catch(() => ({})) || {};
-    // [RECONSTRUCTED] — hook suggestion dinonaktifkan diam-diam jika util tidak expose API ini.
-  } catch { /* noop */ }
+    const { evaluateAndExtractSkill } = await import("./auto_skill_evaluator.js");
+    // Fire-and-forget: Biarkan LLM berjalan di background untuk menilai apakah hasil ini layak jadi skill
+    evaluateAndExtractSkill({
+      sessionId,
+      input,
+      response: finalText,
+      usedTools: Array.from(_globalUsedToolsSet || []),
+      envOverride
+    }).catch(() => {});
+  } catch (err) { /* noop */ }
 
   // Simpan riwayat sesi.
   try {

@@ -39,6 +39,59 @@ import path from "path";
 const MEMORY_DIR = process.env.EMORA_MEMORY_DIR ? path.resolve(process.env.EMORA_MEMORY_DIR) : path.resolve("./memory");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
+// ── Lightweight Search Index ─────────────────────────────────────────
+// Maps keyword → Set<sessionId> untuk avoid full-scan saat searchHistory().
+let searchIndex = null; // lazy init
+const STOP_WORDS = new Set(["yang", "dan", "ini", "itu", "ada", "untuk", "dengan", "dari", "pada", "tidak", "the", "and", "for", "this", "that", "with", "from"]);
+
+function extractKeywords(text) {
+  if (!text || typeof text !== "string") return [];
+  return text.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+async function ensureSearchIndex() {
+  if (searchIndex) return searchIndex;
+  searchIndex = new Map();
+  
+  let files;
+  try {
+    files = await fs.readdir(MEMORY_DIR);
+  } catch { return searchIndex; }
+  
+  for (const file of files) {
+    if (!file.endsWith(".json") || file.endsWith(".facts.json") || file === "sessions.meta.json") continue;
+    const sessionId = file.replace(/\.json$/, "");
+    try {
+      const raw = await fs.readFile(path.join(MEMORY_DIR, file), "utf8");
+      const messages = JSON.parse(raw);
+      if (!Array.isArray(messages)) continue;
+      const allText = messages.map(m => m.content || "").join(" ");
+      for (const kw of extractKeywords(allText)) {
+        if (!searchIndex.has(kw)) searchIndex.set(kw, new Set());
+        searchIndex.get(kw).add(sessionId);
+      }
+    } catch { continue; }
+  }
+  return searchIndex;
+}
+
+/** Call after saving a session to keep index up-to-date. */
+export function updateSearchIndex(sessionId, messages) {
+  if (!searchIndex) return; // not built yet, will be built lazily
+  const allText = messages.map(m => (m.content || "")).join(" ");
+  for (const kw of extractKeywords(allText)) {
+    if (!searchIndex.has(kw)) searchIndex.set(kw, new Set());
+    searchIndex.get(kw).add(sessionId);
+  }
+}
+
+export function invalidateSearchIndex() {
+  searchIndex = null;
+}
+
 function factsPath(sessionId) {
   return path.join(MEMORY_DIR, `${sessionId}.facts.json`);
 }
@@ -118,19 +171,25 @@ export async function searchHistory(query, { excludeSessionId = null, limit = 5 
   const keywords = q.split(/\s+/).filter((w) => w.length > 2);
   if (!keywords.length) return [];
 
-  let files;
-  try {
-    files = await fs.readdir(MEMORY_DIR);
-  } catch {
-    return [];
+  // Use index to find candidate sessions instead of scanning ALL files
+  const idx = await ensureSearchIndex();
+  const candidateSessions = new Map(); // sessionId → score (number of keyword hits in index)
+  for (const kw of keywords) {
+    const sessions = idx.get(kw);
+    if (!sessions) continue;
+    for (const sid of sessions) {
+      if (excludeSessionId && sid === excludeSessionId) continue;
+      candidateSessions.set(sid, (candidateSessions.get(sid) || 0) + 1);
+    }
   }
 
-  const sessionFiles = files.filter((f) => {
-    if (!f.endsWith(".json") || f.endsWith(".facts.json") || f === "sessions.meta.json") return false;
-    const id = f.replace(/\.json$/, "");
-    if (excludeSessionId && id === excludeSessionId) return false;
-    return UUID_RE.test(id) || true; // sesi dari gateway lain formatnya bisa beda dari UUID murni, tetap dicoba
-  });
+  if (candidateSessions.size === 0) return [];
+
+  // Sort candidates by index score, take top N*2 to read (not all)
+  const topCandidates = [...candidateSessions.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit * 2)
+    .map(([sid]) => sid);
 
   let meta = {};
   try {
@@ -138,15 +197,12 @@ export async function searchHistory(query, { excludeSessionId = null, limit = 5 
   } catch { /* metadata opsional */ }
 
   const results = [];
-  for (const file of sessionFiles) {
-    const sessionId = file.replace(/\.json$/, "");
+  for (const sessionId of topCandidates) {
     let messages;
     try {
-      messages = JSON.parse(await fs.readFile(path.join(MEMORY_DIR, file), "utf8"));
+      messages = JSON.parse(await fs.readFile(path.join(MEMORY_DIR, `${sessionId}.json`), "utf8"));
       if (!Array.isArray(messages)) continue;
-    } catch {
-      continue;
-    }
+    } catch { continue; }
 
     let bestScore = 0;
     let bestMsg = null;
@@ -215,4 +271,4 @@ export async function extractSemanticFacts(sessionId, messages, llm) {
   }
 }
 
-export default { rememberFact, listFacts, forgetFact, formatFactsForPrompt, searchHistory, extractSemanticFacts };
+export default { rememberFact, listFacts, forgetFact, formatFactsForPrompt, searchHistory, extractSemanticFacts, updateSearchIndex, invalidateSearchIndex };

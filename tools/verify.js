@@ -61,31 +61,66 @@ function run(cmd, args, cwd) {
   });
 }
 
+import { delegateToSubagent } from "./subagent.js";
+
 export const verifyTool = new DynamicStructuredTool({
   name: "verify",
-  description: "Jalankan test/build project di path tertentu (auto-detect: npm/make/cargo/pytest/go). WAJIB dipanggil setelah perubahan kode sebelum present hasil ke user.",
+  description: "Jalankan test/build project (auto-detect) DAN/ATAU lakukan Code Audit via Subagent (Self-Reflection). " +
+               "WAJIB dipanggil setelah mengubah kode untuk mengecek kualitas sebelum present hasil. " +
+               "Workflow mu: buat -> verify (audit) -> jika error/gak optimal -> perbaiki -> verify lagi -> sukses.",
   schema: z.object({
-    path: z.string().optional().describe("Path project (default: cwd)"),
+    path: z.string().optional().describe("Path project untuk testing (default: cwd)"),
+    files_to_audit: z.array(z.string()).optional().describe("Daftar file spesifik (path absolut) yang baru kamu ubah untuk diaudit oleh subagent. Wajib disuplai jika ingin di-review."),
   }),
-  func: async ({ path: dir = "." }) => {
+  func: async ({ path: dir = ".", files_to_audit = [] }) => {
     try {
       const abs = path.resolve(dir);
       if (!fsSync.existsSync(abs)) return `❌ Path tidak ditemukan: ${dir}`;
 
+      let testOutput = "";
       const fw = detectFramework(abs);
-      if (!fw) {
-        return JSON.stringify({ ok: true, skipped: "no test framework detected (package.json tanpa scripts.test / Makefile / Cargo.toml / pytest / go.mod)" });
+      if (fw) {
+        const r = await run(fw.cmd, fw.args, abs);
+        const ok = r.code === 0;
+        testOutput = `[TEST RESULTS (${fw.framework})]\nStatus: ${ok ? "PASSED" : "FAILED"}\nOutput:\n${r.output.slice(-2000)}\n\n`;
+      } else {
+        testOutput = `[TEST RESULTS]\nSkipped: no test framework detected.\n\n`;
       }
 
-      const r = await run(fw.cmd, fw.args, abs);
-      const ok = r.code === 0;
-      return JSON.stringify({
-        ok,
-        framework: fw.framework,
-        exitCode: r.code,
-        summary: ok ? "passed" : "FAILED",
-        output: r.output.slice(-2000), // tail saja untuk context
-      }, null, 2);
+      let auditOutput = "";
+      if (files_to_audit && files_to_audit.length > 0) {
+        let codeContent = "";
+        for (const f of files_to_audit) {
+          if (fsSync.existsSync(f)) {
+            codeContent += `\n--- File: ${f} ---\n${fsSync.readFileSync(f, 'utf8')}\n`;
+          } else {
+            codeContent += `\n--- File: ${f} (TIDAK DITEMUKAN) ---\n`;
+          }
+        }
+
+        const task = `Kamu adalah Senior Code Auditor. Lakukan audit statis pada kode berikut secara ketat.
+Workflow Wajib:
+1. Cek error sintaks / logic
+2. Cek apakah kode gak optimal / over-engineered
+3. Jika bagus, nyatakan 'SUKSES: Kode sudah optimal, siap di-ship.'
+4. Jika jelek, berikan daftar masalah dan instruksikan Main Agent untuk memperbaikinya.
+
+KODE:
+${codeContent.slice(0, 15000)} // max 15k chars`;
+
+        const auditResponse = await delegateToSubagent({ task, maxTokens: 4000 });
+        if (auditResponse.success) {
+          auditOutput = `[SUBAGENT CODE AUDIT]\n${auditResponse.result}\n`;
+        } else {
+          auditOutput = `[SUBAGENT CODE AUDIT]\nGagal mengeksekusi subagent: ${auditResponse.error}\n`;
+        }
+      }
+
+      if (!files_to_audit?.length && !fw) {
+         return "❌ Tidak ada test framework terdeteksi DAN kamu tidak menyuplai `files_to_audit`. Berikan file yang ingin diaudit!";
+      }
+
+      return `${testOutput}${auditOutput}`.trim();
     } catch (err) {
       return `❌ Error: ${err.message}`;
     }

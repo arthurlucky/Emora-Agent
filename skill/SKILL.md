@@ -117,9 +117,9 @@ Daftar singkat semua skill yang tersedia saat ini (lihat folder masing-masing un
 
 ---
 
-## 🔌 Skill & Command dari Plugin (format standar Claude Code / Hermes Agent)
+## 🔌 Skill & Command dari Plugin (format standar agen modern)
 
-Selain skill bawaan di folder ini, EMORA juga membaca skill & command yang datang dari **plugin** (`./plugins/<id>/`), memakai layout yang SAMA dengan yang dipakai Claude Code, Hermes Agent, dan CLI agent lain — jadi plugin dari luar bisa langsung dipasang tanpa ditulis ulang:
+Selain skill bawaan di folder ini, EMORA juga membaca skill & command yang datang dari **plugin** (`./plugins/<id>/`), memakai layout yang terstandardisasi — jadi plugin eksternal bisa langsung dipasang tanpa ditulis ulang:
 
 ```txt
 plugins/<id>/

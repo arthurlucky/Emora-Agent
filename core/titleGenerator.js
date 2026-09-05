@@ -21,7 +21,8 @@ async function getCurrentMeta(sessionId) {
     // selalu load meta saat jalan.
     const fs = await import("fs/promises");
     const path = await import("path");
-    const metaFile = path.join(process.env.HOME || "/tmp", ".emora", "sessions", "meta.json");
+    const MEMORY_DIR = process.env.EMORA_MEMORY_DIR || "./memory";
+    const metaFile = path.resolve(MEMORY_DIR, "sessions.meta.json");
     try {
       const raw = await fs.readFile(metaFile, "utf8");
       const meta = JSON.parse(raw);
@@ -45,7 +46,8 @@ async function setTitleLlm(sessionId, title) {
   try {
     const fs = await import("fs/promises");
     const path = await import("path");
-    const metaFile = path.join(process.env.HOME || "/tmp", ".emora", "sessions", "meta.json");
+    const MEMORY_DIR = process.env.EMORA_MEMORY_DIR || "./memory";
+    const metaFile = path.resolve(MEMORY_DIR, "sessions.meta.json");
     let meta = {};
     try { meta = JSON.parse(await fs.readFile(metaFile, "utf8")); } catch { meta = {}; }
     const cur = meta[sessionId];

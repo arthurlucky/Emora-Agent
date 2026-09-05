@@ -42,7 +42,7 @@ export const KNOWN_MODELS = [
 export const DEFAULT_MODEL = "llama3.2:3b";
 
 function getHost() {
-  const raw = process.env.OLLAMA_HOST || process.env.MODEL_URL || "http://localhost:11434";
+  const raw = process.env.OLLAMA_HOST || process.env.MODEL_URL || "http://127.0.0.1:11434";
   return raw.replace(/\/v1\/?$/, "").replace(/\/$/, "");
 }
 

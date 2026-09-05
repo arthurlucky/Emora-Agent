@@ -15,7 +15,7 @@ const MAX_TIMEOUT = 300_000;
 const MAX_OUTPUT = 8000; 
 
 const BLACKLIST = [
-  /rm\s+-rf\s+\/(?!\S)/,     
+  /rm\s+-(?:r\s*-f|f\s*-r|rf|fr)\s+\/\*?(?!\S)/,
   /rm\s+-rf\s+~\//,          
   /:\(\)\s*\{.*fork/,        
   /dd\s+if=.*of=\/dev\//,    
@@ -27,7 +27,12 @@ const BLACKLIST = [
   />\s*\/dev\/sd/,           
   /chmod\s+777\s+\/(?!\S)/, 
   /passwd(?:\s|$)/,          
-  /sudo\s+rm\s+-rf\s+\//,
+  /sudo\s+rm\s+-(?:r\s*-f|f\s*-r|rf|fr)\s+\/\*?(?!\S)/,
+  /\beval\b/,
+  /\b(?:bash|sh|zsh)\s+-c\b/,
+  /\bpython(?:3)?\s+-c\b/,
+  /\bperl\s+-e\b/,
+  /\bruby\s+-e\b/
 ];
 
 function isSafe(cmd) {

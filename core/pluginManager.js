@@ -315,17 +315,17 @@ export async function installPluginFromPath(sourcePath) {
  * untuk update alih-alih clone ulang.
  */
 export async function installPluginFromGit(gitUrl) {
-  const { exec } = await import("child_process");
+  const { execFile } = await import("child_process");
   const { promisify } = await import("util");
-  const execAsync = promisify(exec);
+  const execFileAsync = promisify(execFile);
 
   const repoName = path.basename(gitUrl, ".git").toLowerCase().replace(/[^a-z0-9_-]/g, "_");
   const targetDir = path.join(PLUGINS_DIR, repoName);
 
   if (fs.existsSync(targetDir)) {
-    await execAsync(`git -C "${targetDir}" pull`);
+    await execFileAsync("git", ["-C", targetDir, "pull"]);
   } else {
-    await execAsync(`git clone "${gitUrl}" "${targetDir}"`);
+    await execFileAsync("git", ["clone", gitUrl, targetDir]);
   }
 
   const manifest = readManifest(targetDir);

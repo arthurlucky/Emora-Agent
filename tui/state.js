@@ -32,13 +32,13 @@ export function summarizeArgs(args = {}) {
   } catch { return ""; }
 }
 
-export function createInitialState({ sessionId, sessionTitle, provider, columns, rows, initialMode }) {
+export function createInitialState({ sessionId, sessionTitle, provider, columns, rows, initialMode, initialMessages }) {
   return {
     view: "chat", // chat | history | skills | wizard | tasks | gatewayStatus
     sessionId,
     sessionTitle: sessionTitle || "Sesi baru",
 
-    messages: [], // {id, role, content, toolCalls: [{name,args,result,status}]}
+    messages: initialMessages || [], // {id, role, content, toolCalls: [{name,args,result,status}]}
     input: "",
     cursorPos: 0,
 
@@ -59,6 +59,9 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
 
     suggestions: null, // array string | null
     suggestionIndex: 0,
+    
+    scrollSensitivity: "medium", // low | medium | high
+    
     mentionSuggestions: null, // buat @file mention
 
     provider: provider || { name: "-", model: "-" },
@@ -68,6 +71,7 @@ export function createInitialState({ sessionId, sessionTitle, provider, columns,
     wizard: null, // {step, data}
     gatewayStatus: null, // {platforms:{...}}
     tasks: null, // {list:[...]}
+    recentActivity: null, // array of sessions for welcome screen
 
     error: null,
     notice: null, // pesan info sementara (mis. "Mode diganti ke autonomous")
@@ -104,6 +108,16 @@ export function reducer(state, action) {
     case "SET_CURSOR":
       return { ...state, cursorPos: action.pos };
 
+    case "PASTE_TEXT":
+      const att = state.pasteAttachments || [];
+      const newInput = state.input + (state.input && !state.input.endsWith(" ") ? " " : "") + action.marker + " ";
+      return { 
+        ...state, 
+        pasteAttachments: [...att, { marker: action.marker, text: action.value }],
+        input: newInput, 
+        cursorPos: newInput.length 
+      };
+
     case "SET_VIEW":
       return { ...state, view: action.view, error: null, notice: null };
 
@@ -120,6 +134,7 @@ export function reducer(state, action) {
         turnStartedAt: Date.now(),
         progressLines: [],
         suggestions: null,
+        pasteAttachments: [],
         abortController: action.abortController,
         error: null,
         // BUGFIX: notice (mis. dari /thinking, /mode, dst) sebelumnya cuma
@@ -166,14 +181,22 @@ export function reducer(state, action) {
     }
 
     case "AGENT_MESSAGE": {
-      const cleared = { ...state, status: "idle", progressLines: [], abortController: null };
-      return addMessage(cleared, { role: "assistant", content: action.content });
+      let msgs = [...state.messages];
+      if (state.progressLines.length > 0) {
+        msgs.push({ role: "tool_logs", lines: state.progressLines });
+      }
+      msgs.push({ role: "assistant", content: action.content });
+      return { ...state, status: "idle", progressLines: [], abortController: null, messages: msgs };
     }
 
     // ── STREAMING ──────────────────────────────────────────────────────────
     case "STREAM_START": {
-      const started = { ...state, status: "thinking" };
-      return addMessage(started, { role: "assistant", content: "" });
+      let msgs = [...state.messages];
+      if (state.progressLines.length > 0) {
+        msgs.push({ role: "tool_logs", lines: state.progressLines });
+      }
+      msgs.push({ role: "assistant", content: "" });
+      return { ...state, status: "thinking", progressLines: [], messages: msgs };
     }
     case "STREAM_CHUNK": {
       // Append ke pesan assistant terakhir (yang dibuat STREAM_START).
@@ -206,7 +229,12 @@ export function reducer(state, action) {
     }
 
     case "APPROVAL_REQUEST":
-      return { ...state, status: "approval_pending", approval: { ...action.payload } };
+      return { ...state, status: "approval_pending", approval: { ...action.payload, selectedIndex: 0 } };
+
+    case "APPROVAL_MOVE":
+      if (!state.approval) return state;
+      const newIdx = Math.max(0, Math.min(2, state.approval.selectedIndex + action.delta));
+      return { ...state, approval: { ...state.approval, selectedIndex: newIdx } };
 
     case "APPROVAL_RESOLVE":
       return { ...state, status: "thinking", approval: null };
@@ -226,14 +254,24 @@ export function reducer(state, action) {
     case "SET_AGENT_MODE":
       return { ...state, agentMode: action.agentMode, notice: `Agent mode diganti ke ${action.agentMode}.` };
 
+    case "SET_SCROLL_SENSITIVITY":
+      return { ...state, scrollSensitivity: action.level };
+
     case "TOGGLE_STREAM":
       return { ...state, streamEnabled: !state.streamEnabled, notice: `Streaming ${!state.streamEnabled ? "diaktifkan" : "dimatikan"}.` };
 
     case "SET_PROVIDER":
       return { ...state, provider: action.provider, notice: `Provider diganti ke ${action.provider.name} (${action.provider.model}).` };
 
+    case "TOGGLE_LOGS_VIEW": {
+      return { ...state, toolLogsExpanded: !state.toolLogsExpanded };
+    }
+
     case "SET_SUGGESTIONS":
       return { ...state, suggestions: action.suggestions, suggestionIndex: 0 };
+
+    case "SET_RECENT_ACTIVITY":
+      return { ...state, recentActivity: action.sessions };
 
     case "MOVE_SUGGESTION": {
       if (!state.suggestions?.length) return state;
@@ -260,7 +298,7 @@ export function reducer(state, action) {
       // Aturan TUI.md #10: resume → panel "Previous Conversation" berisi
       // ringkasan percakapan lama, digabung ke atas transcript.
       const prev = (action.messages || []).slice(-6).map((m) => {
-        const who = m.role === "user" ? "You" : "Hermes";
+        const who = m.role === "user" ? "You" : "EMORA";
         const body = String(m.content || "").split("\n")[0].slice(0, 120);
         return { role: m.role, line: `  ● ${who}: ${body}` };
       });
@@ -296,6 +334,31 @@ export function reducer(state, action) {
       const idx = (state.skills.index + action.delta + len) % len;
       return { ...state, skills: { ...state.skills, index: idx } };
     }
+
+    case "SET_ARTIFACTS_VIEW":
+      return { ...state, view: "artifacts", artifacts: { list: action.list, index: 0 } };
+
+    case "MOVE_ARTIFACTS_SELECTION": {
+      if (!state.artifacts) return state;
+      const len = state.artifacts.list.length;
+      if (!len) return state;
+      const idx = (state.artifacts.index + action.delta + len) % len;
+      return { ...state, artifacts: { ...state.artifacts, index: idx } };
+    }
+
+    case "SET_ARTIFACT_PAGER_VIEW":
+      return { ...state, view: "artifact_pager", artifactPager: { artifact: action.artifact, lines: action.lines, offset: 0, showLines: true } };
+
+    case "PAGER_SCROLL": {
+      if (!state.artifactPager) return state;
+      const maxScroll = Math.max(0, state.artifactPager.lines.length - 1);
+      const newOffset = Math.max(0, Math.min(maxScroll, state.artifactPager.offset + action.delta));
+      return { ...state, artifactPager: { ...state.artifactPager, offset: newOffset } };
+    }
+    
+    case "PAGER_TOGGLE_LINES":
+      if (!state.artifactPager) return state;
+      return { ...state, artifactPager: { ...state.artifactPager, showLines: !state.artifactPager.showLines } };
 
     case "TOGGLE_SKILL_LOCAL": {
       if (!state.skills) return state;
@@ -351,6 +414,9 @@ export function reducer(state, action) {
 
     case "SCROLL_RESET":
       return { ...state, scrollOffset: 0 };
+
+    case "CLEAR_SCREEN":
+      return { ...state, scrollOffset: 0, messages: [], previousConversation: null };
 
     case "QUIT":
       return { ...state, quit: true };

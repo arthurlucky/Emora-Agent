@@ -16,14 +16,26 @@ async function processFileMentions(promptText) {
   if (!matches?.length) return promptText;
 
   const fs = await import("fs/promises");
+  const { resolveWorkspacePath } = await import("../utils/workspace.js");
   let attachments = "";
 
   for (const m of matches) {
     const relPath = m.slice(1);
     try {
-      const content = await fs.readFile(relPath, "utf8");
-      const snippet = content.length > 8000 ? content.slice(0, 8000) + "\n... (truncated)" : content;
-      attachments += `\n\n[FILE ATTACHMENT: ${relPath}]\n${snippet}`;
+      const absPath = resolveWorkspacePath(relPath);
+      const stats = await fs.stat(absPath);
+      
+      if (stats.isDirectory()) {
+        const files = await fs.readdir(absPath);
+        const fileList = files.length > 0 
+          ? files.slice(0, 100).join("\n") + (files.length > 100 ? "\n... (truncated)" : "")
+          : "(empty directory)";
+        attachments += `\n\n[FOLDER ATTACHMENT: ${relPath}]\nContents:\n${fileList}`;
+      } else {
+        const content = await fs.readFile(absPath, "utf8");
+        const snippet = content.length > 8000 ? content.slice(0, 8000) + "\n... (truncated)" : content;
+        attachments += `\n\n[FILE ATTACHMENT: ${relPath}]\n${snippet}`;
+      }
     } catch {}
   }
 
@@ -31,15 +43,19 @@ async function processFileMentions(promptText) {
 }
 
 export function createAgentController({ dispatch, getState, getLLM, tools }) {
+  let isSubmitting = false;
+
   async function submit(text) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     const state = getState();
-    if (state.status !== "idle") return;
+    if (state.status !== "idle" || isSubmitting) return;
 
-    const processedText = await processFileMentions(trimmed);
-    const abortController = new AbortController();
-    dispatch({ type: "SUBMIT_START", text: trimmed, abortController });
+    isSubmitting = true;
+    try {
+      const processedText = await processFileMentions(trimmed);
+      const abortController = new AbortController();
+      dispatch({ type: "SUBMIT_START", text: trimmed, abortController });
 
     const onEvent = (ev) => {
       if (ev.type === "tool_use") dispatch({ type: "AGENT_TOOL_USE", name: ev.name, args: ev.args, autoApproved: ev.autoApproved });
@@ -125,6 +141,10 @@ export function createAgentController({ dispatch, getState, getLLM, tools }) {
     } catch (err) {
       if (err?.aborted) dispatch({ type: "AGENT_ABORTED" });
       else dispatch({ type: "AGENT_ERROR", message: err?.message || String(err) });
+    }
+    
+    } finally {
+      isSubmitting = false;
     }
   }
 

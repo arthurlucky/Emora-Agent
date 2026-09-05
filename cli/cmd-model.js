@@ -160,9 +160,12 @@ export async function cmdModel(args = []) {
 
   // Update BASE_URL otomatis dari provider module
   try {
+    const { deleteConfig } = await import("../core/config.js");
     const mod = await import(`../provider/${newProvider === "custom" ? "customEndpoint" : newProvider}/index.js`);
     if (mod.BASE_URL && newProvider !== "ollama" && newProvider !== "custom") {
       setEnv("MODEL_URL", mod.BASE_URL);
+    } else if (newProvider === "ollama") {
+      deleteConfig("MODEL_URL");
     }
   } catch {}
 
@@ -248,7 +251,7 @@ export async function cmdModel(args = []) {
   }
 
   if (newProvider === "ollama") {
-    const host = getEnv("MODEL_URL")?.replace("/v1","") || "http://localhost:11434";
+    const host = getEnv("MODEL_URL")?.replace("/v1","") || "http://127.0.0.1:11434";
     const spin = ora("  Scanning Ollama...").start();
     try {
       const models = await ollamaMod.scanModels();

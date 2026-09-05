@@ -95,8 +95,13 @@ function renderWelcome(state, width) {
     C.faint("─".repeat(Math.min(46, Math.floor(width * 0.45)))),
     "",
     C.bold("Recent activity"),
-    C.faint(" No recent activity"),
-    "",
+    ...(state.recentActivity && state.recentActivity.length > 0
+      ? state.recentActivity.map((s, i) => {
+          const title = truncate(s.name || "(tanpa judul)", Math.max(10, Math.floor(width * 0.45) - 15));
+          const date = new Date(s.updatedAt || s.createdAt || Date.now()).toLocaleDateString("id-ID");
+          return C.faint(` ${i+1}. `) + C.dim(title) + C.faint(` (${date})`);
+        })
+      : [C.faint(" No recent activity")]),
     "",
     "",
   ];
@@ -319,7 +324,7 @@ function renderSuggestions(state, width) {
 // Memoize renderMarkdown per (content, width) — highlight syntax mahal,
 // dulu semua pesan lama dirender ulang tiap frame (26ms/render @100 pesan).
 const _mdCache = new Map();
-function renderMessageBlock(msg, width) {
+function renderMessageBlock(msg, width, toolLogsExpanded) {
   const lines = [];
   if (msg.role === "user") {
     const content = String(msg.content || "");
@@ -327,10 +332,37 @@ function renderMessageBlock(msg, width) {
     if (lineCount >= 5 || content.length > 300) {
       const pasteNum = msg.pasteNum || 1;
       const preview = content.split("\n")[0].slice(0, 40).trim();
-      lines.push("   " + C.cyan.bold(`[Pasted Text #${pasteNum} +${lineCount} Lines]`) + (preview ? C.faint(` "${preview}..."`) : ""));
+      lines.push("   " + C.primaryBold(`[Pasted Text #${pasteNum} +${lineCount} Lines]`) + (preview ? C.faint(` "${preview}..."`) : ""));
     } else {
       for (const l of wrapPlain(content, width - 4)) lines.push("   " + C.text(l));
     }
+  } else if (msg.role === "tool_logs") {
+    lines.push("");
+    if (!toolLogsExpanded) {
+      for (const entry of msg.lines) {
+        if (typeof entry === "string") { lines.push("  " + entry); continue; }
+        const argStr = entry.args ? JSON.stringify(entry.args).slice(0, 30) : "";
+        lines.push("  " + C.yellow("● ") + C.bold(entry.name) + C.dim(`(${argStr}...)  (ctrl+o to expand)`));
+      }
+    } else {
+      for (const entry of msg.lines) {
+        if (typeof entry === "string") { lines.push("  " + entry); continue; }
+        lines.push("  " + C.yellow.bold(`▶ ${entry.name}`) + C.dim(" (ctrl+o to collapse)"));
+        if (entry.args) lines.push(C.dim("    Args: ") + truncate(JSON.stringify(entry.args), width - 12));
+        if (entry.result) {
+          let resStr = "";
+          const actualRes = entry.result.result !== undefined ? entry.result.result : entry.result;
+          if (typeof actualRes === "string") resStr = actualRes;
+          else resStr = JSON.stringify(actualRes, null, 2) || "";
+          const resLines = resStr.split("\n");
+          for (const l of resLines.slice(0, 30)) {
+            lines.push(C.dim("    ⎿  ") + C.faint(truncate(l, width - 10)));
+          }
+          if (resLines.length > 30) lines.push(C.dim("    ⎿  ") + C.faint(`... (${resLines.length - 30} baris lainnya)`));
+        }
+      }
+    }
+    lines.push("");
   } else {
     // Ala Contoh 1: tiap blok respons diawali bullet ● ungu, teks lanjutan menjorok.
     const key = `${msg.content.length}:${width}`;
@@ -355,7 +387,7 @@ function renderMessageBlock(msg, width) {
 
 function renderChatBody(state, width, height) {
   const lines = [];
-  for (const msg of state.messages) lines.push(...renderMessageBlock(msg, width));
+  for (const msg of state.messages) lines.push(...renderMessageBlock(msg, width, state.toolLogsExpanded));
 
   if (state.status === "thinking") {
     lines.push(C.yellow("● ") + C.yellow(`${spinnerFrame(state.spinnerTick)} sedang berpikir...`));
@@ -657,12 +689,66 @@ function renderWizardView(state, width, height) {
     if (w.apiKey) out.push("  " + C.faint("API key:  ") + C.text("*".repeat(Math.min(w.apiKey.length, 20))));
     if (w.url) out.push("  " + C.faint("URL:      ") + C.text(w.url));
     out.push("  " + C.faint("Model:    ") + C.text(w.model));
-    out.push("");
     out.push(C.green("Enter untuk simpan & pakai sekarang."));
   }
 
   out.push("");
   out.push(C.dim(truncate("  ↑↓ pilih · Enter lanjut · Esc batal/kembali", width)));
+  return padScreen(out, width, height);
+}
+
+function renderLogsView(state, width, height) {
+  const out = [C.primaryBold(" Detailed Tool Logs "), hr(width)];
+  
+  const toolLogs = state.messages.filter(m => m.role === "tool_logs");
+  
+  if (!toolLogs.length && !state.progressLines.length) {
+    out.push(C.faint("  Belum ada tool yang dieksekusi di sesi ini."));
+  } else {
+    const rawLines = [];
+    
+    const formatLog = (entry) => {
+      rawLines.push(C.yellow.bold(`▶ ${entry.name}`));
+      if (entry.args) {
+        rawLines.push(C.dim("  Args: ") + truncate(JSON.stringify(entry.args), width - 10));
+      }
+      if (entry.result) {
+        let resStr = "";
+        const actualRes = entry.result.result !== undefined ? entry.result.result : entry.result;
+        if (typeof actualRes === "string") resStr = actualRes;
+        else resStr = JSON.stringify(actualRes, null, 2) || "";
+        
+        const resLines = resStr.split("\n");
+        for (const l of resLines) {
+          rawLines.push(C.dim("  │ ") + C.faint(truncate(l, width - 6)));
+        }
+      }
+      rawLines.push("");
+    };
+    
+    for (const msg of toolLogs) {
+      if (msg.lines) {
+        for (const entry of msg.lines) {
+          if (typeof entry === "object") formatLog(entry);
+        }
+      }
+    }
+    for (const entry of state.progressLines) {
+      if (typeof entry === "object") formatLog(entry);
+    }
+    
+    const contentHeight = height - 5;
+    const totalLines = rawLines.length;
+    const scroll = state.logsScroll || 0;
+    const end = Math.max(0, totalLines - scroll);
+    const start = Math.max(0, end - contentHeight);
+    const visible = rawLines.slice(start, end);
+    
+    out.push(...visible);
+  }
+  
+  out.push("");
+  out.push(C.dim(truncate("  ↑↓ scroll · pgup/pgdown page · Esc / Ctrl+O close", width)));
   return padScreen(out, width, height);
 }
 
@@ -713,6 +799,8 @@ export function computeScreen(state) {
   if (state.view === "wizard") return renderWizardView(state, columns, rows).join("\n");
   if (state.view === "gatewayStatus") return renderGatewayStatusView(state, columns, rows).join("\n");
   if (state.view === "tasks") return renderTasksView(state, columns, rows).join("\n");
+  if (state.view === "logs") return renderLogsView(state, columns, rows).join("\n");
+  if (state.view === "scrollConfig") return renderScrollConfigView(state, columns, rows).join("\n");
 
   // ── Default: chat view ──────────────────────────────────────────────────
   // Aturan TUI.md #5: TANPA header tambahan (◆ EMORA · sesi · [auto] dilarang).
@@ -819,4 +907,28 @@ export function computeScreen(state) {
   }
 
   return [...header, ...body, ...footerLines].join("\n");
+}
+
+function renderScrollConfigView(state, columns, rows) {
+  const lines = [];
+  lines.push(C.primaryBold(" ".repeat(Math.floor(columns / 2 - 10)) + "SCROLL SENSITIVITY"));
+  lines.push("");
+  
+  const levels = ["low", "medium", "high"];
+  const curr = state.scrollSensitivity || "medium";
+  
+  const options = levels.map(l => l === curr ? C.inverse(` [ ${l.toUpperCase()} ] `) : `   ${l.toUpperCase()}   `);
+  lines.push(" ".repeat(Math.floor(columns / 2 - 18)) + options.join(" "));
+  lines.push("");
+  lines.push(" ".repeat(Math.floor(columns / 2 - 15)) + C.dim("Use ") + C.primaryBold("Left/Right") + C.dim(" to change"));
+  lines.push(" ".repeat(Math.floor(columns / 2 - 14)) + C.dim("Press ") + C.primaryBold("Enter") + C.dim(" to save"));
+  
+  // vertical center
+  const topPad = Math.floor((rows - lines.length) / 2);
+  const out = [];
+  for (let i = 0; i < topPad; i++) out.push("");
+  out.push(...lines);
+  while (out.length < rows) out.push("");
+  
+  return out.slice(0, rows);
 }

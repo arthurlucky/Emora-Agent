@@ -57,18 +57,11 @@ export async function handleCommand(input, state) {
         // pernah ngobrol dengan bot ini. Sekarang di-scope cuma ke sesi
         // yang sedang aktif milik state ini sendiri.
         const currentId = state.currentSession;
-        const memoryDir = path.resolve("./memory");
         let deletedCount = 0;
 
-        if (currentId && fs.existsSync(memoryDir)) {
-          const filesToDelete = fs
-            .readdirSync(memoryDir)
-            .filter((f) => f === `${currentId}.json` || f.startsWith(`${currentId}_bg_`));
-
-          for (const file of filesToDelete) {
-            fs.unlinkSync(path.join(memoryDir, file));
-            deletedCount++;
-          }
+        if (currentId) {
+          const result = await deleteSession(currentId);
+          deletedCount = result.deletedFiles;
         }
 
         // Generate sesi baru karena sesi yang sedang dipakai juga ikut terhapus

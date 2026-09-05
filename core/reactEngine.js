@@ -139,7 +139,15 @@ export async function runReActLoop({
   let finalText = "";
 
   while (iterations++ < maxIterations && !signal?.aborted) {
-    const response = await llm.invoke(workMessages, { signal });
+    let response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    if (signal) signal.addEventListener("abort", () => controller.abort());
+    try {
+      response = await llm.invoke(workMessages, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const content = typeof response.content === "string"
       ? response.content
       : (response.content?.map?.((c) => c.text || "").join("") || String(response.content ?? ""));

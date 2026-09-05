@@ -26,12 +26,12 @@ import path from "path";
 import { C } from "./styles.js";
 
 export const AVAILABLE_COMMANDS = [
-  "/help", "/clear", "/reset", "/mode", "/stream",
+  "/help", "/clear", "/reset", "/mode", "/stream", "/scroll",
   "/setup", "/model", "/history", "/skills", "/tasks",
-  "/gateway", "/undo", "/redo", "/exit",
+  "/gateway", "/undo", "/redo", "/refresh", "/restart", "/exit",
   "/plugin", "/artifact", "/learn", "/thinking",
   "/compact", "/copy", "/failover", "/tokens", "/doctor", "/context",
-  "/evolve", "/swarm", "/bot", "/records",
+  "/evolve", "/swarm", "/bot", "/records", "/btw",
 ];
 
 // ── Cache nama skill/command buat autocomplete ──────────────────────────
@@ -77,6 +77,7 @@ function helpText() {
     "  /artifact        - Lihat & kelola output artifact",
     "  /learn <nama>    - Buat skill baru dari pengalaman sesi ini",
     "  /undo / /redo    - Batalkan / ulangi perubahan file",
+    "  /refresh         - Mulai ulang (restart) CLI untuk memuat ulang file/kode",
     "  /exit            - Keluar dari EMORA CLI",
   ].join("\n");
 }
@@ -96,7 +97,7 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       return { type: "notice", message: helpText() };
 
     case "clear":
-      dispatch({ type: "SCROLL_RESET" });
+      dispatch({ type: "CLEAR_SCREEN" });
       return { type: "notice", message: "Layar dibersihkan (riwayat tetap tersimpan)." };
 
     case "compact":
@@ -612,8 +613,45 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       }
     }
 
+    case "scroll":
+      dispatch({ type: "SET_VIEW", view: "scrollConfig" });
+      return null;
+
     case "history": {
       const sessions = await listSessions();
+      
+      // Auto-generate judul untuk sesi yang "tanpa judul" di background
+      (async () => {
+        let changed = false;
+        const { loadSession } = await import("../core/memory.js");
+        const { generateTitle } = await import("../tools/title_generator.js");
+        const { renameSession } = await import("../core/sessionStore.js");
+        
+        for (const s of sessions) {
+          if (!s.name || s.name === "(tanpa judul)" || s.name.startsWith("Sesi ")) {
+            try {
+              const msgs = await loadSession(s.id);
+              const firstUser = msgs.find(m => m.role === "user");
+              if (firstUser && firstUser.content.length >= 3) {
+                const newTitle = await generateTitle(firstUser.content);
+                if (newTitle) {
+                  await renameSession(s.id, newTitle);
+                  changed = true;
+                }
+              }
+            } catch (err) {
+              // Ignore error, lanjut ke sesi berikutnya
+            }
+          }
+        }
+        
+        // Refresh view jika ada judul baru yang ter-generate
+        if (changed) {
+          const updatedSessions = await listSessions();
+          dispatch({ type: "SET_HISTORY_VIEW", sessions: updatedSessions });
+        }
+      })();
+
       dispatch({ type: "SET_HISTORY_VIEW", sessions });
       return { type: "handled" };
     }
@@ -641,8 +679,8 @@ export async function runSlashCommand(raw, { state, dispatch }) {
         };
         const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
         sessions.slice(0, 12).forEach((s, i) => {
-          const title = cut(s.title || "(tanpa judul)", 32).padEnd(34);
-          const preview = cut((s.preview || s.title || ""), 38).padEnd(40);
+          const title = cut(s.name || "(tanpa judul)", 32).padEnd(34);
+          const preview = cut((s.preview || s.name || ""), 38).padEnd(40);
           const active = relTime(s.updatedAt).padEnd(13);
           lines.push(`  ${(i + 1).toString().padEnd(3)} ${title} ${preview} ${active} ${s.id}`);
         });
@@ -738,6 +776,20 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       dispatch({ type: "QUIT" });
       return { type: "handled" };
 
+    case "refresh":
+    case "restart": {
+      const { spawn } = await import("child_process");
+      const cmd = `${process.argv[0]} ${process.argv[1]} -r ${state.sessionId}`;
+      const child = spawn("bash", ["-c", `sleep 0.2 && clear && echo "🔄 Reloading EMORA system..." && sleep 0.3 && ${cmd}`], {
+        stdio: "inherit",
+        detached: true
+      });
+      child.unref();
+      dispatch({ type: "QUIT" });
+      setTimeout(() => process.exit(0), 100);
+      return { type: "handled" };
+    }
+
     case "plugin":
     case "plugins": {
       const sub = (rest[0] || "list").toLowerCase();
@@ -786,30 +838,74 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       return { type: "error", message: "Sub-command: /plugin list|disable|enable|reload|install <nama>" };
     }
 
+    case "artifacts":
     case "artifact": {
       const sub = (rest[0] || "list").toLowerCase();
       const id = rest[1];
 
       try {
-        if (sub === "list") {
+        if (sub === "list" || sub === "ui") {
           const list = artifactManager.listArtifacts();
-          if (list.length === 0) return { type: "notice", message: "Belum ada artifact." };
-          const text = list.map((a) => `• [${a.id}] ${a.name} (${a.type}, v${a.version})`).join("\n");
-          return { type: "notice", message: `DAFTAR ARTIFACT\n\n${text}` };
+          dispatch({ type: "SET_ARTIFACTS_VIEW", list });
+          return { type: "handled" };
         }
-        if (sub === "get") {
+        if (sub === "get" || sub === "view") {
           if (!id) return { type: "error", message: "Pakai: /artifact get <id>" };
           const a = artifactManager.getArtifact(id);
-          return { type: "notice", message: `${a.name} (${a.type}, v${a.version})\n\n${a.content}` };
+          return { type: "notice", message: `${C.bold(a.name)} (${a.type}, v${a.version})\n${"─".repeat(40)}\n${a.content}`, big: true };
+        }
+        if (sub === "history") {
+          if (!id) return { type: "error", message: "Pakai: /artifact history <id>" };
+          const hist = artifactManager.getArtifactHistory(id);
+          const lines = hist.map(h => `[v${h.version}] ${h.summary} (${new Date(h.createdAt).toLocaleString()})`);
+          return { type: "notice", message: `HISTORY ARTIFACT ${id}\n\n${lines.join("\n")}` };
+        }
+        if (sub === "export") {
+          if (!id || !rest[2]) return { type: "error", message: "Pakai: /artifact export <id> <nama_file.ext>" };
+          const a = artifactManager.getArtifact(id);
+          const { resolveWorkspacePath } = await import("../utils/workspace.js");
+          const fsSync = await import("fs");
+          const targetPath = resolveWorkspacePath(rest.slice(2).join(" "));
+          fsSync.writeFileSync(targetPath, a.content, "utf8");
+          return { type: "notice", message: `✓ Artifact ${id} diexport ke ${targetPath}` };
         }
         if (sub === "delete") {
           if (!id) return { type: "error", message: "Pakai: /artifact delete <id>" };
           artifactManager.deleteArtifact(id);
           return { type: "notice", message: `Artifact ${id} dihapus.` };
         }
-        return { type: "error", message: "Sub-command: /artifact list|get|delete <id>" };
+        return { type: "error", message: "Sub-command: /artifact list|get|history|export|delete" };
       } catch (err) {
         return { type: "error", message: err.message };
+      }
+    }
+
+    case "subagent": {
+      if (!argStr.trim()) return { type: "error", message: "Pakai: /subagent <instruksi untuk subagent>" };
+      try {
+        const engine = (await import("../core/ag_subagent_engine.js")).default;
+        const { id, deduped } = await engine.spawn({ role: "Manual Helper", prompt: argStr.trim() });
+        if (deduped) {
+          return { type: "notice", message: `Subagent identik sudah berjalan (ID: ${id}).` };
+        }
+        return { type: "notice", message: `✓ Subagent diluncurkan di background (ID: ${id}). Pantau statusnya di bawah layar.` };
+      } catch (err) {
+        return { type: "error", message: `Gagal meluncurkan subagent: ${err.message}` };
+      }
+    }
+
+    case "btw": {
+      if (!argStr.trim()) return { type: "error", message: "Pakai: /btw <pertanyaan sampingan>" };
+      try {
+        const engine = (await import("../core/ag_subagent_engine.js")).default;
+        const prompt = `Please answer this question as a side task (don't format as a long report, just answer it directly and concisely): ${argStr.trim()}`;
+        const { id, deduped } = await engine.spawn({ role: "Side Question", prompt });
+        if (deduped) {
+          return { type: "notice", message: `Pertanyaan sedang dicarikan jawabannya oleh agen (ID: ${id}).` };
+        }
+        return { type: "notice", message: `✓ Menanyakan "${argStr.trim()}" ke subagent di background (ID: ${id}). Jawabannya akan muncul di inbox subagent nanti.` };
+      } catch (err) {
+        return { type: "error", message: `Gagal meluncurkan subagent: ${err.message}` };
       }
     }
 

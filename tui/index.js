@@ -104,14 +104,17 @@ export async function runTUI(options = {}) {
   } catch {}
 
   let session;
+  let initialMessages = [];
   if (resumeSession) {
     const { getSession } = await import("../core/sessionStore.js");
+    const { loadSession } = await import("../core/memory.js");
     session = await getSession(resumeSession);
     if (!session) {
       console.error(red(`\n  ✗ Session tidak ditemukan: ${resumeSession}\n`));
       process.exitCode = 1;
       return;
     }
+    initialMessages = await loadSession(resumeSession);
   } else {
     session = await createSession("Sesi baru");
   }
@@ -194,6 +197,7 @@ export async function runTUI(options = {}) {
       sessionTitle: session.name || session.title || "Sesi baru",
       provider: { name: meta.label, model: modelName },
       initialMode: startMode,
+      initialMessages,
       llm,
       tools,
       initialQuery,

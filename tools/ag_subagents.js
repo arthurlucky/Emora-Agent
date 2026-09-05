@@ -39,9 +39,11 @@ function _checkRate() {
 export const invokeSubagentTool = new DynamicStructuredTool({
   name: "invoke_subagent",
   description:
-    "Luncurkan 1 subagent di background (asinkron). " +
+    "Luncurkan 1 subagent di background (asinkron) untuk tugas KOMPLEKS, PANJANG, atau MULTI-STEP. " +
+    "LARANGAN KERAS: JANGAN gunakan subagent untuk tugas sederhana (misal menghapus/membuat 1 file, sekadar baca file, atau jalankan 1 command biasa). " +
+    "Selesaikan tugas sederhana sendiri dengan tool langsung. " +
     "Tool ini LANGSUNG return setelah subagent diluncurkan — subagent BELUM SELESAI. " +
-    "Panggil HANYA SEKALI per turn. Setelah tool ini return, LANGSUNG beri respons ke user.",
+    "Panggil HANYA SEKALI per turn. Setelah return, LANGSUNG beri respons ke user.",
   schema: z.object({
     Role: z
       .string()

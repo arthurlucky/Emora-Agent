@@ -14,7 +14,7 @@ import chalk from "chalk";
 import { createLLM } from "../provider/index.js";
 import tools from "../core/tools.js";
 import { ask } from "../core/chat.js";
-import { listSessions } from "../core/memoryDB.js";
+import { listSessions } from "../core/sessionStore.js";
 
 const dim = chalk.hex("#8b949e");
 const cyan = chalk.hex("#58a6ff");
@@ -99,7 +99,7 @@ export async function runREPL({ resumeSession = null } = {}) {
       if (process.env.EMORA_STREAM === "1") {
         const { HumanMessage, SystemMessage } = await import("@langchain/core/messages");
         const { getSystemPrompt } = await import("../core/chat.js");
-        process.stdout.write(C.dim("▌ "));
+        process.stdout.write(dim("▌ "));
         const stream = await llm.stream([
           new SystemMessage(await getSystemPrompt()),
           new HumanMessage(input),

@@ -91,11 +91,30 @@ export async function startContainer(id) {
   if (config.model_url) env.MODEL_URL = config.model_url;
   if (config.model_api) env.MODEL_API = config.model_api;
 
+  const watchdogPath = path.join(paths.dir, "watchdog.js");
+  const watchdogScript = `
+const { spawn } = require('child_process');
+let child;
+function start() {
+  child = spawn('node', ['bin/emora.js', 'gateway', 'run'], { stdio: 'inherit', cwd: '${ROOT_DIR}', env: process.env });
+  child.on('close', (code, signal) => {
+    if (signal !== 'SIGTERM' && signal !== 'SIGINT') {
+      console.log('[WATCHDOG] Container crashed with code ' + code + '. Restarting in 5s...');
+      setTimeout(start, 5000);
+    }
+  });
+}
+process.on('SIGTERM', () => { if (child) child.kill('SIGTERM'); process.exit(0); });
+process.on('SIGINT', () => { if (child) child.kill('SIGINT'); process.exit(0); });
+start();
+`;
+  await fs.writeFile(watchdogPath, watchdogScript, "utf8");
+
   const logOut = await import("fs").then(m => m.openSync(path.join(paths.dir, "out.log"), "a"));
   const logErr = await import("fs").then(m => m.openSync(path.join(paths.dir, "err.log"), "a"));
 
-  const proc = spawn("node", ["bin/emora.js", "gateway", "run"], {
-    cwd: ROOT_DIR,
+  const proc = spawn("node", [watchdogPath], {
+    cwd: paths.dir,
     env,
     detached: true,
     stdio: ["ignore", logOut, logErr]

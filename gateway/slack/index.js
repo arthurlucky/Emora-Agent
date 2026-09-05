@@ -16,7 +16,31 @@ import { registerAdapter } from "../manager.js";
 import { TurnStateManager } from "../session.js";
 import { touchSession } from "../../core/sessionStore.js";
 import { handleCronCommand } from "../cron/commands.js";
-import { splitMessage, formatToolLine, buildApprovalRow, approvalContent } from "../discord/presenter.js"; // Reuse Discord presenter tools for text formatting
+const SLACK_LIMIT = 3000;
+function splitMessage(text, limit = SLACK_LIMIT) {
+  if (text.length <= limit) return [text];
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > limit) {
+    let cut = remaining.lastIndexOf("\n", limit);
+    if (cut < limit * 0.5) cut = limit;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, "");
+  }
+  if (remaining.length) chunks.push(remaining);
+  return chunks;
+}
+function formatToolLine(name, args, autoApproved) {
+  const argsPreview = JSON.stringify(args || {});
+  const short = argsPreview.length > 120 ? argsPreview.slice(0, 117) + "..." : argsPreview;
+  const badge = autoApproved ? " _(auto-approved)_" : "";
+  return `▸ \`${name}\`${badge} ${short}`;
+}
+function approvalContent(toolName, args) {
+  const argsJson = JSON.stringify(args || {}, null, 2);
+  const trimmed = argsJson.length > 1200 ? argsJson.slice(0, 1200) + "\n…" : argsJson;
+  return `⚠️ **EMORA minta izin jalankan tool:** \`${toolName}\`\n\`\`\`json\n${trimmed}\n\`\`\`\nApprove?`;
+}
 
 // Command bawaan gateway ini — kalau user ketik "/<salah satu ini>", JANGAN
 // dicek ke skillRegistry dulu (biar skill dgn nama sama gak "menutupi"

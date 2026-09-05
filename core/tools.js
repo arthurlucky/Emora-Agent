@@ -39,17 +39,11 @@ import { patchTool } from "../tools/patch.js";
 import { undoTool, redoTool } from "../tools/undo.js";
 import { verifyTool } from "../tools/verify.js";
 import changeModeTool from "../tools/change_mode.js";
-import { botMeshTool } from "../tools/bot_mesh.js";
 import { invokeSubagentTool, sendMessageTool, manageSubagentsTool } from "../tools/ag_subagents.js";
 
 const tools = [
-  invokeSubagentTool,
-  sendMessageTool,
-  manageSubagentsTool,
-  botMeshTool,
   SearchWebTool,
   FetchPageTool,
-
   listFilesTool,
   readFileTool,
   writeFileTool,
@@ -183,7 +177,6 @@ try {
 } catch (err) {
   console.error(`  ⚠️  Toolset filter gagal, pakai semua tool: ${err.message}`);
 }
-
 /**
  * Live-reload toolset — dipanggil dari TUI/REPL setelah `toolset use/on/off`
  * tanpa restart. Mengganti isi array `filteredTools` in-place (array sama,
@@ -200,6 +193,16 @@ export async function reloadToolset() {
     console.error(`  ⚠️  Toolset reload gagal: ${err.message}`);
     return filteredTools.length;
   }
+}
+
+export async function getTools(includeMCP = true) {
+  let finalTools = [...filteredTools, invokeSubagentTool, sendMessageTool, manageSubagentsTool];
+
+  if (includeMCP) {
+    const mcpTools = await loadMCPTools();
+    finalTools.push(...mcpTools);
+  }
+  return finalTools;
 }
 
 // ─────────────────────────────────────────────

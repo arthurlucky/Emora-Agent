@@ -3,7 +3,7 @@
 // (`[xxxxxxxx] You >`). Auto-scroll ke bawah tiap ada pesan baru.
 
 import { escapeHtml } from "../dom.js";
-import { formatClock, shortId } from "../format.js";
+import { formatTime, shortId } from "../utils/helpers.js";
 
 export function createChatPanel(container, handlers) {
   container.innerHTML = `
@@ -61,7 +61,7 @@ export function createChatPanel(container, handlers) {
       <div class="msg ${isUser ? "msg--user" : "msg--assistant"}">
         <div class="msg__meta">
           <span class="msg__role">${isUser ? "you" : "emora"}</span>
-          ${msg.timestamp ? `<span class="msg__time">${formatClock(msg.timestamp)}</span>` : ""}
+          ${msg.timestamp ? `<span class="msg__time">${formatTime(msg.timestamp)}</span>` : ""}
         </div>
         <div class="msg__bubble">${escapeHtml(msg.content)}</div>
       </div>`;

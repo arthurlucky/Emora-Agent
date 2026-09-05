@@ -4,8 +4,10 @@ import os from "os";
 export const ROOT_DIR = path.resolve(process.cwd());
 export const PLATFORM = os.platform(); // 'win32' (Windows), 'linux', 'darwin' (Mac), 'android' (Termux)
 
-// Jadikan Root Project sebagai default directory
-export const WORKSPACE_DIR = ROOT_DIR;
+// Jadikan Root Home sebagai default directory, kecuali ada bounding khusus
+export const WORKSPACE_DIR = process.env.EMORA_BOUNDED_WORKSPACE 
+  ? path.resolve(process.env.EMORA_BOUNDED_WORKSPACE) 
+  : os.homedir();
 
 export function resolveWorkspacePath(targetPath = "") {
   let cleanPath = targetPath.trim();
@@ -22,6 +24,14 @@ export function resolveWorkspacePath(targetPath = "") {
   } else {
     // Jika relatif, arahkan langsung ke root project Emora-Agent
     resolved = path.resolve(WORKSPACE_DIR, cleanPath);
+  }
+
+  // Enforce boundary jika EMORA_BOUNDED_WORKSPACE aktif
+  if (process.env.EMORA_BOUNDED_WORKSPACE) {
+    const bound = path.resolve(process.env.EMORA_BOUNDED_WORKSPACE);
+    if (!resolved.startsWith(bound)) {
+      throw new Error(`Akses ditolak! Emora dibatasi hanya di dalam folder: ${bound}`);
+    }
   }
 
   return resolved;

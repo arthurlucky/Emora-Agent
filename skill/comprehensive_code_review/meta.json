@@ -1,0 +1,8 @@
+{
+  "name": "comprehensive_code_review",
+  "description": "Respons Assistant mendemonstrasikan workflow yang terstruktur dan reusable untuk Code Review Komprehensif. Melibatkan: (1) analisis multi-dimensi codebase (struktur, security, error handling, validation), (2) kategorisasi issues berdasarkan severity/impact, (3) scoring kuantitatif, (4) prioritas action items yang clear dan actionable. Workflow ini kompleks, melibatkan multiple tools, dan dapat diterapkan ke berbagai project dengan pola yang konsisten. Bukan sekadar bacaan file, tapi systematic audit dengan framework yang bisa direuse.",
+  "source": "auto_evaluator",
+  "created_at": "2026-09-05T05:31:41.427Z",
+  "has_script": true,
+  "version": "1.0.0"
+}

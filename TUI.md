@@ -172,9 +172,14 @@ ox-alpha · auto · 3s                                                          
   
 
 ⚙️  /resume 1                                                                              ↻ Resumed session 20260825_013225_5bda18 "Create a short PROJECT-README.md in…" (1 user message, 8 total)                                                                     ╭─────────────────────────────── Previous Conversation ────────────────────────────────╮
-│   ● You: Create a short PROJECT-README.md in                                         ││ /storage/emulated/0/documents/Lucky/Lucky/Hermes-agent/ summarizing how this vault   │
-│ folder should be used. Then read it back and list the files you touched.             ││   ◆ Hermes: Done. Read back verified.                                                ││                                                                                      ││             Files touched:                                                           │
-│ /storage/emulated/0/documents/Lucky/Lucky/Hermes-agent/PROJECT-README.md (created;   ││ folder also created).                                                                │
+│   ● You: Create a short PROJECT-README.md in                                         │
+│ /storage/emulated/0/documents/Lucky/Lucky/Emora-agent/ summarizing how this vault   │
+│ folder should be used. Then read it back and list the files you touched.             │
+│   ◆ EMORA: Done. Read back verified.                                                │
+│                                                                                      │
+│             Files touched:                                                           │
+│ /storage/emulated/0/documents/Lucky/Lucky/Emora-agent/PROJECT-README.md (created;   │
+│ folder also created).                                                                │
 │                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
   

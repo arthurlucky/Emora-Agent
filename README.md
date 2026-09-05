@@ -41,7 +41,7 @@ Pengaturan pintar (`/think` atau `/no_think`) untuk beradaptasi dengan model ber
 Ekosistem pusat untuk mencari (search), mendownload, dan meng-upload (publish) *skills* atau *tools* langsung dari/ke *registry* komunitas (download ZIP) dengan sangat mudah.
 
 ### 🧩 Sistem Plugin Terstandardisasi
-Format plugin sama seperti Claude Code/Codex/Hermes Agent (`skills/`, `commands/`, `hooks/`, `.mcp.json`) — plugin pihak ketiga dari GitHub bisa langsung dipasang lewat `emora plugin install <url>` tanpa modifikasi apa pun. Mendukung plugin yang punya perilaku "selalu aktif" lewat hooks (`SessionStart`/`UserPromptSubmit`), dengan mekanisme *trust* eksplisit sebelum hook dieksekusi (keamanan seperti Claude Code).
+Format plugin sama seperti agen modern lainnya (`skills/`, `commands/`, `hooks/`, `.mcp.json`) — plugin pihak ketiga dari GitHub bisa langsung dipasang lewat `emora plugin install <url>` tanpa modifikasi apa pun. Mendukung plugin yang punya perilaku "selalu aktif" lewat hooks (`SessionStart`/`UserPromptSubmit`), dengan mekanisme *trust* eksplisit sebelum hook dieksekusi (keamanan yang sangat ketat).
 
 ### ⌨️ Manual Skill/Command Invocation
 Semua skill (bawaan atau plugin) bisa dipanggil langsung lewat `/<nama>` atau `/<plugin>:<nama>`, konsisten di **semua** antarmuka — TUI maupun tiap gateway — mengikuti konvensi Claude Code/Antigravity CLI.
@@ -142,7 +142,7 @@ Butuh Node.js **v20+**. Cek versi: `node -v`.
 | Perintah | Fungsi |
 |---|---|
 | `emora` | Buka TUI interaktif (default) |
-| `emora repl` | REPL ringan ala Hermes (prompt `>`, multi-line) |
+| `emora repl` | REPL ringan (prompt `>`, multi-line) |
 | `emora run "<prompt>"` | Chat sekali jalan — jawab lalu keluar |
 | `emora -r <id\|judul>` | Resume sesi (by UUID, prefix ID, atau judul) |
 | `emora -s list\|delete\|title` | Kelola sesi: daftar, hapus (`delete all` = semua), regen judul |

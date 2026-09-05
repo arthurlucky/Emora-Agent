@@ -19,7 +19,7 @@ import { handleKey } from "./keys.js";
 
 const h = React.createElement;
 
-export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, initialMode, onQuit, onActivity }) {
+export default function App({ sessionId, sessionTitle, provider, llm, tools, initialQuery, initialMode, initialMessages, onQuit, onActivity }) {
   const { stdout } = useStdout();
   const { exit } = useApp();
 
@@ -30,6 +30,7 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
       sessionTitle,
       provider,
       initialMode,
+      initialMessages,
       columns: stdout?.columns || 80,
       rows: stdout?.rows || 24,
     })
@@ -46,6 +47,15 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
       onActivity?.();
     }
   }, [stateRef.current.messages?.length]);
+
+  // Load recent activity for the welcome screen
+  useEffect(() => {
+    import("../core/sessionStore.js").then(({ listSessions }) => {
+      listSessions().then(sessions => {
+        dispatch({ type: "SET_RECENT_ACTIVITY", sessions: sessions.slice(0, 5) });
+      }).catch(() => {});
+    }).catch(() => {});
+  }, []);
 
   const llmRef = useRef(llm);
 
@@ -111,6 +121,60 @@ export default function App({ sessionId, sessionTitle, provider, llm, tools, ini
       controller.submit(initialQuery);
     }
   }, [initialQuery, controller]);
+
+  // BRACKETED PASTE HANDLER
+  useEffect(() => {
+    let inPaste = false;
+    let pasteBuffer = "";
+    let pasteCount = 0;
+
+    const originalEmit = process.stdin.emit;
+    process.stdin.emit = function (event, ...args) {
+      if (event === "data" && args[0]) {
+        let chunk = args[0].toString();
+        
+        if (chunk.includes("\x1b[200~")) {
+          inPaste = true;
+          const parts = chunk.split("\x1b[200~");
+          // Pre-paste data (if any) could be let through, but for safety we ignore it
+          chunk = parts[1] || "";
+        }
+        
+        if (inPaste) {
+          if (chunk.includes("\x1b[201~")) {
+            pasteBuffer += chunk.split("\x1b[201~")[0];
+            inPaste = false;
+            
+            pasteCount++;
+            const lines = pasteBuffer.split("\n").length;
+            const marker = `[Paste #${pasteCount} +${lines}Lines]`;
+            
+            dispatch({ type: "PASTE_TEXT", value: pasteBuffer, marker });
+            return false;
+          } else {
+            pasteBuffer += chunk;
+            return false;
+          }
+        } else if (chunk.length > 10 && chunk.includes("\n")) {
+          // Fallback heuristic: terminal tidak pakai bracketed paste, 
+          // tapi mengirim teks panjang (paste) dalam satu chunk data.
+          pasteCount++;
+          const lines = chunk.split("\n").length;
+          const marker = `[Paste #${pasteCount} +${lines}Lines]`;
+          dispatch({ type: "PASTE_TEXT", value: chunk, marker });
+          return false;
+        }
+      }
+      return originalEmit.apply(this, [event, ...args]);
+    };
+
+    // Aktifkan Bracketed Paste Mode di terminal
+    process.stdout.write("\x1b[?2004h");
+    return () => {
+      process.stdout.write("\x1b[?2004l");
+      process.stdin.emit = originalEmit;
+    };
+  }, []);
 
   useInput((input, key) => {
     handleKey({ state: stateRef.current, dispatch, controller, input, key });

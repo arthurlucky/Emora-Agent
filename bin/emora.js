@@ -24,6 +24,8 @@ import path from "path";
 import fs from "fs";
 import chalk from "chalk";
 
+const originalCWD = process.cwd();
+
 // ── Pastikan CWD adalah root project EMORA ──────────────────────────────────
 // Kalau `emora` diinstall global (npm install -g), __dirname akan menunjuk
 // ke lokasi package yang di-install, bukan tempat user menjalankan command.
@@ -35,6 +37,9 @@ const PKG_ROOT   = path.resolve(__dirname, "..");
 
 // Pindah ke root project supaya semua import relatif berjalan benar
 process.chdir(PKG_ROOT);
+
+// Inisialisasi konfigurasi sedini mungkin (SETELAH chdir)
+await import("../core/config.js");
 
 // ── Version ──────────────────────────────────────────────────────────────────
 const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, "package.json"), "utf8"));
@@ -80,30 +85,49 @@ function printHelp() {
   const groups = [
     ["SESSION", [
       ["emora",                 "TUI interaktif (default)"],
-      ["emora repl",            "REPL ringan ala Hermes (prompt > )"],
+      ["emora repl",            "REPL ringan (prompt > )"],
       ["emora -r <uuid>",       "Resume sesi tertentu"],
       ["emora -s list|delete|title", "Kelola sesi: delete <id|all>, regen judul"],
       ["emora run \"<prompt>\"", "Chat sekali jalan, keluar setelah jawab"],
     ]],
     ["CONFIG", [
       ["emora setup",           "Setup wizard penuh"],
-      ["emora model set <prov> <model>", "Set provider+model langsung, tanpa wizard"],
-      ["emora model save|use|rm|list", "Kelola profile model (multi-konfigurasi)"],
-      ["emora config list|get|set",        "Baca/tulis .env langsung"],
+      ["emora model ...",       "Ganti model/provider/profile (set, save, use)"],
+      ["emora config ...",      "Baca/tulis .env langsung (list, get, set)"],
     ]],
     ["CAPABILITIES", [
       ["emora skills",          "Browse & kelola skill"],
-      ["emora toolset list|use|on|off", "Preset grup tool aktif"],
-      ["emora plugin ...",      "Kelola plugin (install/trust-hooks)"],
-      ["emora mcp",             "MCP server manager"],
-      ["emora backends add|list", "Backend SSH untuk shell_exec"],
-      ["emora swarm ...",       "Container subagent persistent"],
+      ["emora toolset ...",     "Preset grup tool aktif (list, use, on, off)"],
+      ["emora plugin ...",      "Kelola plugin (install, enable, disable)"],
+      ["emora mcp ...",         "MCP server manager"],
+      ["emora obsidian ...",    "Integrasi vault Obsidian"],
+      ["emora backends ...",    "Backend SSH untuk shell_exec (list, add, rm)"],
+      ["emora kl ...",          "Integrasi knowledge library"],
     ]],
-    ["OPS", [
-      ["emora gateway run",     "Jalankan gateway messaging"],
-      ["emora send \"<msg>\"",   "Kirim pesan one-shot"],
-      ["emora status",          "Status semua komponen"],
-      ["emora --web",           "CLI + dashboard browser"],
+    ["KNOWLEDGE LIBRARY (kl)", [
+      ["emora kl vault",              "Atur lokasi penyimpanan (default/obsidian/custom)"],
+      ["emora kl install <url>",      "Tambah knowledge dari URL"],
+      ["emora kl list",               "Daftar topik & subtopik"],
+      ["emora kl search <query>",     "Cari knowledge"],
+      ["emora kl info <relPath>",     "Lihat metadata & backlink file"],
+    ]],
+    ["COMMUNITY & PUBLISH", [
+      ["emora install:skill <name>", "Install skill dari komunitas"],
+      ["emora install:tool <name>",  "Install tool dari komunitas"],
+      ["emora publish:skill",        "Publish skill (--namaskill, --desc, --tags)"],
+      ["emora publish:tool",         "Publish tool (--namatool, --desc, --tags)"],
+      ["emora community --setkey=K", "Set API key untuk fitur komunitas"],
+    ]],
+    ["OPS & STATUS", [
+      ["emora gateway ...",     "Jalankan gateway messaging (Telegram, WA, dll)"],
+      ["emora bot ...",         "Kelola fitur bot"],
+      ["emora send \"<msg>\"",  "Kirim pesan one-shot ke webhook/platform"],
+      ["emora swarm ...",       "Container subagent persistent"],
+      ["emora status",          "Status semua komponen sistem"],
+      ["emora records",         "Tampilkan metrics atau log records"],
+      ["emora --web",           "Jalankan CLI + dashboard browser (WebUI)"],
+      ["emora doctor",          "Mendiagnosa dan memulihkan masalah sistem"],
+      ["emora migrate",         "Migrasi konfigurasi lawas (deprecated)"],
     ]],
   ];
 
@@ -150,6 +174,50 @@ if (args.includes("--help") || args.includes("-h")) {
 }
 
 // Sub-command router
+const { authenticate } = await import("../core/security.js");
+await authenticate();
+const noTrustCommands = ["setup", "model", "plugin", "gateway", "update", "tokens", "help", "version", "-s", "--sessions", "obsidian", "doctor"];
+
+if (!noTrustCommands.includes(subCmd) && originalCWD !== PKG_ROOT) {
+  const fsSync = await import("fs");
+  const path = await import("path");
+  const os = await import("os");
+  const trustFile = path.join(os.homedir(), ".emora_trusted_workspaces");
+  
+  let trustedPaths = [];
+  try {
+    if (fsSync.existsSync(trustFile)) {
+      trustedPaths = fsSync.readFileSync(trustFile, "utf8").split("\n").filter(Boolean);
+    }
+  } catch(e) {}
+
+  if (trustedPaths.includes(originalCWD)) {
+    process.env.EMORA_BOUNDED_WORKSPACE = originalCWD;
+  } else {
+    const { select } = await import("../cli/select.js");
+    console.log(chalk.cyan(`
+          ▄████▄        
+         ███  ███       
+         ████████       
+         ██ ▀▀ ██       
+          ▀▄  ▄▀        
+    `));
+    const trust = await select(`Trust this folder? (${originalCWD})`, [
+      { label: "Trust this folder", value: true },
+      { label: "no", value: false }
+    ]);
+    if (trust) {
+      process.env.EMORA_BOUNDED_WORKSPACE = originalCWD;
+      try {
+        fsSync.appendFileSync(trustFile, originalCWD + "\n");
+      } catch(e) {}
+    } else {
+      console.log(chalk.yellow("  Operation cancelled. Emora requires trust to run in this folder."));
+      process.exit(0);
+    }
+  }
+}
+
 switch (subCmd) {
   case "--web":
   case "webui": {
@@ -162,7 +230,8 @@ switch (subCmd) {
   case "tui":
   case "repl":
   case "--debug": {
-    // `emora repl` = REPL ringan ala Hermes; default tetap TUI penuh.
+    // Trust logic moved globally
+    // `emora repl` = REPL ringan; default tetap TUI penuh.
     if (subCmd === "repl" || process.env.EMORA_REPL === "1") {
       const { runREPL } = await import("../cli/repl.js");
       await runREPL();
@@ -176,7 +245,7 @@ switch (subCmd) {
   case "-s":
   case "--sessions": {
     // emora -s list | delete <id|all> | title <id>
-    const { listSessions, deleteSession, getSession, touchSession } = await import("../core/memoryDB.js");
+    const { listSessions, deleteSession, getSession, touchSession } = await import("../core/sessionStore.js");
     const action = rest[0];
     if (action === "list") {
       const all = await listSessions();
@@ -213,7 +282,8 @@ switch (subCmd) {
       // Generate ulang judul sesi dari prompt pertamanya (tanpa LLM, dari isi sesi).
       const id = rest[1];
       if (!id) { console.error(red("  ✗ Gunakan: emora -s title <id>")); process.exit(1); }
-      const { loadSession, generateTitleFromPrompt } = await import("../core/memoryDB.js");
+      const { loadSession } = await import("../core/memory.js");
+      const { generateTitleFromPrompt } = await import("../core/sessionStore.js");
       const msgs = await loadSession(id);
       const firstUser = msgs.find(m => m.role === "user");
       if (!firstUser) { console.error(red("  ✗ Sesi kosong.")); process.exit(1); }
@@ -235,7 +305,7 @@ switch (subCmd) {
     }
     // Resolve: UUID penuh → prefix ID → judul (case-insensitive contains).
     let resolved = target;
-    const { listSessions } = await import("../core/memoryDB.js");
+    const { listSessions } = await import("../core/sessionStore.js");
     const all = await listSessions();
     if (!all.some((s) => s.id === target)) {
       const hit =
@@ -279,7 +349,7 @@ switch (subCmd) {
     break;
   }
 
-  // ── Hermes-style shortcut: non-interaktif, satu baris ────────────────
+  // ── Shortcut: non-interaktif, satu baris ────────────────
   case "run": {
     // emora run "prompt" — one-shot chat tanpa TUI.
     const prompt = rest.join(" ").trim();
@@ -294,7 +364,7 @@ switch (subCmd) {
       import("../provider/index.js"),
     ]);
     const { default: tools } = toolsMod;
-    const llm = createLLM({ tools });
+    const llm = await createLLM(tools);
     const sessionId = `cli-${Date.now()}`;
     const answer = await ask(llm, tools, sessionId, prompt);
     console.log(answer);
@@ -447,16 +517,16 @@ switch (subCmd) {
   }
 
   case "doctor": {
-    const { cmdDoctor } = await import("../cli/cmd-doctor.js");
-    await cmdDoctor();
+    const { runDoctor } = await import("../cli/cmd-doctor.js");
+    await runDoctor();
     break;
   }
 
   case "migrate": {
     // Memory tetap JSON-enhanced (better-sqlite3 tidak bisa build di Termux).
-    // Command ini sekarang hanya menampilkan status memory.
-    const { migrateFromJSON } = await import("../core/memoryDB.js");
-    await migrateFromJSON();
+    // memoryDB.js sudah di-deprecate — command ini hanya menampilkan status.
+    console.log("✅ EMORA sudah menggunakan JSON-based memory (core/memory.js).");
+    console.log("   Tidak perlu migrasi. memoryDB.js sudah di-deprecate.");
     break;
   }
 

@@ -71,10 +71,17 @@ function saveConfigToFile(configObj) {
 }
 
 export function initConfig() {
+  // Load .env vars into process.env first
+  dotenv.config({ path: OLD_ENV });
+
   inMemoryConfig = loadConfigFromFile();
   // Sinkronkan ke process.env untuk library/modul pihak ketiga yang bergantung pada process.env
   for (const [k, v] of Object.entries(inMemoryConfig)) {
     if (v !== undefined && v !== null) {
+      // Avoid overwriting actual env vars with redacted placeholders
+      if (v === "***REDACTED***" && process.env[k]) {
+        continue;
+      }
       process.env[k] = String(v);
     }
   }
@@ -83,16 +90,56 @@ export function initConfig() {
 
 export function getConfig(key, defaultValue = "") {
   if (!inMemoryConfig) initConfig();
+
+  // Prioritize process.env if available and not redacted
+  if (process.env[key] && process.env[key] !== "***REDACTED***") {
+    return process.env[key];
+  }
+
   const val = inMemoryConfig[key];
-  if (val !== undefined && val !== null && val !== "") return String(val);
-  return process.env[key] || defaultValue;
+  if (val !== undefined && val !== null && val !== "" && val !== "***REDACTED***") return String(val);
+
+  return defaultValue;
+}
+
+function updateDotenv(key, value) {
+  if (!fs.existsSync(OLD_ENV)) return;
+  let raw = fs.readFileSync(OLD_ENV, 'utf8');
+  const regex = new RegExp(`^${key}=.*$`, 'm');
+  const isSecret = key.includes("API") || key.includes("TOKEN") || key.includes("SECRET");
+
+  if (value === undefined) {
+    if (regex.test(raw)) {
+      raw = raw.replace(new RegExp(`^${key}=.*\\n?`, 'm'), '');
+      fs.writeFileSync(OLD_ENV, raw, 'utf8');
+    }
+    return;
+  }
+
+  if (regex.test(raw)) {
+    raw = raw.replace(regex, `${key}=${value}`);
+    fs.writeFileSync(OLD_ENV, raw, 'utf8');
+  } else if (isSecret || regex.test(raw)) { // Append if it's a secret, or keep it synced if we want to
+    raw = raw.trim() + `\n${key}=${value}\n`;
+    fs.writeFileSync(OLD_ENV, raw, 'utf8');
+  }
 }
 
 export function setConfig(key, value) {
   if (!inMemoryConfig) initConfig();
-  inMemoryConfig[key] = value;
+  
   process.env[key] = String(value);
+  
+  const isSecret = key.includes("API") || key.includes("TOKEN") || key.includes("SECRET");
+  
+  if (isSecret) {
+    inMemoryConfig[key] = "***REDACTED***";
+  } else {
+    inMemoryConfig[key] = value;
+  }
+  
   saveConfigToFile(inMemoryConfig);
+  updateDotenv(key, value);
 }
 
 export function deleteConfig(key) {
@@ -100,6 +147,7 @@ export function deleteConfig(key) {
   delete inMemoryConfig[key];
   delete process.env[key];
   saveConfigToFile(inMemoryConfig);
+  updateDotenv(key, undefined);
 }
 
 export function loadAllConfig() {

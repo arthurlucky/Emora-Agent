@@ -1,0 +1,18 @@
+{
+  "id": "ART-6ED57A",
+  "name": "no_think",
+  "type": "markdown",
+  "version": 1,
+  "content": "# No Think Mode\n\nThis artifact represents a minimal-thinking mode. Responses will be short and direct.\n\n---",
+  "metadata": {},
+  "createdAt": 1788497772989,
+  "updatedAt": 1788497772989,
+  "history": [
+    {
+      "version": 1,
+      "content": "# No Think Mode\n\nThis artifact represents a minimal-thinking mode. Responses will be short and direct.\n\n---",
+      "summary": "Inisialisasi awal artifact",
+      "createdAt": 1788497772989
+    }
+  ]
+}

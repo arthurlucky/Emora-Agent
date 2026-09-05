@@ -69,6 +69,12 @@ export async function cmdKl(argv) {
   if (sub === "list")   return (await import("../cli/kl-vault.js")).cmdKlList();
   if (sub === "search") return (await import("../cli/kl-vault.js")).cmdKlSearch(argv.slice(1));
   if (sub === "info")   return (await import("../cli/kl-vault.js")).cmdKlInfo(argv.slice(1));
+  
+  if (sub === "browse") {
+    const isWeb = argv.includes("--web");
+    const browseMod = await import("./kl-browse.js");
+    return isWeb ? browseMod.cmdKlBrowseWeb() : browseMod.cmdKlBrowseLocal();
+  }
 
   if (sub !== "install") {
     console.log("Perintah KL:");
@@ -77,6 +83,8 @@ export async function cmdKl(argv) {
     console.log("  emora kl list                   Daftar topik & subtopik");
     console.log("  emora kl search <query>         Cari knowledge");
     console.log("  emora kl info <relPath>         Lihat metadata & backlink file");
+    console.log("  emora kl browse                 Browse library lokal (TUI)");
+    console.log("  emora kl browse --web           Browse web online & save ke library (TUI)");
     process.exit(1);
   }
 

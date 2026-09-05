@@ -1,16 +1,15 @@
 /**
  * cli/cmd-migrate.js
  *
- * Command untuk migrasi data dari JSON ke SQLite
+ * Command untuk cek status memory system (memoryDB.js sudah di-deprecate).
  */
 
 import chalk from "chalk";
-import { migrateFromJSON } from "../core/memoryDB.js";
+import fs from "fs";
+import path from "path";
 
 const cyan = chalk.hex("#58a6ff");
 const green = chalk.hex("#3fb950");
-const yellow = chalk.hex("#d29922");
-const red = chalk.hex("#f85149");
 const dim = chalk.hex("#6e7681");
 
 export async function cmdMigrate() {
@@ -19,30 +18,15 @@ export async function cmdMigrate() {
   console.log(dim("  ─".repeat(60)));
   console.log();
 
-  console.log(yellow("  ℹ️  Mengecek database system..."));
-  console.log();
+  const memoryDir = process.env.EMORA_MEMORY_DIR || path.resolve("./memory");
+  const exists = fs.existsSync(memoryDir);
 
-  try {
-    const result = await migrateFromJSON();
-    console.log();
-    console.log(green.bold("  ✅ System ready!"));
-    console.log();
-    console.log(dim("  Database type: ") + green(result.type || 'JSON enhanced'));
-    console.log(dim("  Status: ") + green("operational"));
-    console.log();
-    console.log(dim("  Langkah selanjutnya:"));
-    console.log(dim("  1. Jalankan ") + cyan("emora") + dim(" untuk start"));
-    console.log(dim("  2. Buat conversation dan cek fitur baru"));
-    console.log();
-  } catch (err) {
-    console.error();
-    console.error(red.bold("  ❌ System check gagal:"));
-    console.error(red(`     ${err.message}`));
-    console.error();
-    console.error(dim("  Troubleshooting:"));
-    console.error(dim("  - Pastikan memory/ folder ada dan writable"));
-    console.error(dim("  - Check permission: ") + cyan("ls -la memory/"));
-    console.error();
-    process.exit(1);
-  }
+  console.log();
+  console.log(green.bold("  ✅ System ready!"));
+  console.log();
+  console.log(dim("  Database type: ") + green("JSON enhanced (core/memory.js)"));
+  console.log(dim("  Memory dir: ") + green(memoryDir));
+  console.log(dim("  Status: ") + green(exists ? "operational" : "empty (will be created on first chat)"));
+  console.log(dim("  Note: ") + dim("memoryDB.js sudah di-deprecate, semua operasi via memory.js + sessionStore.js"));
+  console.log();
 }

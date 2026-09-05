@@ -24,7 +24,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versi: [SemVer
 
 ### Changed
 - `npm start` & `"main"` kini mengarah ke `bin/emora.js` (satu pintu dengan command `emora`)
-- TUI restyle ala Hermes: border input box, status bar model+timer, welcome screen, markdown memoize (~25x render lebih cepat), spinner idle fix
+- TUI restyle ala EMORA: border input box, status bar model+timer, welcome screen, markdown memoize (~25x render lebih cepat), spinner idle fix
 - DeepSeek: dual-path — API resmi (tool calling) + scrape fallback; terdaftar di provider registry
 - Skill registry: cache mtime-keyed (264ms → 2ms), frontmatter `categories`
 - select.js: key tokenizer (fix menu stuck saat input datang tergabung)

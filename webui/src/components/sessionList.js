@@ -5,7 +5,7 @@
 // jadi gak perlu re-attach listener tiap update.
 
 import { escapeHtml } from "../dom.js";
-import { formatRelative, shortId } from "../format.js";
+import { formatRelative, shortId } from "../utils/helpers.js";
 import { icons } from "../utils/icons.js";
 
 export function createSessionList(container, handlers) {

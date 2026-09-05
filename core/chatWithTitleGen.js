@@ -6,11 +6,11 @@
  */
 
 import { generateTitle } from "../tools/title_generator.js";
-import { touchSession } from "./memoryDB.js";
+import { touchSession } from "./sessionStore.js";
 
 export async function askWithTitleGen(llm, tools, sessionId, userPrompt, options = {}) {
   const { ask } = await import("./chat.js");
-  const { loadSession } = await import("./memoryDB.js");
+  const { loadSession } = await import("./memory.js");
   
   // Check if this is first message in session
   const messages = await loadSession(sessionId);
