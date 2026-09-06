@@ -468,7 +468,7 @@ async function handleArtifactsKeys({ state, dispatch, key, input }) {
   if (input === "p" || key.return) {
     const { getArtifact } = await import("../core/artifactManager.js");
     try {
-      const art = getArtifact(sel.id);
+      const art = getArtifact(state.sessionId, sel.id);
       const lines = art.content.split("\n");
       dispatch({ type: "SET_ARTIFACT_PAGER_VIEW", artifact: art, lines });
     } catch (err) {
@@ -485,7 +485,7 @@ async function handleArtifactsKeys({ state, dispatch, key, input }) {
     const cp = await import("child_process");
     
     try {
-      const art = getArtifact(sel.id);
+      const art = getArtifact(state.sessionId, sel.id);
       const tmpPath = resolveWorkspacePath(`.emora_tmp_art_${sel.id}.${art.type === 'markdown' ? 'md' : 'txt'}`);
       fs.writeFileSync(tmpPath, art.content);
       

@@ -53,8 +53,16 @@ export const botMeshTool = tool(
       if (action === "delegate_task") {
         if (!bot_id || !task) return "❌ Parameter bot_id dan task wajib diisi untuk mendelegasikan tugas.";
         
-        const targetBot = await getBot(bot_id);
-        if (!targetBot) return `❌ Bot "${bot_id}" tidak ditemukan. Gunakan action list_bots untuk melihat daftar bot.`;
+        let targetBot = await getBot(bot_id);
+        if (!targetBot) {
+          console.log(chalk.yellow(`\n[🤖 AUTO-CREATE] Bot "${bot_id}" tidak ditemukan. Membuat bot baru secara otomatis...`));
+          targetBot = await registerBot({ 
+            name: bot_id, 
+            role: `Specialist agent for ${bot_id}`, 
+            color: "#58a6ff", 
+            tools: [] 
+          });
+        }
 
         // Simulasi / Eksekusi Delegasi Tugas dengan Persona Bot Target
         const colorFn = chalk.hex(targetBot.color || "#58a6ff").bold;

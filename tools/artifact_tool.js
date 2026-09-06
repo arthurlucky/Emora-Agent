@@ -27,37 +27,38 @@ export const artifactTool = new DynamicStructuredTool({
     content: z.string().optional().describe("Isi konten artifact (wajib untuk create/update)."),
     summary: z.string().optional().describe("Ringkasan perubahan (untuk update, opsional)."),
   }),
-  func: async ({ action, id, name, type, content, summary }) => {
+  func: async ({ action, id, name, type, content, summary }, config) => {
     try {
+      const sessionId = config?.configurable?.sessionId || "global";
       switch (action) {
         case "create": {
           if (!name || content === undefined) return "❌ 'name' dan 'content' wajib diisi untuk membuat artifact.";
-          const artifact = artifactManager.createArtifact({ name, type, content });
+          const artifact = artifactManager.createArtifact(sessionId, { name, type, content });
           return `✅ Artifact dibuat.\nID: ${artifact.id}\nNama: ${artifact.name}\nTipe: ${artifact.type}\nVersi: ${artifact.version}`;
         }
         case "list": {
-          const list = artifactManager.listArtifacts();
+          const list = artifactManager.listArtifacts(sessionId);
           if (list.length === 0) return "📭 Belum ada artifact.";
           return list.map((a) => `• [${a.id}] ${a.name} (${a.type}, v${a.version})`).join("\n");
         }
         case "get": {
           if (!id) return "❌ 'id' wajib diisi.";
-          const artifact = artifactManager.getArtifact(id);
+          const artifact = artifactManager.getArtifact(sessionId, id);
           return `📄 ${artifact.name} (${artifact.type}, v${artifact.version})\n\n${artifact.content}`;
         }
         case "update": {
           if (!id || content === undefined) return "❌ 'id' dan 'content' wajib diisi untuk update.";
-          const artifact = artifactManager.updateArtifact(id, content, summary);
+          const artifact = artifactManager.updateArtifact(sessionId, id, content, summary);
           return `✅ Artifact diperbarui ke v${artifact.version}.`;
         }
         case "delete": {
           if (!id) return "❌ 'id' wajib diisi.";
-          artifactManager.deleteArtifact(id);
+          artifactManager.deleteArtifact(sessionId, id);
           return `✅ Artifact ${id} dihapus.`;
         }
         case "history": {
           if (!id) return "❌ 'id' wajib diisi.";
-          const history = artifactManager.getArtifactHistory(id);
+          const history = artifactManager.getArtifactHistory(sessionId, id);
           return history.map((h) => `v${h.version} — ${h.summary} (${new Date(h.createdAt).toLocaleString()})`).join("\n");
         }
         default:

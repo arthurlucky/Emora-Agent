@@ -267,20 +267,20 @@ case "/sesidel": {
 
       try {
         if (sub === "list") {
-          const list = artifactManager.listArtifacts();
-          if (list.length === 0) return { action: "reply", message: "📭 Belum ada artifact." };
+          const list = artifactManager.listArtifacts(state.currentSession);
+          if (list.length === 0) return { action: "reply", message: "📭 Belum ada artifact di sesi ini." };
           const text = list.map((a) => `• [${a.id}] ${a.name} (${a.type}, v${a.version})`).join("\n");
           return { action: "reply", message: `📦 DAFTAR ARTIFACT\n\n${text}` };
         }
         if (sub === "get") {
           if (!id) return { action: "reply", message: "❌ Gunakan: /artifact get <id>" };
-          const a = artifactManager.getArtifact(id);
+          const a = artifactManager.getArtifact(state.currentSession, id);
           return { action: "reply", message: `📄 ${a.name} (${a.type}, v${a.version})\n\n${a.content}` };
         }
         if (sub === "delete") {
           if (!id) return { action: "reply", message: "❌ Gunakan: /artifact delete <id>" };
-          artifactManager.deleteArtifact(id);
-          return { action: "reply", message: `✅ Artifact ${id} dihapus.` };
+          artifactManager.deleteArtifact(state.currentSession, id);
+          return { action: "reply", message: `✅ Artifact ${id} dihapus dari sesi ini.` };
         }
         return { action: "reply", message: "Sub-command tidak dikenal. Gunakan: /artifact list|get|delete <id>" };
       } catch (err) {
@@ -290,7 +290,7 @@ case "/sesidel": {
 
     // ═══════════════════════════════════════════════════════════
     // /learn <nama_skill> — pelajari riwayat sesi chat SAAT INI dan
-    // susun jadi Skill baru (skill/<nama>/skill.md + meta.json), memakai
+    // susun jadi Skill baru (skills/<nama>/SKILL.md + meta.json), memakai
     // format yang sama persis dengan skill bawaan EMORA lainnya supaya
     // langsung terbaca `emora skills` dan dipakai agent di percakapan lain.
     // ═══════════════════════════════════════════════════════════
@@ -318,7 +318,7 @@ case "/sesidel": {
           .replace(/[^a-z0-9_-]/g, "");
         if (!safeName) return { action: "reply", message: "❌ Nama skill tidak valid setelah dibersihkan (pakai huruf/angka)." };
 
-        const skillDir = path.resolve("./skill", safeName);
+        const skillDir = path.resolve("./skills", safeName);
         if (fs.existsSync(skillDir)) {
           return { action: "reply", message: `❌ Skill "${safeName}" sudah ada. Pilih nama lain atau hapus dulu foldernya.` };
         }
@@ -328,6 +328,7 @@ case "/sesidel": {
           "percakapan yang diberikan, lalu susun ulang menjadi dokumen SKILL dalam format Markdown yang " +
           "mengajarkan agent CARA MENYELESAIKAN masalah serupa di masa depan — bukan sekadar merangkum " +
           "obrolan. Ikuti struktur ini persis:\n\n" +
+          "---\nname: <Judul Skill>\ndescription: <Satu kalimat ringkas tujuan skill ini>\n---\n\n" +
           "# <Judul Skill>\n\n" +
           "<1 paragraf ringkas tujuan skill ini>\n\n" +
           "## Workflow / Cara Kerja\n" +
@@ -353,7 +354,12 @@ case "/sesidel": {
         }
 
         fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(path.join(skillDir, "skill.md"), skillMdContent.trim() + "\n", "utf8");
+        // Buat standar struktur folder (opsional/scaffolding) untuk complex skill
+        ["references", "scripts", "assets", "templates", "evals"].forEach(sub => {
+          fs.mkdirSync(path.join(skillDir, sub), { recursive: true });
+        });
+
+        fs.writeFileSync(path.join(skillDir, "SKILL.md"), skillMdContent.trim() + "\n", "utf8");
         fs.writeFileSync(
           path.join(skillDir, "meta.json"),
           JSON.stringify(
@@ -373,7 +379,7 @@ case "/sesidel": {
 
         return {
           action: "reply",
-          message: `✅ Skill baru *"${safeName}"* berhasil disusun dari riwayat sesi ini!\n📁 skill/${safeName}/skill.md\n\nCek isinya dengan \`emora skills\`, atau langsung dipakai di percakapan berikutnya.`,
+          message: `✅ Skill baru *"${safeName}"* berhasil disusun dari riwayat sesi ini!\n📁 skills/${safeName}/SKILL.md\n\nCek isinya dengan \`emora skills\`, atau langsung dipakai di percakapan berikutnya.`,
         };
       } catch (err) {
         return { action: "reply", message: `❌ Gagal membuat skill: ${err.message}` };

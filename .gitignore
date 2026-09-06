@@ -14,8 +14,19 @@ EMORA.zip
 # Web UI (Vite)
 webui/node_modules/
 webui/dist/
-downloads/memory.backup.*/
+downloads/
 .emora/
 .github/
 gateway/config.yml
 gateway/gateways.config.json
+
+# Cache & Temp Files
+.emora_artifacts/
+backups/
+uploads/
+temp/
+workspaces/
+library/.index/
+skill_factory/patterns.json
+.DS_Store
+skill/

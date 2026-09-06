@@ -8,11 +8,12 @@
 
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs/promises";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createLLM } from "../provider/index.js";
 import { ask, invalidateSystemPromptCache } from "../core/chat.js";
-import { getContainerConfig } from "../swarm/manager.js";
+import { getContainerConfig, createContainer } from "../swarm/manager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,10 +33,11 @@ export const swarmDelegateTool = new DynamicStructuredTool({
   name: "delegate_to_swarm",
   description:
     "Delegasikan tugas ke swarm container (subagent PERSISTEN dengan SOUL/AGENT.md, memory, " +
-    "dan model sendiri — dibuat via `emora swarm create <nama>`). Beda dengan delegate_to_subagent " +
-    "(in-memory sekali pakai): gunakan ini kalau butuh kepribadian/konteks yang konsisten antar panggilan.",
+    "dan model sendiri). Beda dengan delegate_to_subagent " +
+    "(in-memory sekali pakai): gunakan ini kalau butuh kepribadian/konteks yang konsisten antar panggilan. " +
+    "Jika container belum ada, sistem akan OTOMATIS membuatnya saat dipanggil.",
   schema: z.object({
-    subagentId: z.string().describe("Nama/ID container (mis. agent-sales, bot-riset). Lihat `emora swarm list`."),
+    subagentId: z.string().describe("Nama/ID container (mis. agent-sales, code-reviewer). Jika belum ada, otomatis dibuat."),
     task: z.string().describe("Instruksi/tugas spesifik untuk container."),
   }),
   func: async ({ subagentId, task }) => {
@@ -47,6 +49,17 @@ export const swarmDelegateTool = new DynamicStructuredTool({
 async function runDelegate(subagentId, task) {
     try {
       const dir = path.join(CONTAINERS_DIR, subagentId);
+      
+      // Auto-create container if it doesn't exist
+      try {
+        await fs.stat(dir);
+      } catch {
+        await createContainer(subagentId);
+        // Set up a default role so the bot knows what to do based on its ID
+        const agentFile = path.join(dir, "AGENT.md");
+        await fs.writeFile(agentFile, `Kamu adalah ${subagentId}. Fokus pada penyelesaian tugas secara akurat dan profesional.`);
+      }
+
       const config = await getContainerConfig(subagentId);
 
       const envOverride = {

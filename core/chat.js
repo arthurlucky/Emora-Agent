@@ -131,6 +131,7 @@ async function getSystemPrompt(envOverride = {}) {
     const Context = `
  user identity
  name: ${name}
+ current date: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' })}
 
  ${soul}
 
@@ -167,6 +168,7 @@ Selain riwayat chat mentah (yang cuma menyimpan ${MAX_CONTEXT_MESSAGES} pesan te
     const fallback = `
  user identity
  name: ${name}
+ current date: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' })}
 
  You are ${name}, an AI assistant.
  `;
@@ -250,7 +252,7 @@ function abortError() {
   return err;
 }
 
-async function executeTool(toolCall, tools, { signal } = {}) {
+async function executeTool(toolCall, tools, { signal, sessionId } = {}) {
   const tool = tools.find((t) => t.name === toolCall.name);
 
   if (!tool) {
@@ -264,7 +266,9 @@ async function executeTool(toolCall, tools, { signal } = {}) {
   }
 
   try {
-    const result = await tool.invoke(toolCall.args, signal ? { signal } : undefined);
+    const config = { configurable: { sessionId: sessionId || "global" } };
+    if (signal) config.signal = signal;
+    const result = await tool.invoke(toolCall.args, config);
     return new ToolMessage({
       tool_call_id: toolCall.id,
       content: typeof result === "string" ? result : JSON.stringify(result, null, 2),
@@ -697,7 +701,7 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
           }
 
           const tTool = Date.now();
-          let result = await executeTool(toolCall, tools, { signal });
+          let result = await executeTool(toolCall, tools, { signal, sessionId });
           if (onEvent && !isInternalRouter) onEvent({ type: "tool_result", name: toolCall.name, durationMs: Date.now() - tTool });
 
           // FEATURE #4: Smart Output Truncation (Pelindung Context Overflow)

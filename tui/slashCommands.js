@@ -844,25 +844,25 @@ export async function runSlashCommand(raw, { state, dispatch }) {
       const id = rest[1];
 
       try {
-        if (sub === "list" || sub === "ui") {
-          const list = artifactManager.listArtifacts();
-          dispatch({ type: "SET_ARTIFACTS_VIEW", list });
-          return { type: "handled" };
+        if (sub === "list") {
+          const list = artifactManager.listArtifacts(state.sessionId);
+          if (list.length === 0) return { type: "notice", message: "📭 Belum ada artifact di sesi ini." };
+          const text = list.map((a) => `• [${a.id}] ${a.name} (${a.type}, v${a.version})`).join("\n");
+          return { type: "notice", message: `📦 DAFTAR ARTIFACT\n\n${text}` };
         }
         if (sub === "get" || sub === "view") {
-          if (!id) return { type: "error", message: "Pakai: /artifact get <id>" };
-          const a = artifactManager.getArtifact(id);
+          const a = artifactManager.getArtifact(state.sessionId, id);
           return { type: "notice", message: `${C.bold(a.name)} (${a.type}, v${a.version})\n${"─".repeat(40)}\n${a.content}`, big: true };
         }
         if (sub === "history") {
           if (!id) return { type: "error", message: "Pakai: /artifact history <id>" };
-          const hist = artifactManager.getArtifactHistory(id);
+          const hist = artifactManager.getArtifactHistory(state.sessionId, id);
           const lines = hist.map(h => `[v${h.version}] ${h.summary} (${new Date(h.createdAt).toLocaleString()})`);
           return { type: "notice", message: `HISTORY ARTIFACT ${id}\n\n${lines.join("\n")}` };
         }
         if (sub === "export") {
           if (!id || !rest[2]) return { type: "error", message: "Pakai: /artifact export <id> <nama_file.ext>" };
-          const a = artifactManager.getArtifact(id);
+          const a = artifactManager.getArtifact(state.sessionId, id);
           const { resolveWorkspacePath } = await import("../utils/workspace.js");
           const fsSync = await import("fs");
           const targetPath = resolveWorkspacePath(rest.slice(2).join(" "));
@@ -871,8 +871,8 @@ export async function runSlashCommand(raw, { state, dispatch }) {
         }
         if (sub === "delete") {
           if (!id) return { type: "error", message: "Pakai: /artifact delete <id>" };
-          artifactManager.deleteArtifact(id);
-          return { type: "notice", message: `Artifact ${id} dihapus.` };
+          artifactManager.deleteArtifact(state.sessionId, id);
+          return { type: "notice", message: `Artifact ${id} dihapus dari sesi ini.` };
         }
         return { type: "error", message: "Sub-command: /artifact list|get|history|export|delete" };
       } catch (err) {
@@ -923,16 +923,21 @@ export async function runSlashCommand(raw, { state, dispatch }) {
         const safeName = skillNameRaw.toLowerCase().trim().replace(/\s+/g, "_").replace(/[^a-z0-9_-]/g, "");
         if (!safeName) return { type: "error", message: "Nama skill tidak valid (pakai huruf/angka)." };
 
-        const skillDir = path.resolve("./skill", safeName);
+        const skillDir = path.resolve("./skills", safeName);
         if (fs.existsSync(skillDir)) return { type: "error", message: `Skill "${safeName}" sudah ada.` };
 
         const systemPrompt =
           "Kamu adalah penyusun dokumentasi Skill untuk agent AI bernama EMORA. Tugasmu: baca transkrip " +
           "percakapan yang diberikan, lalu susun ulang menjadi dokumen SKILL dalam format Markdown yang " +
           "mengajarkan agent CARA MENYELESAIKAN masalah serupa di masa depan — bukan sekadar merangkum " +
-          "obrolan. Ikuti struktur: # <Judul>, ## Workflow / Cara Kerja (langkah bernomor, sebutkan nama " +
-          "tool spesifik kalau ada), ## Aturan Penting (batasan yang relevan). Balas HANYA markdown-nya, " +
+          "obrolan. Ikuti struktur ini persis:\n\n" +
+          "---\nname: <Judul Skill>\ndescription: <Satu kalimat tujuan skill>\n---\n\n" +
+          "# <Judul Skill>\n\n<1 paragraf tujuan>\n\n## Workflow / Cara Kerja\n(langkah bernomor, sebutkan nama " +
+          "tool spesifik kalau ada)\n\n## Aturan Penting\n(batasan yang relevan). Balas HANYA markdown-nya, " +
           "tanpa pembuka/penutup, tanpa code fence.";
+
+        dispatch({ type: "SET_INPUT", value: "" });
+        dispatch({ type: "SET_NOTICE", message: `🧠 Sedang mempelajari sesi ini dan menyusun skill "${safeName}"... mohon tunggu.` });
 
         const llm = await createLLM([]);
         const response = await llm.invoke([
@@ -944,7 +949,12 @@ export async function runSlashCommand(raw, { state, dispatch }) {
         if (!content || !content.trim()) return { type: "error", message: "Respons AI kosong, coba lagi." };
 
         fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(path.join(skillDir, "skill.md"), content.trim() + "\n", "utf8");
+        // Buat standar struktur folder (opsional/scaffolding) untuk complex skill
+        ["references", "scripts", "assets", "templates", "evals"].forEach(sub => {
+          fs.mkdirSync(path.join(skillDir, sub), { recursive: true });
+        });
+
+        fs.writeFileSync(path.join(skillDir, "SKILL.md"), content.trim() + "\n", "utf8");
         fs.writeFileSync(
           path.join(skillDir, "meta.json"),
           JSON.stringify({
@@ -958,7 +968,7 @@ export async function runSlashCommand(raw, { state, dispatch }) {
           "utf8"
         );
 
-        return { type: "notice", message: `Skill "${safeName}" berhasil disusun dari sesi ini!\nskill/${safeName}/skill.md` };
+        return { type: "notice", message: `Skill "${safeName}" berhasil disusun dari sesi ini!\nskills/${safeName}/SKILL.md` };
       } catch (err) {
         return { type: "error", message: `Gagal membuat skill: ${err.message}` };
       }
