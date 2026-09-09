@@ -21,7 +21,7 @@ const DEFAULT_BOTS = {
     name: "DevBot",
     role: "Senior Software Engineer & Fullstack Developer. Fokus pada penulisan kode bersih, refactoring, dan implementasi fitur.",
     color: "#58a6ff", // Cyan
-    tools: ["read_file", "write_file", "patch", "shell_exec", "verify"],
+    tools: ["read_file", "write_file", "patch", "bash", "verify"],
     skills: ["code-simplification", "test-driven-development"],
     createdAt: new Date().toISOString(),
   },
@@ -30,7 +30,7 @@ const DEFAULT_BOTS = {
     name: "QABot",
     role: "Quality Assurance & Security Auditor. Memeriksa kebenaran kode, menangkap edge-case error, dan melakukan audit keamanan.",
     color: "#3fb950", // Green
-    tools: ["read_file", "verify", "shell_exec"],
+    tools: ["read_file", "verify", "bash"],
     skills: ["code-review-and-quality", "security-and-hardening"],
     createdAt: new Date().toISOString(),
   },

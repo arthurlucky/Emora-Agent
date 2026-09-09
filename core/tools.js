@@ -5,7 +5,7 @@ import { listFilesTool } from "../tools/list_file.js";
 import { readFileTool } from "../tools/read_file.js";
 import { writeFileTool } from "../tools/write_file.js";
 import { datetimeTool } from "../tools/datetime.js";
-import { shellExecTool } from "../tools/shell_exec.js";
+import { bashTool } from "../tools/bash.js";
 import projectManagerTool from "../tools/proj.js";
 import { schedulerTool } from "../tools/scheduler.js";
 import { FetchPageTool }from "../tools/fetch_page.js";
@@ -58,7 +58,7 @@ const tools = [
   zipExtractTool,
   
   datetimeTool,
-  shellExecTool,
+  bashTool,
   projectManagerTool,
   schedulerTool,
 
@@ -242,7 +242,7 @@ export function resolveLazyTools(inputPrompt, allTools) {
   const categories = {
     web: ["search_web", "fetch_page"],
     file: ["read_file", "write_file", "patch", "list_files", "search_text", "find_folder", "create_folder", "delete_folder", "zip_compress", "zip_extract", "undo", "redo"],
-    terminal: ["shell_exec", "verify", "git_manager", "project_manager", "system_monitor"],
+    terminal: ["bash", "verify", "git_manager", "project_manager", "system_monitor"],
     memory: ["session_memory", "knowledge_library", "skill_factory", "artifact_tool"],
     messaging: ["group_manager", "title_generator", "scheduler_tool"],
     subagent: ["invoke_subagent", "send_message", "manage_subagents"],
@@ -251,7 +251,7 @@ export function resolveLazyTools(inputPrompt, allTools) {
 
   const matched = new Set();
 
-  if (/\b(search|cari|google|web|http|url|buka|link|website)\b/i.test(text)) {
+  if (/\b(search|cari|google|web|http|url|buka|link|website|berita|news|harga|price|terbaru|terkini|crypto|btc|saham|cuaca)\b/i.test(text)) {
     categories.web.forEach((t) => matched.add(t));
   }
   if (/\b(file|baca|tulis|edit|patch|folder|direktori|zip|kompres|buat|hapus|undo|redo|download|unduh|upload|unggah)\b/i.test(text)) {
@@ -276,7 +276,7 @@ export function resolveLazyTools(inputPrompt, allTools) {
   if (matched.size === 0) return allTools;
 
   // Essential tools always included when any category matches
-  const ESSENTIAL = ["datetime", "shell_exec", "read_file", "write_file", "session_memory"];
+  const ESSENTIAL = ["datetime", "bash", "read_file", "write_file", "session_memory"];
   ESSENTIAL.forEach((t) => matched.add(t));
   return allTools.filter((t) => matched.has(t.name));
 }

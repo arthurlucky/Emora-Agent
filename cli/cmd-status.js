@@ -237,5 +237,25 @@ export async function cmdStatus() {
     }
   } catch { row("Backups", "Gagal membaca", "error"); }
 
+  // ── Scheduler / Background Jobs ───────────────────────────────────────────
+  divider("SCHEDULER & BACKGROUND JOBS");
+  try {
+    const memDir = process.env.EMORA_MEMORY_DIR || "./memory";
+    const jobsFile = process.env.EMORA_CRON_FILE || path.join(memDir, "scheduler_jobs.json");
+    if (fs.existsSync(jobsFile)) {
+      const jobs = JSON.parse(fs.readFileSync(jobsFile, "utf8"));
+      const jobKeys = Object.keys(jobs);
+      row("Active Jobs", String(jobKeys.length), jobKeys.length > 0 ? "ok" : "off");
+      
+      jobKeys.forEach(id => {
+        const j = jobs[id];
+        const promptPreview = (j.prompt || "").substring(0, 40).replace(/\n/g, " ");
+        row(`[${id.substring(0, 8)}]`, `${C.yellow(j.remainingCount + "x")} left | ${C.green(j.interval_seconds + "s")} | ${promptPreview}…`, "ok");
+      });
+    } else {
+      row("Active Jobs", "0", "off");
+    }
+  } catch (err) { row("Scheduler", "Gagal membaca file json", "error"); }
+
   footer();
 }

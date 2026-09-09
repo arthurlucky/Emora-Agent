@@ -13,6 +13,8 @@ import { C, ICONS, hr, truncate, padVisible, stripAnsi, spinnerFrame, wrapPlain 
 import { renderMarkdown } from "./markdown.js";
 import { getSkin, rpgHeader, rpgWelcome } from "./theme-rpg.js";
 import { getActiveSubagents } from "../core/ag_subagent_engine.js";
+import { activeBashJobs } from "../tools/bash.js";
+import { activeClients } from "../tools/mcp_bridge.js";
 
 const MIN_WIDTH = 40;
 const MIN_HEIGHT = 12;
@@ -832,10 +834,9 @@ export function computeScreen(state) {
   let subagentsLines = [];
   try {
       const active = getActiveSubagents();
-      // Hanya tampilkan yang masih relevan (running atau punya inbox unread)
       const visible = active.filter(a => a.status === 'running' || a.unread > 0);
+      
       if (visible.length > 0) {
-          // Cap di 3 baris agar tidak mendorong body content
           const shown = visible.slice(0, 3);
           for (const a of shown) {
               let statusIcon, statusText;
@@ -859,6 +860,68 @@ export function computeScreen(state) {
           if (visible.length > 3) {
               subagentsLines.push(C.faint(`  … +${visible.length - 3} subagent lainnya`));
           }
+      }
+
+      // -- SCHEDULER JOBS --
+      let hasJobs = false;
+      try {
+        const jobsFile = process.env.EMORA_CRON_FILE || path.join(process.env.EMORA_MEMORY_DIR || "./memory", "scheduler_jobs.json");
+        if (fs.existsSync(jobsFile)) {
+          const jobs = JSON.parse(fs.readFileSync(jobsFile, "utf8"));
+          const jobKeys = Object.keys(jobs);
+          if (jobKeys.length > 0) {
+            hasJobs = true;
+            const shownJobs = jobKeys.slice(0, 2);
+            for (const id of shownJobs) {
+              const j = jobs[id];
+              const promptPreview = (j.prompt || "").substring(0, 25).replace(/\n/g, " ");
+              subagentsLines.push(`  ${C.yellow("⏱")} Job(${C.primaryBold(id.substring(0,4))})  ${C.yellow("Active")} · ${j.remainingCount}x left · ${promptPreview}…`);
+            }
+            if (jobKeys.length > 2) {
+              subagentsLines.push(C.faint(`  … +${jobKeys.length - 2} job lainnya`));
+            }
+          }
+        }
+      } catch (e) {}
+
+      // -- MCP SERVERS --
+      let hasMcp = false;
+      try {
+        if (activeClients && activeClients.length > 0) {
+          hasMcp = true;
+          const shownMcp = activeClients.slice(0, 2);
+          for (const c of shownMcp) {
+             const mcpName = (c.name || "mcp").substring(0,8);
+             subagentsLines.push(`  ${C.purple("🔌")} MCP(${C.primaryBold(mcpName)})    ${C.purple("Connected")} · ${c.type || "stdio"}`);
+          }
+          if (activeClients.length > 2) {
+             subagentsLines.push(C.faint(`  … +${activeClients.length - 2} MCP lainnya`));
+          }
+        }
+      } catch(e) {}
+
+      // -- BASH JOBS (shell_exec) --
+      let hasBash = false;
+      try {
+        if (activeBashJobs) {
+          const bashKeys = Object.keys(activeBashJobs);
+          if (bashKeys.length > 0) {
+            hasBash = true;
+            const shownBash = bashKeys.slice(0, 2);
+            for (const id of shownBash) {
+              const b = activeBashJobs[id];
+              const cmdPreview = (b.command || "").substring(0, 25).replace(/\n/g, " ");
+              const elapsed = Math.floor((Date.now() - b.startTime) / 1000);
+              subagentsLines.push(`  ${C.primary("⚙")} Bash(${C.primaryBold(id.substring(0,4))})   ${C.primary("Running")} · ${elapsed}s · ${cmdPreview}…`);
+            }
+            if (bashKeys.length > 2) {
+              subagentsLines.push(C.faint(`  … +${bashKeys.length - 2} bash lainnya`));
+            }
+          }
+        }
+      } catch(e) {}
+
+      if (visible.length > 0 || hasJobs || hasMcp || hasBash) {
           subagentsLines.push(hr(columns));
       }
   } catch (e) { /* engine belum ready */ }

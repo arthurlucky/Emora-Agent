@@ -306,17 +306,18 @@ async function setupSecurity() {
 async function setupToolset() {
   const ts = await import("./utils/toolsets.js");
   const presets = Object.keys(ts.PRESETS);
+  const { multiSelect } = await import("./cli/select.js");
 
   let running = true;
   while (running) {
     const activeGroups = await ts.getActiveGroups();
-    sectionHeader("TOOLSET MANAGER", `Grup Aktif: ${activeGroups.join(", ")}`);
-    infoLine("Fungsi Toolset", "membatasi / memilih daftar tool yang dapat dipanggil agen untuk menghemat token", "cyan");
+    sectionHeader("TOOLSET MANAGER", `Grup Aktif: ${activeGroups.length}`);
+    infoLine("Fungsi Toolset", "membatasi / memilih daftar tool yang dapat dipanggil agen", "cyan");
     console.log(C.line);
 
     const action = await select("Pilih opsi pengaturan toolset:", [
       { label: "📦  Pilih Preset Toolset (coding, chat, full, minimal)", value: "preset" },
-      { label: "⚙️   Aktifkan / Nonaktifkan Grup Tool Spesifik",         value: "toggle_group" },
+      { label: "⚙️   Konfigurasi Checklist Manual (Multi-Select)",         value: "multi" },
       { label: "←   Kembali ke Menu utama",                           value: "back" },
     ]);
 
@@ -335,26 +336,30 @@ async function setupToolset() {
       const { reloadToolset } = await import("./core/tools.js");
       const n = await reloadToolset();
       successLine(`Preset "${chosen}" berhasil diterapkan (${n} tools live).`);
-    } else if (action === "toggle_group") {
+    } else if (action === "multi") {
       const ALL_GROUPS = Object.keys(ts.TOOL_GROUPS);
-      const choices = ALL_GROUPS.map((g) => {
-        const active = activeGroups.includes(g);
-        const count = (ts.TOOL_GROUPS[g] || []).length;
-        return {
-          label: `${active ? "🟢 [AKTIF]   " : "🔴 [NONAKTIF]"} ${g.padEnd(12)} (${count} tools)`,
-          value: g,
-        };
-      });
-      const groupToToggle = await select("Pilih grup tool untuk di-toggle:", choices);
-      const isCurrentlyActive = activeGroups.includes(groupToToggle);
-      const nextGroups = isCurrentlyActive
-        ? activeGroups.filter((g) => g !== groupToToggle)
-        : [...new Set([...activeGroups, groupToToggle])];
+      const EMOJIS = {
+        files: "📁 File Operations",
+        terminal: "💻 Terminal & Processes",
+        web: "🔍 Web Search & Scraping",
+        dev: "⚙️  Dev & Utilities",
+        social: "💬 Social & Messaging",
+        agents: "🤖 Agents & Delegation"
+      };
 
-      await ts.setGroups(nextGroups);
-      const { reloadToolset } = await import("./core/tools.js");
-      const n = await reloadToolset();
-      successLine(`Grup "${groupToToggle}" sekarang ${isCurrentlyActive ? "NONAKTIF" : "AKTIF"} (${n} tools live).`);
+      const choices = ALL_GROUPS.map((g) => ({
+        label: `${EMOJIS[g] || g}`,
+        value: g,
+        hint: ts.TOOL_GROUPS[g].join(", ")
+      }));
+
+      const newSelection = await multiSelect("Tools for 🖥️  CLI", choices, activeGroups);
+      if (newSelection) {
+        await ts.setGroups(newSelection);
+        const { reloadToolset } = await import("./core/tools.js");
+        const n = await reloadToolset();
+        successLine(`Toolset diperbarui. (${newSelection.length} grup aktif, ${n} tools live).`);
+      }
     }
     console.log(C.line);
   }
@@ -382,6 +387,29 @@ async function setupWebUI() {
 }
 
 // ─────────────────────────────────────────────
+// SECTION: TAVILY WEB SEARCH
+// ─────────────────────────────────────────────
+async function setupTavilyWebSearch() {
+  sectionHeader("TAVILY WEB SEARCH", "Aktifkan kemampuan EMORA mencari berita/info di internet");
+  const currentKey = getEnv("TAVILY_API_KEY");
+  if (currentKey) {
+    infoLine("Status", "Tavily sudah aktif", "green");
+    const change = await confirm("Ingin mengubah API Key Tavily?", { default: false });
+    if (!change) return sectionFooter();
+  } else {
+    infoLine("Status", "Tavily belum dikonfigurasi", "yellow");
+    infoLine("Info", "Dapatkan API Key gratis di https://app.tavily.com", "cyan");
+    console.log(C.line);
+  }
+  const key = await input("TAVILY_API_KEY (kosongkan untuk nonaktif): ");
+  if (key !== undefined) {
+    setEnv("TAVILY_API_KEY", key.trim());
+    if (key.trim()) successLine("Tavily Web Search berhasil diaktifkan.");
+    else successLine("Tavily Web Search dinonaktifkan.");
+  }
+  sectionFooter();
+}
+
 // SECTION: NAMA & IDENTITAS
 // ─────────────────────────────────────────────
 async function setupName() {
@@ -475,14 +503,16 @@ async function reviewConfig() {
 // QUICK SETUP (first-run) vs MENU LENGKAP
 // ─────────────────────────────────────────────
 async function runQuickSetup() {
-  sectionHeader("PANDUAN CEPAT", "3 langkah minimal buat mulai pakai EMORA — sisanya bisa diatur belakangan lewat Menu Lengkap");
-  infoLine("Langkah 1/3", "Pilih provider AI & model", "cyan");
-  infoLine("Langkah 2/3", "Nama agent",                  "cyan");
-  infoLine("Langkah 3/3", "(Opsional) hubungkan ke Telegram/WhatsApp/dst",  "cyan");
+  sectionHeader("PANDUAN CEPAT", "4 langkah minimal buat mulai pakai EMORA — sisanya bisa diatur belakangan lewat Menu Lengkap");
+  infoLine("Langkah 1/4", "Pilih provider AI & model", "cyan");
+  infoLine("Langkah 2/4", "Nama agent",                  "cyan");
+  infoLine("Langkah 3/4", "(Opsional) Web Search (Tavily API)", "cyan");
+  infoLine("Langkah 4/4", "(Opsional) hubungkan ke Telegram/WhatsApp/dst",  "cyan");
   sectionFooter();
 
   await setupModel();
   await setupName();
+  await setupTavilyWebSearch();
 
   const wantGateway = await confirm("Mau langsung hubungkan ke Telegram/WhatsApp/Discord/Slack/Matrix sekarang?", { default: false });
   if (wantGateway) await setupGateway();
@@ -765,24 +795,27 @@ export async function runSetup() {
 
   // Langkah 0: User milih alur setup (Step-by-Step Berurutan vs Menu Manual)
   const setupMode = await select("Pilih metode setup EMORA:", [
-    { label: "🚀  Step-by-Step (Panduan 5 Langkah Berurutan)", value: "stepByStep" },
+    { label: "🚀  Step-by-Step (Panduan 6 Langkah Berurutan)", value: "stepByStep" },
     { label: "📋  Menu Manual (Akses semua opsi dari menu)",     value: "manual" },
   ]);
 
   if (setupMode === "stepByStep") {
-    sectionHeader("LANGKAH 1/5", "Setup AI Provider & Model Utama");
+    sectionHeader("LANGKAH 1/6", "Setup AI Provider & Model Utama");
     await setupModel();
 
-    sectionHeader("LANGKAH 2/5", "Mode Keamanan & Approval Agent");
+    sectionHeader("LANGKAH 2/6", "Mode Keamanan & Approval Agent");
     await setupAdvancedBehavior();
 
-    sectionHeader("LANGKAH 3/5", "Preset Toolset Manager");
+    sectionHeader("LANGKAH 3/6", "Preset Toolset Manager");
     await setupToolset();
 
-    sectionHeader("LANGKAH 4/5", "Identitas & Nama Agent");
+    sectionHeader("LANGKAH 4/6", "Identitas & Nama Agent");
     await setupName();
 
-    sectionHeader("LANGKAH 5/5", "Messaging Gateway / Integrasi");
+    sectionHeader("LANGKAH 5/6", "Web Search (Tavily)");
+    await setupTavilyWebSearch();
+
+    sectionHeader("LANGKAH 6/6", "Messaging Gateway / Integrasi");
     await setupGateway();
 
     printFinalSummary();
@@ -822,6 +855,7 @@ export async function runSetup() {
       { label: "🧰  Toolset Manager (Aktifkan/Nonaktifkan Tool)", value: "toolset", hint: "kelola grup tool" },
       { label: "⚙️   Advanced Behavior",          value: "advanced", hint: getEnv("DEFAULT_MODE") || "autonomous" },
       { label: "🌐  Web UI",                     value: "webui",    hint: getEnv("WEBUI") === "true" ? "aktif" : "nonaktif" },
+      { label: "🔍  Tavily Web Search",          value: "tavily",   hint: getEnv("TAVILY_API_KEY") ? "aktif" : "nonaktif" },
       { label: "✏️   Nama & Identitas Agent",     value: "name",     hint: getEnv("NAME") || "Emora" },
       { label: "🔒  Security & Privacy (App Lock)",value: "security", hint: getEnv("SEED_HASH") ? "locked" : "unlocked" },
       { label: "🔐  EMORA RECORDS Vault",        value: "records",  hint: "kepribadian terenkripsi" },
@@ -841,6 +875,7 @@ export async function runSetup() {
       case "toolset":  await setupToolset();            break;
       case "advanced": await setupAdvancedBehavior();  break;
       case "webui":    await setupWebUI();              break;
+      case "tavily":   await setupTavilyWebSearch();    break;
       case "name":     await setupName();               break;
       case "records":  await setupRecordsVault();        break;
       case "security": await setupSecurity();            break;

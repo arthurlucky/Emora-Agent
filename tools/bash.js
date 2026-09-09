@@ -35,6 +35,8 @@ const BLACKLIST = [
   /\bruby\s+-e\b/
 ];
 
+export const activeBashJobs = {};
+
 function isSafe(cmd) {
   return !BLACKLIST.some(pattern => pattern.test(cmd));
 }
@@ -44,10 +46,10 @@ function resolveCwd(cwd) {
   return path.isAbsolute(cwd) ? cwd : path.resolve(BASE_DIR, cwd);
 }
 
-export const shellExecTool = new DynamicStructuredTool({
-  name: "shell_exec",
+export const bashTool = new DynamicStructuredTool({
+  name: "bash",
   description:
-    "Jalankan perintah terminal/shell nyata. BISA JUGA untuk kirim file ke user via Telegram ATAU WhatsApp (otomatis sesuai gateway aktif) menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
+    "Jalankan perintah terminal/bash/shell nyata. BISA JUGA untuk kirim file ke user via Telegram ATAU WhatsApp (otomatis sesuai gateway aktif) menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
   schema: z.object({
     command: z.string(),
     session_id: z.string().describe("WAJIB DIISI dengan Session ID (dari [INFO SYSTEM]) HANYA JIKA menggunakan perintah sendFile!").optional(),
@@ -84,9 +86,6 @@ export const shellExecTool = new DynamicStructuredTool({
     if (!isSafe(command)) return `🚫 Perintah diblokir: "${command}"`;
 
     // ── TERMINAL BACKENDS ────────────────────────────────────────────
-    // backend "local" = spawn langsung (default).
-    // backend lain = SSH ke host yang terdaftar di .emora/backends.json:
-    //   { "myvps": { "host": "1.2.3.4", "user": "root", "port": 22 } }
     let prefixCmd = command;
     let workDir = resolveCwd(cwd);
     if (backend !== "local") {
@@ -100,10 +99,9 @@ export const shellExecTool = new DynamicStructuredTool({
       }
       const port = be.port || 22;
       const target = `${be.user}@${be.host}`;
-      // Bungkus command dengan ssh; cd dulu kalau cwd dispesifikkan.
       const remoteCmd = cwd ? `cd '${cwd}' && ${command}` : command;
       prefixCmd = `ssh -o StrictHostKeyChecking=accept-new -p ${port} ${target} ${JSON.stringify(remoteCmd)}`;
-      workDir = BASE_DIR; // ssh jalan dari lokal
+      workDir = BASE_DIR;
     }
 
     const lines = [
@@ -114,7 +112,6 @@ export const shellExecTool = new DynamicStructuredTool({
     ];
 
     try {
-      // 🟢 DETEKSI OS OTOMATIS & ASYNCHRONOUS EXECUTOR
       const isWin = os.platform() === "win32";
       const shellCmd = isWin ? "cmd.exe" : "bash";
       const shellArgs = isWin ? ["/c", prefixCmd] : ["-c", prefixCmd];
@@ -124,6 +121,9 @@ export const shellExecTool = new DynamicStructuredTool({
           cwd: workDir,
           env: { ...process.env, FORCE_COLOR: "0" },
         });
+
+        const jobId = Math.random().toString(36).substring(2, 10);
+        activeBashJobs[jobId] = { command: prefixCmd, pid: child.pid, startTime: Date.now() };
 
         let stdout = "";
         let stderr = "";
@@ -147,11 +147,13 @@ export const shellExecTool = new DynamicStructuredTool({
         });
 
         child.on("error", (err) => {
+          delete activeBashJobs[jobId];
           clearTimeout(timer);
           resolve({ stdout, stderr, code: -1, error: err });
         });
 
         child.on("close", (code) => {
+          delete activeBashJobs[jobId];
           clearTimeout(timer);
           if (isTimedOut) {
             resolve({ stdout, stderr, code: -1, error: { code: "ETIMEDOUT", message: "Timeout" } });
@@ -185,7 +187,7 @@ export const shellExecTool = new DynamicStructuredTool({
       return lines.join("\n");
 
     } catch (err) {
-      return `❌ shell_exec gagal: ${err.message}`;
+      return `❌ bash gagal: ${err.message}`;
     }
   },
 });

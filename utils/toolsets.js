@@ -20,7 +20,7 @@ const TOOLSET_FILE = ".emora/toolset.json";
 export const TOOL_GROUPS = {
   files:    ["read_file", "write_file", "list_files", "search_text", "find_folder",
              "create_folder", "delete_folder", "patch", "undo", "redo", "zip_compress", "zip_extract"],
-  terminal: ["shell_exec"],
+  terminal: ["bash"],
   web:      ["search_web", "fetch_page", "web_research"],
   dev:      ["git_manager", "verify", "project_manager", "backup_manager", "skill_factory",
              "knowledge_library", "session_memory", "artifact_tool", "datetime", "system_monitor"],

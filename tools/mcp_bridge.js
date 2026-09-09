@@ -32,7 +32,7 @@ import { createMCPClient, createMCPHttpClient } from "../mcp/mcp_client.js";
 const CONFIG_PATH = "./mcp/mcp.config.json";
 
 // Klien aktif disimpan supaya bisa di-close saat EMORA exit.
-const activeClients = [];
+export const activeClients = [];
 
 // Server yang "dititipkan" oleh plugin lewat .mcp.json — diisi
 // core/pluginManager.js SEBELUM loadMCPTools() dipanggil (lihat urutan di

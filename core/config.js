@@ -2,14 +2,12 @@
  * core/config.js
  *
  * Pengelola Konfigurasi Utama EMORA berbasis YAML (`config.yml`).
- * Menggantikan .env dengan format YAML yang terstruktur, bersih, dan mendukung
- * migrasi otomatis dari file .env lama jika ada.
+ * Menggantikan .env dengan format YAML yang terstruktur dan terpusat.
  */
 
 import fs from "fs";
 import path from "path";
 import { load, dump } from "js-yaml";
-import dotenv from "dotenv";
 
 const CONFIG_YML = "config.yml";
 const OLD_ENV = ".env";
@@ -23,8 +21,24 @@ function autoMigrateFromEnv() {
   if (fs.existsSync(OLD_ENV)) {
     try {
       const rawEnv = fs.readFileSync(OLD_ENV, "utf8");
-      const parsed = dotenv.parse(rawEnv);
-      Object.assign(config, parsed);
+      // Basic dotenv parser manual (karena kita hapus dependensi dotenv)
+      rawEnv.split('\n').forEach(line => {
+        const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+        if (match) {
+          let key = match[1];
+          let value = match[2] || '';
+          value = value.replace(/^(['"])(.*)\1$/, '$2').trim();
+          config[key] = value;
+        }
+      });
+      // Pindahkan konfigurasi dari gateway/config.yml jika ada
+      const GATEWAY_YML = "gateway/config.yml";
+      if (fs.existsSync(GATEWAY_YML)) {
+         try {
+            const gwDoc = load(fs.readFileSync(GATEWAY_YML, "utf8"));
+            if (gwDoc) config["GATEWAY_CONFIG"] = gwDoc;
+         } catch {}
+      }
     } catch { /* abaikan error parse */ }
   }
 
@@ -44,6 +58,12 @@ function autoMigrateFromEnv() {
   }
 
   saveConfigToFile(config);
+  
+  // Hapus file .env lama jika berhasil migrasi untuk menghindari kebingungan
+  if (fs.existsSync(OLD_ENV)) {
+    try { fs.unlinkSync(OLD_ENV); } catch {}
+  }
+  
   return config;
 }
 
@@ -54,6 +74,10 @@ function loadConfigFromFile() {
   try {
     const raw = fs.readFileSync(CONFIG_YML, "utf8");
     const doc = load(raw) || {};
+    // Fallback: Jika ada file .env tersisa, kita parse juga (jaga-jaga user buat manual)
+    if (fs.existsSync(OLD_ENV)) {
+      autoMigrateFromEnv();
+    }
     return doc;
   } catch {
     return autoMigrateFromEnv();
@@ -62,7 +86,7 @@ function loadConfigFromFile() {
 
 function saveConfigToFile(configObj) {
   try {
-    const header = "# 🌟 EMORA Configuration File (config.yml)\n# Dikelola otomatis oleh EMORA CLI & Setup Wizard\n\n";
+    const header = "# 🌟 EMORA Configuration File (config.yml)\n# Dikelola otomatis oleh EMORA CLI & Setup Wizard\n# PERHATIAN: JANGAN UPLOAD FILE INI KE GITHUB KARENA BERISI API KEYS!\n\n";
     const yamlStr = dump(configObj, { indent: 2, lineWidth: -1 });
     fs.writeFileSync(CONFIG_YML, header + yamlStr, "utf8");
   } catch (e) {
@@ -71,17 +95,10 @@ function saveConfigToFile(configObj) {
 }
 
 export function initConfig() {
-  // Load .env vars into process.env first
-  dotenv.config({ path: OLD_ENV });
-
   inMemoryConfig = loadConfigFromFile();
-  // Sinkronkan ke process.env untuk library/modul pihak ketiga yang bergantung pada process.env
+  // Sinkronkan ke process.env untuk library/modul pihak ketiga yang bergantung pada process.env (misal LangChain)
   for (const [k, v] of Object.entries(inMemoryConfig)) {
-    if (v !== undefined && v !== null) {
-      // Avoid overwriting actual env vars with redacted placeholders
-      if (v === "***REDACTED***" && process.env[k]) {
-        continue;
-      }
+    if (v !== undefined && v !== null && typeof v !== "object") {
       process.env[k] = String(v);
     }
   }
@@ -91,55 +108,24 @@ export function initConfig() {
 export function getConfig(key, defaultValue = "") {
   if (!inMemoryConfig) initConfig();
 
-  // Prioritize process.env if available and not redacted
-  if (process.env[key] && process.env[key] !== "***REDACTED***") {
+  // Prioritize process.env if available (misal diset saat runtime via test)
+  if (process.env[key]) {
     return process.env[key];
   }
 
   const val = inMemoryConfig[key];
-  if (val !== undefined && val !== null && val !== "" && val !== "***REDACTED***") return String(val);
+  if (val !== undefined && val !== null && val !== "") return String(val);
 
   return defaultValue;
-}
-
-function updateDotenv(key, value) {
-  if (!fs.existsSync(OLD_ENV)) return;
-  let raw = fs.readFileSync(OLD_ENV, 'utf8');
-  const regex = new RegExp(`^${key}=.*$`, 'm');
-  const isSecret = key.includes("API") || key.includes("TOKEN") || key.includes("SECRET");
-
-  if (value === undefined) {
-    if (regex.test(raw)) {
-      raw = raw.replace(new RegExp(`^${key}=.*\\n?`, 'm'), '');
-      fs.writeFileSync(OLD_ENV, raw, 'utf8');
-    }
-    return;
-  }
-
-  if (regex.test(raw)) {
-    raw = raw.replace(regex, `${key}=${value}`);
-    fs.writeFileSync(OLD_ENV, raw, 'utf8');
-  } else if (isSecret || regex.test(raw)) { // Append if it's a secret, or keep it synced if we want to
-    raw = raw.trim() + `\n${key}=${value}\n`;
-    fs.writeFileSync(OLD_ENV, raw, 'utf8');
-  }
 }
 
 export function setConfig(key, value) {
   if (!inMemoryConfig) initConfig();
   
   process.env[key] = String(value);
-  
-  const isSecret = key.includes("API") || key.includes("TOKEN") || key.includes("SECRET");
-  
-  if (isSecret) {
-    inMemoryConfig[key] = "***REDACTED***";
-  } else {
-    inMemoryConfig[key] = value;
-  }
+  inMemoryConfig[key] = value; // Simpan as-is, TANPA REDACTED lagi
   
   saveConfigToFile(inMemoryConfig);
-  updateDotenv(key, value);
 }
 
 export function deleteConfig(key) {
@@ -147,7 +133,6 @@ export function deleteConfig(key) {
   delete inMemoryConfig[key];
   delete process.env[key];
   saveConfigToFile(inMemoryConfig);
-  updateDotenv(key, undefined);
 }
 
 export function loadAllConfig() {

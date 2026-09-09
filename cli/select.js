@@ -286,3 +286,141 @@ export function warnLine(msg) {
 export function errorLine(msg) {
   console.log(C.cyan("  │  ") + C.red.bold("✗ ") + C.label(msg));
 }
+
+/**
+ * Arrow-key multi-select menu.
+ * Space toggles, Enter confirms.
+ * 
+ * @param {string} question
+ * @param {Array<{label:string, value:any, hint?:string, disabled?:boolean}>} choices
+ * @param {Array<any>} defaultSelectedValues
+ * @returns {Promise<Array<any>|null>}
+ */
+export function multiSelect(question, choices, defaultSelectedValues = []) {
+  return new Promise((resolve, reject) => {
+    let idx = 0;
+    const total = choices.length;
+    let lastRenderedLines = 0;
+    const selected = new Set(defaultSelectedValues);
+
+    function render(first = false) {
+      if (!first && lastRenderedLines > 0) {
+        clearLines(lastRenderedLines);
+      }
+
+      const cols = process.stdout.columns || 80;
+      let lineCount = 0;
+
+      // Question line
+      const qText = `  ❯ ${question}`;
+      lineCount += Math.max(1, Math.ceil(qText.length / cols));
+      process.stdout.write(C.cyan("  ❯ ") + chalk.bold(question) + "\n");
+
+      // Sub-hint (Tools for CLI format)
+      const subHint = `    ${chalk.dim("↑↓ navigate  SPACE toggle  ENTER confirm  ESC cancel")}\n`;
+      lineCount += Math.max(1, Math.ceil(subHint.length / cols));
+      process.stdout.write(subHint + "\n");
+
+      const maxVisible = 15;
+      let startIdx = Math.max(0, idx - Math.floor(maxVisible / 2));
+      startIdx = Math.min(startIdx, Math.max(0, total - maxVisible));
+      const endIdx = Math.min(total, startIdx + maxVisible);
+
+      for (let i = startIdx; i < endIdx; i++) {
+        const c = choices[i];
+        const isHovered = i === idx;
+        const isChecked = selected.has(c.value);
+        const isDisabled = c.disabled;
+        
+        const cursorStr = isHovered ? " → " : "   ";
+        const checkBoxStr = isChecked ? C.green("[✓] ") : C.dimLabel("[ ] ");
+        const fullText = cursorStr + "[x] " + c.label + (c.hint ? `  (${c.hint})` : "");
+        lineCount += Math.max(1, Math.ceil(fullText.length / cols));
+
+        let labelStr = isDisabled
+          ? C.hint(c.label)
+          : isHovered
+          ? C.selected(c.label)
+          : C.label(c.label);
+        const hintStr = c.hint ? "  " + C.hint(`(${c.hint})`) : "";
+        
+        process.stdout.write((isHovered ? C.cursor(" → ") : "   ") + checkBoxStr + labelStr + hintStr + "\n");
+      }
+
+      if (total > maxVisible) {
+        const scrollInfo = `    … [${idx + 1}/${total}] (gunakan panah ↑↓ untuk scroll)`;
+        lineCount += Math.max(1, Math.ceil(scrollInfo.length / cols));
+        process.stdout.write(C.hint(scrollInfo) + "\n");
+      }
+
+      lastRenderedLines = lineCount;
+    }
+
+    hideCursor();
+    render(true);
+
+    const startTime = Date.now();
+    const stdin = process.stdin;
+    stdin.resume();
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.setEncoding("utf8");
+
+    function cleanup() {
+      if (stdin.isTTY) stdin.setRawMode(false);
+      stdin.removeListener("data", onKey);
+      showCursor();
+    }
+
+    function onKey(key) {
+      const tokens = String(key).match(/\x1b\[[A-D]|\x1b\[|\x1b|\r|\n|\x7F|\x03|[\s\S]/g) || [key];
+
+      for (const k of tokens) {
+        if (k === "\x03") { // Ctrl+C
+          cleanup();
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
+          process.stdout.write(C.red("  ✗ Dibatalkan (CTRL+C)\n\n"));
+          process.exit(0);
+        }
+
+        if (k === "\x1b" || k === "\x1b\x1b") { // ESC key
+          cleanup();
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
+          process.stdout.write(C.hint("  ← Kembali (ESC)\n"));
+          resolve(null);
+          return;
+        }
+
+        if (k === " ") { // Space to toggle
+          const chosen = choices[idx];
+          if (!chosen.disabled) {
+            if (selected.has(chosen.value)) selected.delete(chosen.value);
+            else selected.add(chosen.value);
+          }
+          render();
+        }
+
+        if (k === "\r" || k === "\n") {
+          if (Date.now() - startTime < 150) continue;
+          cleanup();
+          if (lastRenderedLines > 0) clearLines(lastRenderedLines);
+          
+          process.stdout.write(
+            C.cyan("  ❯ ") + chalk.bold(question) + "  " + C.green(`[${selected.size} dipilih]`) + "\n"
+          );
+          resolve(Array.from(selected));
+          return;
+        }
+
+        if (k === "\x1b[A") { // Up
+          do { idx = (idx - 1 + total) % total; } while (choices[idx] && choices[idx].disabled);
+          render();
+        } else if (k === "\x1b[B") { // Down
+          do { idx = (idx + 1) % total; } while (choices[idx] && choices[idx].disabled);
+          render();
+        }
+      }
+    }
+
+    stdin.on("data", onKey);
+  });
+}
