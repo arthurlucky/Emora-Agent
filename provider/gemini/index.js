@@ -12,7 +12,7 @@
  * - maxTokens 8192: sweet spot — Gemini 2.0 Flash support 8192 output.
  */
 
-import { ChatOpenAI } from "@langchain/openai";
+import { buildChatOpenAI } from "../factory.js";
 
 export const PROVIDER_ID    = "gemini";
 export const PROVIDER_LABEL = "Google Gemini";
@@ -71,15 +71,11 @@ export const DEFAULT_MODEL = "gemini-2.0-flash";
  * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts
  */
 export function createLLM({ apiKey, model, tools = [] } = {}) {
-  const llm = new ChatOpenAI({
+  return buildChatOpenAI({
+    provider: "gemini",
     apiKey: apiKey || process.env.MODEL_API || process.env.GEMINI_API_KEY,
-    model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
-    configuration: { baseURL: BASE_URL },
-    temperature:  0.2,
-    maxTokens:    8192,
-    // Gemini kadang error kalau streaming + tool call bersamaan
-    streaming:    false,
+    model: model || process.env.MODEL_NAME || DEFAULT_MODEL,
+    baseURL: BASE_URL,
+    tools,
   });
-
-  return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
 }

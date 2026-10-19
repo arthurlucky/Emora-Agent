@@ -15,7 +15,7 @@ import {
   saveSession,
 } from "./memory.js";
 
-import { recordToolSequence, SKILL_THRESHOLD } from "../utils/patternTracker.js";
+import { recordToolSequence } from "../utils/patternTracker.js";
 import skillRegistry from "./skill.js";
 import pluginHooks from "./hooks.js";
 import { sanitizeOwnContextFile } from "./safety.js";
@@ -265,13 +265,49 @@ async function executeTool(toolCall, tools, { signal, sessionId } = {}) {
     });
   }
 
+  // PreToolUse hook (plugin trusted) — bisa MEMBLOKIR tool sebelum dieksekusi
+  // (lihat core/pluginHooks.js). Fail-open: hook yang error tidak menghentikan tool.
+  try {
+    const preDecision = await pluginHooks.runPreToolUseHooks({
+      sessionId: sessionId || "global",
+      cwd: process.cwd(),
+      toolName: toolCall.name,
+      toolInput: toolCall.args,
+    });
+    if (!preDecision.allowed) {
+      return new ToolMessage({
+        tool_call_id: toolCall.id,
+        content: JSON.stringify({ success: false, error: `[PreToolUse hook] ${preDecision.reason}` }),
+      });
+    }
+  } catch (err) {
+    console.error(`[chat] PreToolUse hook gagal (diabaikan, tool tetap jalan): ${err.message}`);
+  }
+
   try {
     const config = { configurable: { sessionId: sessionId || "global" } };
     if (signal) config.signal = signal;
     const result = await tool.invoke(toolCall.args, config);
+    let content = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+
+    // PostToolUse hook — tool sudah jalan, tidak bisa dibatalkan, tapi hasil
+    // additionalContext-nya ditempel ke content supaya ikut terbaca model.
+    try {
+      const postCtx = await pluginHooks.runPostToolUseHooks({
+        sessionId: sessionId || "global",
+        cwd: process.cwd(),
+        toolName: toolCall.name,
+        toolInput: toolCall.args,
+        toolResponse: content,
+      });
+      if (postCtx) content += `\n\n[PostToolUse hook]\n${postCtx}`;
+    } catch (err) {
+      console.error(`[chat] PostToolUse hook gagal (diabaikan): ${err.message}`);
+    }
+
     return new ToolMessage({
       tool_call_id: toolCall.id,
-      content: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+      content,
     });
   } catch (err) {
     return new ToolMessage({
@@ -651,6 +687,11 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
   // TOOL LOOP — eksekusi tool calls sampai selesai.
   // [RECONSTRUCTED] — pola standar LangChain tool loop + approval gate.
   // ==========================================
+  try {
+    const { recordUsage } = await import("./costTracker.js");
+    recordUsage(sessionId, response, process.env.MODEL_NAME || "").catch(() => {});
+  } catch { /* costTracker opsional, jangan pernah ganggu alur chat utama */ }
+
   const _globalUsedToolsSet = new Set();
   let toolCalls = response.tool_calls || [];
   let finalText = typeof response.content === "string"
@@ -732,6 +773,10 @@ export async function ask(llm, tools, sessionId, input, { onEvent, onApproval, m
       }
 
       aiMsg = await invokeWithFailover(llm, workMessages, tools, { signal });
+      try {
+        const { recordUsage } = await import("./costTracker.js");
+        recordUsage(sessionId, aiMsg, process.env.MODEL_NAME || "").catch(() => {});
+      } catch { /* costTracker opsional, jangan pernah ganggu alur chat utama */ }
       finalText = typeof aiMsg.content === "string"
         ? aiMsg.content
         : (aiMsg.content?.map?.((c) => c.text || "").join("") || String(aiMsg.content ?? ""));

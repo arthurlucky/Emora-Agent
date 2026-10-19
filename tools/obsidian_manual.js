@@ -99,7 +99,7 @@ export const obsidianManualTool = new DynamicStructuredTool({
             if (hits.length >= MAX_RESULTS) return;
             for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
               const full = path.join(dir, e.name);
-              if (e.isDirectory() && !e.name.startsWith(".") && !e.name.startsWith(".")) await walk(full);
+              if (e.isDirectory() && !e.name.startsWith(".")) await walk(full);
               else if (e.name.endsWith(".md")) {
                 try {
                   const text = await fs.readFile(full, "utf8");

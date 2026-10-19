@@ -9,9 +9,11 @@ export async function initLidOwners(sock) {
     .map(v => v.trim())
     .filter(Boolean)
 
+  global.owner = [];
   for (const num of owners) {
     const clean = num.replace(/\D/g, "")
     const jid = clean + "@s.whatsapp.net"
+    global.owner.push(clean)
 
     const lid = await sock.signalRepository.lidMapping
       .getLIDForPN(jid)

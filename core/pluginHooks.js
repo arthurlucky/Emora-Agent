@@ -176,10 +176,56 @@ function runOneHookCommand({ pluginId, pluginDir, hookDef, stdinPayload }) {
       resolve(stdout);
     });
     try {
+      child.stdin?.on("error", () => { /* EPIPE dll — command tidak baca stdin, abaikan */ });
       child.stdin?.write(JSON.stringify(stdinPayload));
       child.stdin?.end();
     } catch { /* command mungkin gak baca stdin sama sekali, gak masalah */ }
   });
+}
+
+/**
+ * Cek field "matcher" tiap entry hooks.json terhadap nama tool — SEBELUMNYA
+ * field ini didokumentasikan di header file (format hooks.json) tapi TIDAK
+ * PERNAH benar-benar dicek di runHooksForEvent, jadi semua hook di suatu
+ * event selalu jalan tanpa peduli matcher-nya. Untuk SessionStart/
+ * UserPromptSubmit itu harmless (tidak ada toolName untuk dicocokkan), tapi
+ * untuk PreToolUse/PostToolUse ini WAJIB — plugin yang cuma mau hook tool
+ * "bash" misalnya, tidak boleh ikut terpanggil untuk semua tool lain.
+ */
+function hookEntryMatches(entry, toolName) {
+  if (!toolName) return true; // event tanpa konsep tool -> selalu match
+  const matcher = entry?.matcher;
+  if (!matcher || matcher === "*") return true;
+  try {
+    return new RegExp(matcher).test(toolName);
+  } catch {
+    return matcher === toolName; // matcher bukan regex valid -> fallback exact match
+  }
+}
+
+/**
+ * Ekstrak keputusan izin (PreToolUse) dari stdout hook. Kontrak sama
+ * dengan Claude Code: JSON `{ hookSpecificOutput: { permissionDecision:
+ * "deny"|"allow", permissionDecisionReason: "..." } }` (atau field itu di
+ * root object). Return null kalau stdout bukan keputusan izin (mis. cuma
+ * additionalContext biasa) — dalam kasus itu tool tetap lanjut normal.
+ */
+function extractPermissionDecision(stdout) {
+  const trimmed = (stdout || "").trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const decision = parsed?.hookSpecificOutput?.permissionDecision || parsed?.permissionDecision;
+    if (decision === "deny" || decision === "allow") {
+      return {
+        decision,
+        reason: parsed?.hookSpecificOutput?.permissionDecisionReason || parsed?.permissionDecisionReason || "",
+      };
+    }
+  } catch {
+    /* bukan JSON -> bukan permission decision, biarkan diperlakukan sbg additionalContext teks biasa */
+  }
+  return null;
 }
 
 /** Ekstrak additionalContext dari stdout hook, terima JSON (2 bentuk) atau teks polos. */
@@ -202,7 +248,7 @@ function extractAdditionalContext(stdout) {
  * hasilnya jadi 1 blok teks siap disisipkan ke system prompt. Dipanggil
  * dari core/chat.js `ask()` di setiap turn.
  */
-async function runHooksForEvent(eventName, { sessionId, prompt, cwd }) {
+async function runHooksForEvent(eventName, { sessionId, prompt, cwd, toolName, toolInput, toolResponse }) {
   const trusted = listTrustedHooks();
   if (!trusted.length) return "";
 
@@ -213,9 +259,106 @@ async function runHooksForEvent(eventName, { sessionId, prompt, cwd }) {
     if (!Array.isArray(eventEntries) || !eventEntries.length) continue;
 
     const pluginDir = path.join(PLUGINS_DIR, pluginId);
-    const stdinPayload = { hook_event_name: eventName, session_id: sessionId, cwd: cwd || pluginDir, prompt: prompt || "" };
+    const stdinPayload = {
+      hook_event_name: eventName,
+      session_id: sessionId,
+      cwd: cwd || pluginDir,
+      prompt: prompt || "",
+      ...(toolName ? { tool_name: toolName } : {}),
+      ...(toolInput !== undefined ? { tool_input: toolInput } : {}),
+      ...(toolResponse !== undefined ? { tool_response: toolResponse } : {}),
+    };
 
     for (const entry of eventEntries) {
+      if (!hookEntryMatches(entry, toolName)) continue; // lihat catatan hookEntryMatches di atas
+      for (const hookDef of entry.hooks || []) {
+        const stdout = await runOneHookCommand({ pluginId, pluginDir, hookDef, stdinPayload });
+        if (stdout == null) continue;
+        const ctx = extractAdditionalContext(stdout);
+        if (ctx) parts.push(`[plugin:${pluginId}] ${ctx}`);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * PreToolUse — dijalankan TEPAT SEBELUM sebuah tool call dieksekusi (lihat
+ * core/chat.js `executeTool()`). Ini yang SEBELUMNYA tidak ada sama sekali
+ * di EMORA (cuma SessionStart + UserPromptSubmit) — plugin belum bisa
+ * intercept/audit/block tool call individual sebelum jalan. Kontrak sama
+ * dengan Claude Code: hook boleh mengembalikan
+ * `{ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "..." } }`
+ * untuk MEMBLOKIR tool call tsb. Fail-open: kalau hook error/timeout, atau
+ * outputnya bukan permission decision, tool TETAP diizinkan jalan (hook
+ * yang buggy tidak boleh mengunci seluruh agent).
+ */
+export async function runPreToolUseHooks({ sessionId, cwd, toolName, toolInput }) {
+  const trusted = listTrustedHooks();
+  if (!trusted.length) return { allowed: true };
+
+  for (const pluginId of trusted) {
+    const hooksConfig = readHooksJson(pluginId);
+    const eventEntries = hooksConfig?.PreToolUse;
+    if (!Array.isArray(eventEntries) || !eventEntries.length) continue;
+
+    const pluginDir = path.join(PLUGINS_DIR, pluginId);
+    const stdinPayload = {
+      hook_event_name: "PreToolUse",
+      session_id: sessionId,
+      cwd: cwd || pluginDir,
+      tool_name: toolName,
+      tool_input: toolInput,
+    };
+
+    for (const entry of eventEntries) {
+      if (!hookEntryMatches(entry, toolName)) continue;
+      for (const hookDef of entry.hooks || []) {
+        const stdout = await runOneHookCommand({ pluginId, pluginDir, hookDef, stdinPayload });
+        if (stdout == null) continue;
+        const perm = extractPermissionDecision(stdout);
+        if (perm?.decision === "deny") {
+          return {
+            allowed: false,
+            reason: perm.reason || `Diblokir oleh hook PreToolUse plugin "${pluginId}" (tanpa alasan spesifik).`,
+            pluginId,
+          };
+        }
+      }
+    }
+  }
+  return { allowed: true };
+}
+
+/**
+ * PostToolUse — dijalankan SETELAH tool call selesai. Tidak bisa membatalkan
+ * apa pun (tool sudah jalan), tapi hasil additionalContext-nya ditambahkan
+ * ke content ToolMessage yang dikirim balik ke model — berguna untuk plugin
+ * semacam linter/formatter otomatis ("file baru saja ditulis, ini hasil
+ * lint-nya") atau audit log.
+ */
+export async function runPostToolUseHooks({ sessionId, cwd, toolName, toolInput, toolResponse }) {
+  const trusted = listTrustedHooks();
+  if (!trusted.length) return "";
+
+  const parts = [];
+  for (const pluginId of trusted) {
+    const hooksConfig = readHooksJson(pluginId);
+    const eventEntries = hooksConfig?.PostToolUse;
+    if (!Array.isArray(eventEntries) || !eventEntries.length) continue;
+
+    const pluginDir = path.join(PLUGINS_DIR, pluginId);
+    const stdinPayload = {
+      hook_event_name: "PostToolUse",
+      session_id: sessionId,
+      cwd: cwd || pluginDir,
+      tool_name: toolName,
+      tool_input: toolInput,
+      tool_response: toolResponse,
+    };
+
+    for (const entry of eventEntries) {
+      if (!hookEntryMatches(entry, toolName)) continue;
       for (const hookDef of entry.hooks || []) {
         const stdout = await runOneHookCommand({ pluginId, pluginDir, hookDef, stdinPayload });
         if (stdout == null) continue;
@@ -250,4 +393,7 @@ export async function getHookContextForTurn({ sessionId, prompt, cwd }) {
   return results.join("\n");
 }
 
-export default { isHooksTrusted, trustHooks, untrustHooks, listTrustedHooks, listPluginsWithHooks, getHookContextForTurn, getHooksPath: resolveHooksPath };
+export default {
+  isHooksTrusted, trustHooks, untrustHooks, listTrustedHooks, listPluginsWithHooks,
+  getHookContextForTurn, runPreToolUseHooks, runPostToolUseHooks, getHooksPath: resolveHooksPath,
+};

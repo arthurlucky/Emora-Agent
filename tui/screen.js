@@ -15,6 +15,7 @@ import { getSkin, rpgHeader, rpgWelcome } from "./theme-rpg.js";
 import { getActiveSubagents } from "../core/ag_subagent_engine.js";
 import { activeBashJobs } from "../tools/bash.js";
 import { activeClients } from "../tools/mcp_bridge.js";
+import { resolveWorkspacePath } from "../utils/workspace.js";
 
 const MIN_WIDTH = 40;
 const MIN_HEIGHT = 12;
@@ -191,7 +192,6 @@ function renderInputArea(state, width) {
     // Membaca artifact secara background/non-blocking untuk menghindari lag ketikan (computeScreen jalan tiap keystroke).
     if (!globalThis.__artLastCheck || Date.now() - globalThis.__artLastCheck > 2000) {
       globalThis.__artLastCheck = Date.now();
-      const { resolveWorkspacePath } = require("../utils/workspace.js");
       const dir = resolveWorkspacePath(".emora_artifacts");
       fs.promises.readdir(dir).then(files => {
         globalThis.__artCount = files.filter(f => f.endsWith(".json")).length;

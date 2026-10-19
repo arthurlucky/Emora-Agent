@@ -414,7 +414,7 @@ export function ChatInterface() {
   el.querySelector('#upload-btn').addEventListener('click', () => fileInput.click())
 
   // ── Global keyboard shortcuts ──────────────────────────────────────────
-  document.addEventListener('keydown', (e) => {
+  const handleKeydown = (e) => {
     if (e.key === 'Escape') {
       sessionModal.style.display = 'none'
     }
@@ -422,7 +422,8 @@ export function ChatInterface() {
       e.preventDefault()
       createNewSession()
     }
-  })
+  }
+  document.addEventListener('keydown', handleKeydown)
   
   fileInput.addEventListener('change', (e) => {
     for (const file of e.target.files) {
@@ -602,6 +603,10 @@ export function ChatInterface() {
   // supaya percakapan sebelumnya tidak hilang. Sesui baru tetap welcome hero.
   if (loadPersistedSession() && currentSessionId) {
     switchSession(currentSessionId)
+  }
+  
+  el._cleanup = () => {
+    document.removeEventListener('keydown', handleKeydown)
   }
   
   return el

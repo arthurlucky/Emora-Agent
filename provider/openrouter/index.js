@@ -12,7 +12,7 @@
  *   berbayar → kalau sering timeout, switch ke model bayar atau provider lain.
  */
 
-import { ChatOpenAI } from "@langchain/openai";
+import { buildChatOpenAI } from "../factory.js";
 
 export const PROVIDER_ID    = "openrouter";
 export const PROVIDER_LABEL = "OpenRouter";
@@ -130,33 +130,23 @@ export async function fetchModels({ force = false } = {}) {
   return models;
 }
 
-/** Deteksi model kecil (≤1.5B atau mini/tiny) dari nama — untuk auto AGENT_LITE. */
-export function isSmallModel(modelIdOrName) {
-  const s = String(modelIdOrName).toLowerCase();
-  if (/[-_]\d+m\b/.test(s)) return true; // 270m, 350m — jutaan param pasti kecil
-  const bMatch = s.match(/[-_](\d+(?:\.\d+)?)b\b/);
-  if (bMatch) return parseFloat(bMatch[1]) <= 1.5;
-  return /mini|tiny|small|nano/.test(s);
-}
+/** Deteksi model kecil — single source di core/agentMode.js (hindari drift). */
+export { isSmallModel } from "../../core/agentMode.js";
 
 /**
  * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts
  */
 export function createLLM({ apiKey, model, tools = [] } = {}) {
-  const llm = new ChatOpenAI({
+  return buildChatOpenAI({
+    provider: "openrouter",
     apiKey: apiKey || process.env.MODEL_API || process.env.OPENROUTER_API_KEY,
-    model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
-    configuration: {
-      baseURL: BASE_URL,
-      // KRITIS: OpenRouter reject request tanpa header ini
-      defaultHeaders: {
-        "HTTP-Referer": "https://github.com/arthurlucky/Emora-Agent",
-        "X-Title":      "EMORA Agent",
-      },
+    model: model || process.env.MODEL_NAME || DEFAULT_MODEL,
+    baseURL: BASE_URL,
+    tools,
+    // KRITIS: OpenRouter reject request tanpa header ini
+    extraHeaders: {
+      "HTTP-Referer": "https://github.com/arthurlucky/Emora-Agent",
+      "X-Title": "EMORA Agent",
     },
-    temperature: 0.2,
-    maxTokens:   4096,
   });
-
-  return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
 }

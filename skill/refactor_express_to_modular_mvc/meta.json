@@ -1,0 +1,8 @@
+{
+  "name": "refactor_express_to_modular_mvc",
+  "description": "Ini merepresentasikan workflow yang bernilai dan reusable untuk refactoring Express.js project dari struktur monolith menjadi modular MVC. Melibatkan: (1) analisis struktur existing, (2) perencanaan folder architecture, (3) pemisahan concerns (controllers, routes, middleware), (4) implementasi multiple endpoints dengan pola konsisten. Workflow ini applicable untuk project Express baru atau refactoring, dan mendemonstrasikan best practice yang jelas.",
+  "source": "auto_evaluator",
+  "created_at": "2026-09-05T04:36:52.417Z",
+  "has_script": true,
+  "version": "1.0.0"
+}

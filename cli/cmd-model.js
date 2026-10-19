@@ -3,14 +3,22 @@
  * Ganti model/provider aktif secara interaktif, tanpa harus masuk ke setup penuh.
  */
 
-import "dotenv/config";
 import fs from "fs";
 import ora from "ora";
-import { select, input, sectionHeader, sectionFooter, successLine } from "./select.js";
-import { PROVIDERS, getProviderModels } from "../provider/index.js";
+import { select, input, sectionHeader, sectionFooter, successLine, warnLine } from "./select.js";
+import { PROVIDERS, getProviderModels, detectProvider } from "../provider/index.js";
 import * as ollamaMod from "../provider/ollama/index.js";
 
 import { getEnv, setEnv } from "../core/config.js";
+
+const ALLOWED_PROVIDER_IMPORT = new Set([...Object.keys(PROVIDERS), "customEndpoint"]);
+function providerModulePath(provider) {
+  const key = provider === "custom" ? "customEndpoint" : provider;
+  if (!ALLOWED_PROVIDER_IMPORT.has(key) && !ALLOWED_PROVIDER_IMPORT.has(provider)) {
+    throw new Error(`Provider tidak dikenal: '${provider}'.`);
+  }
+  return `../provider/${key}/index.js`;
+}
 
 export async function cmdModel(args = []) {
   const { saveProfile, useProfile, removeProfile, listProfiles, formatList, listCustomEndpoints, removeCustomEndpoint, fetchCustomModels } =
@@ -50,15 +58,19 @@ export async function cmdModel(args = []) {
     if (!provider) {
       console.error("  ✗ Gunakan: emora model set <provider> [model]");
       console.error(`     Provider: ${Object.keys(PROVIDERS).join(", ")}`);
-      process.exit(1);
+      return;
     }
     if (!PROVIDERS[provider]) {
       console.error(`  ✗ Provider tidak dikenal: ${provider}`);
-      process.exit(1);
+      return;
+    }
+    if (model && model.length > 200) {
+      console.error("  ✗ Nama model >200 chars, ditolak.");
+      return;
     }
     setEnv("MODEL_PROVIDER", provider);
     try {
-      const mod = await import(`../provider/${provider === "custom" ? "customEndpoint" : provider}/index.js`);
+      const mod = await import(providerModulePath(provider));
       if (mod.BASE_URL && provider !== "ollama" && provider !== "custom") setEnv("MODEL_URL", mod.BASE_URL);
       if (!model && mod.DEFAULT_MODEL) setEnv("MODEL_NAME", mod.DEFAULT_MODEL);
     } catch {}
@@ -156,12 +168,17 @@ export async function cmdModel(args = []) {
 
   // Setup Provider Baru
   const newProvider = selectedChoice.replace("provider:", "");
+  if (!PROVIDERS[newProvider]) {
+    console.error(`  ✗ Provider tidak dikenal: ${newProvider}`);
+    sectionFooter();
+    return;
+  }
   setEnv("MODEL_PROVIDER", newProvider);
 
   // Update BASE_URL otomatis dari provider module
   try {
     const { deleteConfig } = await import("../core/config.js");
-    const mod = await import(`../provider/${newProvider === "custom" ? "customEndpoint" : newProvider}/index.js`);
+    const mod = await import(providerModulePath(newProvider));
     if (mod.BASE_URL && newProvider !== "ollama" && newProvider !== "custom") {
       setEnv("MODEL_URL", mod.BASE_URL);
     } else if (newProvider === "ollama") {
@@ -173,7 +190,7 @@ export async function cmdModel(args = []) {
   let curKey = getEnv("MODEL_API") || getEnv(`${newProvider.toUpperCase()}_API_KEY`) || "";
   if (newProvider !== "ollama") {
     try {
-      const mod = await import(`../provider/${newProvider === "custom" ? "customEndpoint" : newProvider}/index.js`);
+      const mod = await import(providerModulePath(newProvider));
       if (mod.KEY_URL) {
         console.log(`  ℹ Dapatkan API Key ${PROVIDERS[newProvider]?.label || newProvider} di: ${mod.KEY_URL}`);
       }

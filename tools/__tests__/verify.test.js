@@ -1,11 +1,12 @@
 /**
  * Test tools/verify.js — fixture project mini.
+ * Kontrak: plain-text report (bukan JSON) agar render rapi di TUI/gateway/webui.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "fs/promises";
 import path from "path";
-import { verifyTool } from "../verify.js";
+import { verifyTool, detectFramework } from "../verify.js";
 
 const TMP = path.join(process.cwd(), "tools/__tests__/tmp-verify");
 
@@ -16,25 +17,34 @@ async function makeProject(scripts) {
   }));
 }
 
+test("detectFramework: npm terdeteksi", async () => {
+  await makeProject({ test: "node -e \"process.exit(0)\"" });
+  const fw = detectFramework(TMP);
+  assert.ok(fw);
+  assert.equal(fw.framework, "npm test");
+});
+
 test("verify: passing test", async () => {
-  await makeProject({ test: "node --eval 'console.log(1)'" });
-  const r = JSON.parse(await verifyTool.invoke({ path: TMP }));
-  assert.equal(r.ok, true);
-  assert.equal(r.framework, "npm test");
+  await makeProject({ test: "node -e \"process.exit(0)\"" });
+  const r = await verifyTool.invoke({ path: TMP });
+  assert.ok(r.includes("PASSED"), `expected PASSED, got: ${r.slice(0, 300)}`);
 });
 
 test("verify: failing test", async () => {
-  await makeProject({ test: "node --eval 'process.exit(1)'" });
-  const r = JSON.parse(await verifyTool.invoke({ path: TMP }));
-  assert.equal(r.ok, false);
+  await makeProject({ test: "node -e \"process.exit(1)\"" });
+  const r = await verifyTool.invoke({ path: TMP });
+  assert.ok(r.includes("FAILED"), `expected FAILED, got: ${r.slice(0, 300)}`);
 });
 
 test("verify: no framework → skipped", async () => {
   const empty = path.join(TMP, "..", "tmp-verify-empty");
   await fs.mkdir(empty, { recursive: true });
-  const r = JSON.parse(await verifyTool.invoke({ path: empty }));
-  assert.equal(r.ok, true);
-  assert.ok(r.skipped);
+  await fs.rm(path.join(empty, "package.json"), { force: true });
+  await fs.rm(path.join(empty, "Makefile"), { force: true });
+  await fs.rm(path.join(empty, "Cargo.toml"), { force: true });
+  await fs.rm(path.join(empty, "go.mod"), { force: true });
+  const r = await verifyTool.invoke({ path: empty, files_to_audit: [] });
+  assert.ok(r.includes("Skipped") || r.includes("Tidak ada"), `got: ${r.slice(0, 300)}`);
 });
 
 test("verify: missing path", async () => {

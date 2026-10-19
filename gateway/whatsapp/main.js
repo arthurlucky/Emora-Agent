@@ -112,7 +112,7 @@ async function startBot() {
       setClient(sock)
       console.log(green('[ SUCCESS ] Bot berhasil terhubung'))
       await sleep(3000)
-      initLidOwners(sock)
+      await initLidOwners(sock)
       return
     }
 

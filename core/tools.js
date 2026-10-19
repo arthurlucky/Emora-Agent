@@ -40,6 +40,14 @@ import { undoTool, redoTool } from "../tools/undo.js";
 import { verifyTool } from "../tools/verify.js";
 import changeModeTool from "../tools/change_mode.js";
 import { invokeSubagentTool, sendMessageTool, manageSubagentsTool } from "../tools/ag_subagents.js";
+import { todoWriteTool } from "../tools/todo_write.js";
+import { costStatusTool } from "../tools/cost_status.js";
+import { parseContextTokens } from "./agentMode.js";
+import { resolveLazyToolNames, filterToolsByNames } from "./lib/lazyResolver.js";
+
+// Cache MCP agar tidak spawn proses tiap getTools() call.
+let mcpCache = { tools: [], ts: 0 };
+const MCP_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const tools = [
   SearchWebTool,
@@ -79,6 +87,8 @@ const tools = [
   redoTool,
   verifyTool,
   changeModeTool,
+  todoWriteTool,
+  costStatusTool,
 ];
 
 // ─────────────────────────────────────────────
@@ -195,14 +205,25 @@ export async function reloadToolset() {
   }
 }
 
-export async function getTools(includeMCP = true) {
+export async function getTools(includeMCP = true, { refreshMCP = false } = {}) {
   let finalTools = [...filteredTools, invokeSubagentTool, sendMessageTool, manageSubagentsTool];
 
   if (includeMCP) {
-    const mcpTools = await loadMCPTools();
-    finalTools.push(...mcpTools);
+    const now = Date.now();
+    if (!refreshMCP && mcpCache.tools.length && now - mcpCache.ts < MCP_CACHE_TTL_MS) {
+      finalTools.push(...mcpCache.tools);
+    } else {
+      const mcpTools = await loadMCPTools();
+      mcpCache = { tools: mcpTools, ts: now };
+      finalTools.push(...mcpTools);
+    }
   }
   return finalTools;
+}
+
+/** Paksa refresh cache MCP (mis. setelah `emora mcp` ubah config). */
+export function invalidateMCPCache() {
+  mcpCache = { tools: [], ts: 0 };
 }
 
 // ─────────────────────────────────────────────
@@ -222,63 +243,38 @@ if (process.env.OBSIDIAN_VAULT_PATH && fsSync.existsSync(process.env.OBSIDIAN_VA
 /**
  * Lazy Tool Resolver: Filter tools by intent keyword match if prompt is specific.
  * Reduces 30+ tools payload down to 3-6 relevant tools per turn.
+ *
+ * PERBAIKAN (lihat CHANGELOG.md):
+ *  1. BYPASS UNTUK MODEL BER-CONTEXT BESAR — regex keyword matcher ini
+ *     awalnya dibuat untuk menghemat token di model kecil/context sempit.
+ *     Untuk model dengan context window besar (>=32K token, dideteksi dari
+ *     MODEL_CONTEXT_TOKENS env ATAU nama model via parseContextTokens),
+ *     manfaat penghematannya kecil sedangkan RISIKONYA nyata: tool yang
+ *     dibutuhkan tapi kata kuncinya tidak disebutkan eksplisit oleh user
+ *     jadi tidak ter-load sama sekali, dan model gagal diam-diam. Untuk
+ *     model besar, SELALU kirim toolset penuh — regex filtering hanya
+ *     dipakai sebagai optimisasi untuk model kecil yang benar-benar butuh
+ *     penghematan token.
+ *  2. ESSENTIAL diperluas — tool yang menyangkut kontrol keselamatan/alur
+ *     kerja (change_mode, verify, undo, redo, todo_write) dulu TIDAK ada
+ *     di daftar essential, artinya begitu SATU kategori lain match, tool
+ *     ini hilang dari daftar yang dikirim ke model sampai giliran
+ *     berikutnya. Sekarang selalu ikut ter-include berapa pun kategori
+ *     yang match, supaya mis. `change_mode`/`undo` tidak pernah tiba-tiba
+ *     "menghilang" di tengah percakapan yang menyebut kata kunci lain.
  */
 export function resolveLazyTools(inputPrompt, allTools) {
   if (!inputPrompt || typeof inputPrompt !== "string" || !allTools?.length) return allTools || [];
 
-  const text = inputPrompt.trim().toLowerCase();
+  // Konteks: env override → parse nama (sync). Untuk metadata MODELS lengkap,
+  // pakai provider/getModelContext (async) di caller yang bisa await.
+  const contextTokens = Number(process.env.MODEL_CONTEXT_TOKENS) || parseContextTokens(process.env.MODEL_NAME || "");
+  const LAZY_BYPASS_THRESHOLD = Number(process.env.LAZY_TOOLS_BYPASS_TOKENS) || 32_000;
 
-  // Only strip tools for OBVIOUS smalltalk patterns, never based on length alone
-  const SMALLTALK_RE = /^(hai|halo+|hi|hei|hy|hello|hey|p+ag+i|si+ang|so+re|ma+lam|thanks?|thx|makasih|terima\s*kasih|oke*|ok|sip|mantap|ya|iya|gpp|santai|wkwk+|haha+|bye|dadah|see\s*ya)[\s!.,?]*$/i;
-  if (SMALLTALK_RE.test(text)) {
-    return [];
-  }
-
-  // Return full set for complex/explicit prompts or plan mode
-  if (text.includes("semua tool") || text.includes("lengkap") || text.length > 600) {
-    return allTools;
-  }
-
-  const categories = {
-    web: ["search_web", "fetch_page"],
-    file: ["read_file", "write_file", "patch", "list_files", "search_text", "find_folder", "create_folder", "delete_folder", "zip_compress", "zip_extract", "undo", "redo"],
-    terminal: ["bash", "verify", "git_manager", "project_manager", "system_monitor"],
-    memory: ["session_memory", "knowledge_library", "skill_factory", "artifact_tool"],
-    messaging: ["group_manager", "title_generator", "scheduler_tool"],
-    subagent: ["invoke_subagent", "send_message", "manage_subagents"],
-    hub: ["emora_hub"],
-  };
-
-  const matched = new Set();
-
-  if (/\b(search|cari|google|web|http|url|buka|link|website|berita|news|harga|price|terbaru|terkini|crypto|btc|saham|cuaca)\b/i.test(text)) {
-    categories.web.forEach((t) => matched.add(t));
-  }
-  if (/\b(file|baca|tulis|edit|patch|folder|direktori|zip|kompres|buat|hapus|undo|redo|download|unduh|upload|unggah)\b/i.test(text)) {
-    categories.file.forEach((t) => matched.add(t));
-  }
-  if (/\b(cmd|command|perintah|terminal|bash|shell|exec|git|commit|push|npm|node|python|run|install|verify|check|linter|cpu|ram|code|script|program|debug|error|bug|project|proyek|task|tugas|plan|monitor|pantau|health|status)\b/i.test(text)) {
-    categories.terminal.forEach((t) => matched.add(t));
-  }
-  if (/\b(fakta|memori|ingat|knowledge|artikel|buku|dokumen|skill|learn|artifact|laporan)\b/i.test(text)) {
-    categories.memory.forEach((t) => matched.add(t));
-  }
-  if (/\b(send|kirim|pesan|group|broadcast)\b/i.test(text)) {
-    categories.messaging.forEach((t) => matched.add(t));
-  }
-  if (/\b(subagent|sub.?agent|agent|delegasi|delegat|background|latar\s*belakang|spawn|inbox|parallel)\b/i.test(text)) {
-    categories.subagent.forEach((t) => matched.add(t));
-  }
-  if (/\b(hub|community|komunitas|install|pasang)\b/i.test(text)) {
-    categories.hub.forEach((t) => matched.add(t));
-  }
-
-  if (matched.size === 0) return allTools;
-
-  // Essential tools always included when any category matches
-  const ESSENTIAL = ["datetime", "bash", "read_file", "write_file", "session_memory"];
-  ESSENTIAL.forEach((t) => matched.add(t));
-  return allTools.filter((t) => matched.has(t.name));
+  const { mode, names } = resolveLazyToolNames(inputPrompt, { contextTokens, bypassThreshold: LAZY_BYPASS_THRESHOLD });
+  if (mode === "smalltalk") return [];
+  if (names === null) return allTools; // full / bypass
+  return filterToolsByNames(allTools, names);
 }
 
 export default filteredTools;

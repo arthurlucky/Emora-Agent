@@ -6,7 +6,6 @@
  */
 
 import { generateTitle } from "../tools/title_generator.js";
-import { touchSession } from "./sessionStore.js";
 
 export async function askWithTitleGen(llm, tools, sessionId, userPrompt, options = {}) {
   const { ask } = await import("./chat.js");
@@ -22,9 +21,10 @@ export async function askWithTitleGen(llm, tools, sessionId, userPrompt, options
   // Generate title for first message (in background, non-blocking)
   if (isFirstMessage && userPrompt && userPrompt.trim().length > 3) {
     // Fire-and-forget: generate title in background
-    generateTitle(userPrompt).then((title) => {
+    generateTitle(userPrompt).then(async (title) => {
       if (title) {
-        touchSession(sessionId, userPrompt);
+        const { renameSession } = await import("./sessionStore.js");
+        renameSession(sessionId, title);
       }
     }).catch((err) => {
       console.error('[chatWithTitleGen] Error generating title:', err.message);

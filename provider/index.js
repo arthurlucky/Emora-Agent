@@ -114,6 +114,33 @@ export async function createLLM(tools = [], provider, opts = {}) {
 }
 
 /**
+ * Ambil konteks efektif (token) untuk provider+model.
+ * Prioritas: metadata MODELS bawaan → live scan cache → parse nama.
+ * Dipakai lazy-resolver + agentMode agar model 1M konteks tidak kena filter regex.
+ */
+export async function getModelContext(providerKey, modelId) {
+  const key = (providerKey || detectProvider()).toLowerCase();
+  const id = modelId || process.env.MODEL_NAME || "";
+  // 1. Env override eksplisit (tertinggi).
+  const envTokens = Number(process.env.MODEL_CONTEXT_TOKENS);
+  if (Number.isFinite(envTokens) && envTokens > 0) return envTokens;
+  // 2. Metadata MODELS bawaan.
+  try {
+    const mod = await loadProviderModule(key);
+    const list = mod.MODELS || mod.KNOWN_MODELS || [];
+    const hit = list.find((m) => (m.id || m) === id || m.id === id);
+    if (hit && Number(hit.context) > 0) return Number(hit.context);
+  } catch {}
+  // 3. Parse nama (32k/1m/70b tidak beri konteks — hanya pola k/m).
+  try {
+    const { parseContextTokens } = await import("../core/agentMode.js");
+    const parsed = parseContextTokens(id);
+    if (parsed) return parsed;
+  } catch {}
+  return null;
+}
+
+/**
  * Ambil daftar model untuk provider tertentu — mencoba live online scan terlebih dahulu
  * jika terhubung & API key tersedia, lalu fallback ke hardcoded MODELS bawaan.
  * Dipakai oleh `emora model` dan `emora setup`.
@@ -201,4 +228,4 @@ export async function getKeyUrl(providerKey) {
   }
 }
 
-export default { createLLM, detectProvider, getProviderMeta, getProviderModels, PROVIDERS };
+export default { createLLM, detectProvider, getProviderMeta, getProviderModels, getModelContext, PROVIDERS };

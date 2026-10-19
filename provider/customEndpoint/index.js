@@ -18,7 +18,7 @@
  *   CUSTOM_TEMPERATURE=0.2
  */
 
-import { ChatOpenAI } from "@langchain/openai";
+import { buildChatOpenAI } from "../factory.js";
 
 export const PROVIDER_ID    = "custom";
 export const PROVIDER_LABEL = process.env.CUSTOM_PROVIDER_NAME || "Custom Endpoint";
@@ -92,18 +92,11 @@ export function createLLM({ apiKey, model, url, tools = [] } = {}) {
     );
   }
 
-  const noParallel = process.env.CUSTOM_NO_PARALLEL_TOOLS === "true";
-  const maxTokens  = parseInt(process.env.CUSTOM_MAX_TOKENS || "4096");
-  const temp       = parseFloat(process.env.CUSTOM_TEMPERATURE || "0.2");
-
-  const llm = new ChatOpenAI({
+  return buildChatOpenAI({
+    provider: "custom",
     apiKey: apiKey || process.env.MODEL_API || "custom",
-    model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
-    configuration: { baseURL },
-    temperature: temp,
-    maxTokens,
-    ...(noParallel ? { modelKwargs: { parallel_tool_calls: false } } : {}),
+    model: model || process.env.MODEL_NAME || DEFAULT_MODEL,
+    baseURL,
+    tools,
   });
-
-  return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
 }

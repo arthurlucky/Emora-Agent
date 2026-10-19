@@ -162,7 +162,7 @@ export function ProjectDebugger() {
   loadProjects()
   startStream()
   
-  el.addEventListener('remove', () => { if (disconnectStream) disconnectStream() })
+  el._cleanup = () => { if (disconnectStream) disconnectStream() }
   
   return el
 }

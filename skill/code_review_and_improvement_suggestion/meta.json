@@ -1,0 +1,8 @@
+{
+  "name": "code_review_and_improvement_suggestion",
+  "description": "Respons Assistant merepresentasikan workflow Review & Improvement yang kompleks dan reusable. Assistant melakukan: (1) struktur analisis sistematis (folder navigation), (2) identifikasi best practices & anti-patterns, (3) kategorisasi issues dengan severity levels, (4) rekomendasi actionable dengan prioritas. Ini adalah workflow yang valuable untuk code review automation dan bisa diterapkan ke berbagai project.",
+  "source": "auto_evaluator",
+  "created_at": "2026-09-05T05:05:51.000Z",
+  "has_script": true,
+  "version": "1.0.0"
+}

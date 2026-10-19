@@ -280,8 +280,8 @@ if (!token) {
   bot.action("emora_deny", async (actionCtx) => {
     const chatId = actionCtx.chat.id;
     const approverId = String(actionCtx.from?.id || "");
-    const activeUserD = turns.getActiveUserId?.(chatId);
-    if (activeUserD && approverId !== String(activeUserD)) {
+    const activeUserId = turns.getActiveUserId?.(chatId);
+    if (activeUserId && approverId !== String(activeUserId)) {
       await actionCtx.answerCbQuery("Hanya pengirim pesan asli yang bisa deny.");
       return;
     }

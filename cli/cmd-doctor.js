@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import boxen from "boxen";
+import { spawnSync } from "child_process";
 import { sectionHeader, sectionFooter, infoLine, successLine, warnLine, errorLine } from "./select.js";
 
 export async function runDoctor({ autoRepair = true } = {}) {
@@ -82,6 +83,57 @@ export async function runDoctor({ autoRepair = true } = {}) {
     } else {
       results.push({ name: `API Key (${provider})`, status: "ok", note: "Terpasang" });
     }
+  }
+
+  // 5. CHK: Test suite (node:test) — SEBELUMNYA ada beberapa file *.test.js
+  // tapi TIDAK ADA cara resmi menjalankannya (package.json belum punya
+  // script "test" sampai sekarang) dan `emora doctor` tidak pernah
+  // menyentuhnya sama sekali. Sekarang doctor ikut menjalankan & melaporkan.
+  try {
+    const testRun = spawnSync(
+      process.execPath,
+      ["--test", "tools/**/*.test.js", "core/**/*.test.js"],
+      { encoding: "utf8", timeout: 60_000, shell: true }
+    );
+    const out = `${testRun.stdout || ""}${testRun.stderr || ""}`;
+    const passMatch = out.match(/# pass (\d+)/);
+    const failMatch = out.match(/# fail (\d+)/);
+    const pass = passMatch ? Number(passMatch[1]) : null;
+    const fail = failMatch ? Number(failMatch[1]) : null;
+
+    if (pass === null) {
+      results.push({ name: "Test suite (node --test)", status: "warn", note: "Tidak bisa membaca hasil — jalankan manual: npm test" });
+    } else if (fail > 0) {
+      results.push({ name: "Test suite (node --test)", status: "warn", note: `${pass} lolos, ${fail} gagal — jalankan 'npm test' untuk detail` });
+    } else {
+      results.push({ name: "Test suite (node --test)", status: "ok", note: `Semua ${pass} test lolos` });
+    }
+  } catch (err) {
+    results.push({ name: "Test suite (node --test)", status: "warn", note: `Gagal menjalankan test: ${err.message}` });
+  }
+
+  // 6. CHK: File *.deprecated yang tertinggal di repo (technical debt).
+  function findDeprecatedFiles(root = ".", depth = 4, found = []) {
+    if (depth < 0) return found;
+    let entries;
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return found; }
+    for (const e of entries) {
+      if (e.name === "node_modules" || e.name === ".git") continue;
+      const full = path.join(root, e.name);
+      if (e.isDirectory()) findDeprecatedFiles(full, depth - 1, found);
+      else if (e.name.endsWith(".deprecated")) found.push(full);
+    }
+    return found;
+  }
+  const deprecatedFiles = findDeprecatedFiles(".", 4);
+  if (deprecatedFiles.length > 0) {
+    results.push({
+      name: "File .deprecated",
+      status: "warn",
+      note: `${deprecatedFiles.length} file lawas ditemukan: ${deprecatedFiles.join(", ")} — cek dulu tidak ada yang mereferensikan, lalu aman dihapus.`,
+    });
+  } else {
+    results.push({ name: "File .deprecated", status: "ok", note: "Tidak ada file lawas tersisa" });
   }
 
   // Tampilkan Hasil Diagnosa

@@ -214,6 +214,7 @@ async function runStatus() {
   infoLine("URL", srv.url);
   infoLine("Status", srv.enabled !== false ? "Aktif" : "Nonaktif (disabled)", srv.enabled !== false ? "green" : "yellow");
   infoLine("TLS self-signed", srv.insecureTLS ? "diterima" : "ditolak (strict)");
+  const ENV_PATH = "./.env";
   const hasKey = !!process.env.OBSIDIAN_API_KEY || (fs.existsSync(ENV_PATH) && /^OBSIDIAN_API_KEY=.+/m.test(fs.readFileSync(ENV_PATH, "utf8")));
   infoLine("API Key di .env", hasKey ? "tersimpan" : "TIDAK ADA — jalankan setup ulang", hasKey ? "green" : "red");
   sectionFooter();

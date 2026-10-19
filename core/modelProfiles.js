@@ -30,7 +30,34 @@ async function load() {
 
 async function save(data) {
   await fs.mkdir(".emora", { recursive: true });
-  await fs.writeFile(PROFILES_FILE, JSON.stringify(data, null, 2));
+  await fs.writeFile(PROFILES_FILE, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
+}
+
+const SAFE_NAME_RE = /^[A-Za-z0-9 _()./-]{1,80}$/;
+
+function assertSafeName(name, label = "Nama") {
+  if (!name || typeof name !== "string" || !SAFE_NAME_RE.test(name.trim())) {
+    throw new Error(`${label} tidak valid. Gunakan huruf/angka/spasi/_()./- saja (1-80 chars).`);
+  }
+  if (name.includes("..")) throw new Error(`${label} tidak boleh mengandung '..'.`);
+}
+
+function isBlockedHost(hostname = "") {
+  const h = String(hostname).toLowerCase();
+  if (!h) return true;
+  if (["localhost", "127.0.0.1", "::1"].includes(h)) return true;
+  if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return true;
+  if (h.endsWith(".local") || h.endsWith(".internal")) return true;
+  return false;
+}
+
+/** Tolak URL probe ke LAN kecuali eksplisit ALLOW_LAN_PROBE=true. */
+export function assertProbeAllowed(url) {
+  let host = "";
+  try { host = new URL(url).hostname; } catch { throw new Error(`URL tidak valid: '${url}'.`); }
+  if (isBlockedHost(host) && process.env.ALLOW_LAN_PROBE !== "true") {
+    throw new Error(`Probe ke '${host}' diblokir (anti-SSRF). Set ALLOW_LAN_PROBE=true untuk endpoint LAN.`);
+  }
 }
 
 // ── Profiles (config lengkap siap pakai) ─────────────────────────────────────
@@ -41,7 +68,7 @@ export async function listProfiles() {
 
 /** Simpan config .env aktif sebagai profile. Auto-dipanggil oleh emora setup model. */
 export async function saveProfile(name) {
-  if (!name || typeof name !== "string" || !name.trim()) throw new Error("Nama profile tidak boleh kosong.");
+  assertSafeName(name, "Nama profile");
   const profileKey = name.trim();
   const data = await load();
   data.profiles[profileKey] = {
@@ -93,7 +120,12 @@ export async function listCustomEndpoints() {
 }
 
 export async function addCustomEndpoint({ name, url, apiKey = "", compat = "openai", models = [] }) {
-  if (!name || !url) throw new Error("addCustomEndpoint butuh name & url.");
+  assertSafeName(name, "Nama endpoint");
+  if (!url || typeof url !== "string" || url.length > 500) throw new Error("URL endpoint tidak valid (1-500 chars).");
+  let parsed;
+  try { parsed = new URL(url); } catch { throw new Error(`URL tidak valid: '${url}'. Contoh: http://localhost:11434/v1`); }
+  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("URL harus http(s).");
+  if (!COMPAT_TYPES.some((c) => c.id === compat)) throw new Error(`compat '${compat}' tak dikenal.`);
   const data = await load();
   const existing = data.customEndpoints[name];
   data.customEndpoints[name] = {
@@ -142,64 +174,71 @@ export const COMPAT_TYPES = [
 // ── Realtime models dari custom endpoint (GET /models — OpenAI-compat) ────────
 
 /** Ambil daftar model LIVE dari sebuah URL. Mendukung openai & ollama format.
- *  anthropic/gemini tak punya /models publik → return []. */
+ *  anthropic/gemini tak punya /models publik → return [].
+ *  Paralel (Promise.allSettled), timeout 5s/kandidat, key via header (tak pernah di URL). */
 export async function fetchCustomModels(url, apiKey = "", compat = "auto") {
   if (!url) return [];
-  const cleanUrl = url.trim().replace(/\/$/, "");
-  const baseOrigin = cleanUrl.replace(/\/v1\/?$/, "").replace(/\/api\/?$/, "");
+  let cleanUrl, baseOrigin;
+  try {
+    cleanUrl = url.trim().replace(/\/$/, "");
+    baseOrigin = cleanUrl.replace(/\/v1\/?$/, "").replace(/\/api\/?$/, "");
+    assertProbeAllowed(cleanUrl);
+  } catch {
+    return [];
+  }
+  const authHeaders = apiKey
+    ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+    : {};
 
   // Multi-protocol candidate probe endpoints (OpenAI, Ollama, Anthropic, Groq, Gemini)
   const endpoints = [
-    { url: `${cleanUrl}/models`, headers: apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey } : {} },
-    { url: `${baseOrigin}/v1/models`, headers: apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey, "anthropic-version": "2023-06-01" } : {} },
-    { url: `${baseOrigin}/api/tags` },
-    { url: `${baseOrigin}/api/models` },
-    { url: `${baseOrigin}/v1beta/models?key=${apiKey}` },
+    { url: `${cleanUrl}/models`, headers: authHeaders },
+    { url: `${baseOrigin}/v1/models`, headers: authHeaders },
+    { url: `${baseOrigin}/api/tags`, headers: {} },
+    { url: `${baseOrigin}/api/models`, headers: {} },
   ];
 
-  for (const ep of endpoints) {
-    try {
-      const res = await fetch(ep.url, {
-        headers: ep.headers || {},
-        signal: AbortSignal.timeout(5000),
-      });
+  const results = await Promise.allSettled(endpoints.map(async (ep) => {
+    const res = await fetch(ep.url, {
+      headers: ep.headers || {},
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
 
-      if (!res.ok) continue;
-
-      const json = await res.json();
-
-      // Format 1: OpenAI / Groq / Anthropic ({ data: [ { id: "gpt-4" }, ... ] })
-      if (json.data && Array.isArray(json.data)) {
-        const found = json.data.map(m => ({
-          id: String(m.id || m.name || ""),
-          name: String(m.name || m.id || ""),
-        })).filter(m => m.id);
-        if (found.length > 0) return found;
-      }
-
-      // Format 2: Ollama native ({ models: [ { name: "llama3" }, ... ] })
-      if (json.models && Array.isArray(json.models)) {
-        const found = json.models.map(m => {
-          const rawName = String(m.name || m.displayName || m.id || m.model || "");
-          const cleanName = rawName.replace(/^models\//, "");
-          return { id: cleanName, name: cleanName };
-        }).filter(m => m.id);
-        if (found.length > 0) return found;
-      }
-
-      // Format 3: Array of objects or strings directly ([ "llama3", ... ])
-      if (Array.isArray(json)) {
-        const found = json.map(m => ({
-          id: typeof m === "string" ? m : String(m.id || m.name || m.model || ""),
-          name: typeof m === "string" ? m : String(m.name || m.id || m.model || ""),
-        })).filter(m => m.id);
-        if (found.length > 0) return found;
-      }
-    } catch {
-      // Probe next candidate endpoint
+    // Format 1: OpenAI / Groq / Anthropic ({ data: [ { id: "gpt-4" }, ... ] })
+    if (json.data && Array.isArray(json.data)) {
+      const found = json.data.map(m => ({
+        id: String(m.id || m.name || ""),
+        name: String(m.name || m.id || ""),
+      })).filter(m => m.id && m.id.length <= 200);
+      if (found.length > 0) return found.slice(0, 200);
     }
-  }
 
+    // Format 2: Ollama native ({ models: [ { name: "llama3" }, ... ] })
+    if (json.models && Array.isArray(json.models)) {
+      const found = json.models.map(m => {
+        const rawName = String(m.name || m.displayName || m.id || m.model || "");
+        const cleanName = rawName.replace(/^models\//, "");
+        return { id: cleanName, name: cleanName };
+      }).filter(m => m.id && m.id.length <= 200);
+      if (found.length > 0) return found.slice(0, 200);
+    }
+
+    // Format 3: Array of objects or strings directly ([ "llama3", ... ])
+    if (Array.isArray(json)) {
+      const found = json.map(m => ({
+        id: typeof m === "string" ? m : String(m.id || m.name || m.model || ""),
+        name: typeof m === "string" ? m : String(m.name || m.id || m.model || ""),
+      })).filter(m => m.id && m.id.length <= 200);
+      if (found.length > 0) return found.slice(0, 200);
+    }
+    return [];
+  }));
+
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.length) return r.value;
+  }
   return [];
 }
 

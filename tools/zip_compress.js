@@ -85,7 +85,7 @@ export const zipCompressTool =
           });
         }
 
-        return new Promise(
+        return await new Promise(
           (
             resolve,
             reject

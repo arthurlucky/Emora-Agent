@@ -12,7 +12,7 @@
  * - maxTokens 8192 → Groq support sampai 8192 untuk semua model di bawah.
  */
 
-import { ChatOpenAI } from "@langchain/openai";
+import { buildChatOpenAI } from "../factory.js";
 
 export const PROVIDER_ID   = "groq";
 export const PROVIDER_LABEL = "Groq";
@@ -71,20 +71,11 @@ export const DEFAULT_MODEL = "llama-3.1-8b-instant";
  * @param {{ apiKey?: string, model?: string, tools?: any[] }} opts
  */
 export function createLLM({ apiKey, model, tools = [] } = {}) {
-  const llm = new ChatOpenAI({
+  return buildChatOpenAI({
+    provider: "groq",
     apiKey: apiKey || process.env.MODEL_API || process.env.GROQ_API_KEY,
-    model:  model  || process.env.MODEL_NAME || DEFAULT_MODEL,
-    configuration: { baseURL: BASE_URL },
-    temperature: 0.2,
-    // PERF: default diturunkan dari 8192 -> 2048. Jawaban chat biasa
-    // jarang butuh >2048 token; ceiling yang lebih rendah memangkas
-    // waktu generasi worst-case tanpa memotong jawaban normal.
-    // Override lewat .env MODEL_MAX_TOKENS kalau memang butuh output
-    // panjang (laporan, kode besar, dll).
-    maxTokens: Number(process.env.MODEL_MAX_TOKENS) || 2048,
-    // KRITIS: Groq tidak support parallel tool calls dengan reliable
-    modelKwargs: { parallel_tool_calls: false },
+    model: model || process.env.MODEL_NAME || DEFAULT_MODEL,
+    baseURL: BASE_URL,
+    tools,
   });
-
-  return tools.length ? llm.bindTools(tools, { toolChoice: "auto" }) : llm;
 }

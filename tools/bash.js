@@ -12,34 +12,18 @@ import { sendFileToUser } from "../gateway/index.js";
 const BASE_DIR = path.resolve(process.cwd());
 const DEFAULT_TIMEOUT = 60_000;
 const MAX_TIMEOUT = 300_000;
-const MAX_OUTPUT = 8000; 
+const MAX_OUTPUT = 8000;
 
-const BLACKLIST = [
-  /rm\s+-(?:r\s*-f|f\s*-r|rf|fr)\s+\/\*?(?!\S)/,
-  /rm\s+-rf\s+~\//,          
-  /:\(\)\s*\{.*fork/,        
-  /dd\s+if=.*of=\/dev\//,    
-  /mkfs\./,                  
-  /shutdown/,
-  /reboot/,
-  /halt/,
-  /poweroff/,
-  />\s*\/dev\/sd/,           
-  /chmod\s+777\s+\/(?!\S)/, 
-  /passwd(?:\s|$)/,          
-  /sudo\s+rm\s+-(?:r\s*-f|f\s*-r|rf|fr)\s+\/\*?(?!\S)/,
-  /\beval\b/,
-  /\b(?:bash|sh|zsh)\s+-c\b/,
-  /\bpython(?:3)?\s+-c\b/,
-  /\bperl\s+-e\b/,
-  /\bruby\s+-e\b/
-];
+/**
+ * Klasifikasi risiko perintah (HIGH hard-block / MEDIUM soft-block +
+ * confirm_risky opt-in / LOW jalan normal) — lihat tools/lib/riskClassifier.js
+ * untuk penjelasan lengkap & alasan rewrite dari BLACKLIST tunggal
+ * sebelumnya. PENTING: ini tetap filter level aplikasi, BUKAN sandbox
+ * proses/container sungguhan.
+ */
+import { classifyRisk } from "./lib/riskClassifier.js";
 
 export const activeBashJobs = {};
-
-function isSafe(cmd) {
-  return !BLACKLIST.some(pattern => pattern.test(cmd));
-}
 
 function resolveCwd(cwd) {
   if (!cwd) return BASE_DIR;
@@ -49,7 +33,8 @@ function resolveCwd(cwd) {
 export const bashTool = new DynamicStructuredTool({
   name: "bash",
   description:
-    "Jalankan perintah terminal/bash/shell nyata. BISA JUGA untuk kirim file ke user via Telegram ATAU WhatsApp (otomatis sesuai gateway aktif) menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
+    "Jalankan perintah terminal/bash/shell nyata. Perintah diklasifikasikan 3 tingkat risiko: LOW (jalan normal), MEDIUM (ditolak default, perlu confirm_risky:true setelah konfirmasi user — mis. rm -rf direktori sistem, curl|bash, eval), HIGH (diblokir permanen, tidak bisa di-override — fork bomb, mkfs, wipe root/home, shutdown). " +
+    "BISA JUGA untuk kirim file ke user via Telegram ATAU WhatsApp (otomatis sesuai gateway aktif) menggunakan perintah khusus: sendFile --pathfile=\"...\" --text=\"...\"",
   schema: z.object({
     command: z.string(),
     session_id: z.string().describe("WAJIB DIISI dengan Session ID (dari [INFO SYSTEM]) HANYA JIKA menggunakan perintah sendFile!").optional(),
@@ -57,8 +42,9 @@ export const bashTool = new DynamicStructuredTool({
     timeout: z.number().int().min(1000).max(MAX_TIMEOUT).optional(),
     create_cwd: z.boolean().optional().default(true),
     backend: z.string().describe("Backend eksekusi: 'local' (default) atau nama backend SSH dari .emora/backends.json (mis. 'myvps').").optional(),
+    confirm_risky: z.boolean().optional().default(false).describe("Wajib true untuk menjalankan perintah yang terdeteksi MEDIUM RISK (mis. rm -rf pada direktori sistem, curl|bash, eval, dll). Tanya konfirmasi user dulu sebelum mengirim ulang dengan flag ini."),
   }),
-  func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true, backend = "local" }) => {
+  func: async ({ command, session_id, cwd, timeout = DEFAULT_TIMEOUT, create_cwd = true, backend = "local", confirm_risky = false }) => {
 
     // [INTERCEPTOR]: Cegat perintah sendFile (bekerja untuk Telegram MAUPUN WhatsApp)
     if (command.trim().startsWith("sendFile")) {
@@ -83,7 +69,17 @@ export const bashTool = new DynamicStructuredTool({
       return results.join("\n");
     }
 
-    if (!isSafe(command)) return `🚫 Perintah diblokir: "${command}"`;
+    const risk = classifyRisk(command);
+    if (risk.level === "high") {
+      return `🚫 Perintah diblokir permanen (risiko TINGGI: ${risk.reason}): "${command}"`;
+    }
+    if (risk.level === "medium" && !confirm_risky) {
+      return (
+        `⚠️ Perintah ini terdeteksi berisiko (${risk.reason}) dan TIDAK dijalankan.\n` +
+        `Command: "${command}"\n\n` +
+        `Kalau ini memang disengaja dan sudah dikonfirmasi user, panggil ulang tool bash dengan confirm_risky:true.`
+      );
+    }
 
     // ── TERMINAL BACKENDS ────────────────────────────────────────────
     let prefixCmd = command;

@@ -393,15 +393,27 @@ export const skillFactoryTool = new DynamicStructuredTool({
           if (!skill_name || !skill_content) {
             return JSON.stringify({
               success: false,
-              error: "skill_name dan skill_content wajib diisi",
+              error: "skill_name dan skill_content wajib diisi. Contoh: skill_name='web_research', skill_content='# ...'",
             });
+          }
+          if (String(skill_name).length > 64) {
+            return JSON.stringify({ success: false, error: "skill_name >64 chars. Gunakan nama pendek." });
+          }
+          if (String(skill_content).length > 50 * 1024) {
+            return JSON.stringify({ success: false, error: "skill_content >50KB. Ringkas dulu." });
+          }
+          if (skill_description && String(skill_description).length > 500) {
+            return JSON.stringify({ success: false, error: "skill_description >500 chars. Satu kalimat saja." });
+          }
+          if (skill_script && String(skill_script).length > 20 * 1024) {
+            return JSON.stringify({ success: false, error: "skill_script >20KB ditolak. Simpan sebagai file terpisah." });
           }
 
           const safeName = toSafeName(skill_name);
-          if (!safeName) {
+          if (!safeName || safeName.length > 64) {
             return JSON.stringify({
               success: false,
-              error: "skill_name tidak valid",
+              error: "skill_name tidak valid. Gunakan huruf kecil/angka/_/- saja.",
             });
           }
 
@@ -443,12 +455,12 @@ ${body.trimStart()}
 
           await writeSkillMd(skillDir, finalContent);
 
-          // Simpan script otomasi jika ada
+          // Simpan script otomasi jika ada — DISIMPAN NON-EXECUTABLE.
+          // Alasan (harness): chmod 755 otomatis = RCE persisten tanpa approval.
+          // Review run.sh manual dulu, lalu aktifkan via bash (lewat risk check).
           if (skill_script) {
-            const scriptPath = path.join(skillDir, "run.sh");
-            await fs.writeFile(scriptPath, skill_script, "utf8");
-            // Buat executable
-            await fs.chmod(scriptPath, 0o755).catch(() => {});
+            const scriptPath = path.join(skillDir, "run.sh.disabled");
+            await fs.writeFile(scriptPath, skill_script, { encoding: "utf8", mode: 0o644 });
           }
 
           // Simpan metadata skill
@@ -498,11 +510,11 @@ ${body.trimStart()}
 
           return JSON.stringify({
             success: true,
-            message: `✅ Skill '${safeName}' berhasil dibuat!`,
+            message: `✅ Skill '${safeName}' berhasil dibuat!${skill_script ? " Script tersimpan sebagai run.sh.disabled (non-executable) — review manual sebelum diaktifkan." : ""}`,
             path: skillDir,
             files: [
               "skill.md",
-              ...(skill_script ? ["run.sh"] : []),
+              ...(skill_script ? ["run.sh.disabled"] : []),
               "meta.json",
             ],
             pattern_linked: !!pattern_key,

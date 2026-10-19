@@ -8,14 +8,13 @@
  *   - Gagal = diam; judul stage-1 tetap dipakai.
  */
 
-import { touchSession } from "./sessionStore.js";
 
 const MAX_CHARS = 80;
 
 /** Ambil metadata sesi, return {name, source} kalau sudah ada, else null. */
 async function getCurrentMeta(sessionId) {
   try {
-    const { loadMeta, saveMeta } = await import("./sessionStore.js");
+
     // Pakai internal lewat dynamic import — loadMeta tidak di-export default
     // di sessionStore.js, jadi kita gunakan touchSession sebagai proxy: ia
     // selalu load meta saat jalan.

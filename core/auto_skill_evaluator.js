@@ -10,8 +10,6 @@ export async function evaluateAndExtractSkill({ sessionId, input, response, used
 
   try {
     const { createLLM, detectProvider } = await import("../provider/index.js");
-    const { emitSubagentEvent } = await import("./ag_subagent_engine.js");
-    
     // Spawn background LLM
     const providerKey = process.env.MODEL_PROVIDER || detectProvider();
     const evaluatorLLM = await createLLM([], providerKey, {
@@ -82,14 +80,6 @@ Output harus HANYA berupa JSON (tanpa tag \`\`\`json):
          version: "1.0.0"
        };
        await fs.writeFile(path.join(skillPath, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
-       
-       emitSubagentEvent({
-           type: "skill_extracted",
-           subagentId: `evaluator_${Date.now()}`,
-           role: "Code Reviewer",
-           message: `🎉 Skill baru diekstrak dari tugas Anda: /${safeName} (Alasan: ${result.reason})`,
-           status: "success"
-       });
        
        const { invalidateSkillCache } = await import("./skillRegistry.js").catch(() => ({ invalidateSkillCache: ()=>{} }));
        invalidateSkillCache();

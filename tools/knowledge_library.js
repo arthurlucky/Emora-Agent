@@ -188,12 +188,7 @@ export const knowledgeLibraryTool = new DynamicStructuredTool({
         }
 
         // Gunakan search_web yang sudah ada di tools, tapi di sini kita
-        // langsung panggil Tavily karena tool harus mandiri
-        const { validateKnowledge: vk } = await import("../library/validator.js");
-
         // Collect: kirimkan hasil search ke agent untuk diformat
-        const { default: fetch } = await import("node-fetch").catch(() => ({ default: globalThis.fetch }));
-
         const tavilyRes = await globalThis.fetch("https://api.tavily.com/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
